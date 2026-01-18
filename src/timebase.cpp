@@ -19,8 +19,11 @@ uint32_t time_us() {
 }
 
 bool time_pop_pps(uint32_t& t_us_at_pps) {
-  if (!g_pps.pending) return false;
   noInterrupts();
+  if (!g_pps.pending) {
+    interrupts();
+    return false;
+  }
   t_us_at_pps = g_pps.t_us_at_pps;
   g_pps.pending = false;
   interrupts();
