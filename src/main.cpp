@@ -205,9 +205,8 @@ void loop() {
   }
 
 #if ENABLE_GNSS
-  if ((uint32_t)(now_us - last_gnss_us) >= (1000000UL / (GNSS_HZ * 2))) {
+  if (GNSS_SERIAL.available() > 0) {
     gnss.poll(ring, now_us);
-    last_gnss_us = now_us;
   }
 #endif
 
