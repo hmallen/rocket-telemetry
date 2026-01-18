@@ -3,7 +3,8 @@
 
 #include <RadioLib.h>
 
-static SX1276 radio = new Module(LORA_CS, LORA_DIO0, LORA_RST, LORA_BUSY);
+static Module lora_module(LORA_CS, LORA_DIO0, LORA_RST, LORA_BUSY);
+static SX1276 radio(lora_module);
 
 bool LoraLink::begin() {
   int state = radio.begin(LORA_FREQ_MHZ);
