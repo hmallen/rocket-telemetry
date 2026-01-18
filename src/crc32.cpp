@@ -15,7 +15,10 @@ static void init_table() {
 uint32_t crc32_update(uint32_t crc, const uint8_t* data, size_t len) {
   if (!table_init) init_table();
   crc = ~crc;
-  for (size_t i = 0; i < len; i++) crc = crc32_table[(crc ^ data[i]) & 0xFF] ^ (crc >> 8);
+  for (size_t i = 0; i < len; i++) {
+    const uint32_t prev = crc;
+    crc = crc32_table[(prev ^ data[i]) & 0xFF] ^ (prev >> 8);
+  }
   return ~crc;
 }
 
