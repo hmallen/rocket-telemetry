@@ -1,6 +1,7 @@
 #include "gnss_ubx.h"
 #include "cfg.h"
 #include "records.h"
+#include <stddef.h>
 
 static void write_gnss_chunk(ByteRing& ring, uint32_t t_us, const uint8_t* data, uint16_t n) {
   while (n) {
@@ -8,7 +9,7 @@ static void write_gnss_chunk(ByteRing& ring, uint32_t t_us, const uint8_t* data,
     RecGnssChunk r{};
     r.h.type = REC_GNSS_CHUNK;
     r.h.ver = 1;
-    r.h.len = (uint16_t)(sizeof(RecGnssChunk) - GNSS_CHUNK_MAX + take);
+    r.h.len = (uint16_t)(offsetof(RecGnssChunk, data) + take);
     r.t_us = t_us;
     r.n = take;
     memcpy(r.data, data, take);
