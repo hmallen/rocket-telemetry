@@ -18,7 +18,7 @@ public:
 
   uint32_t available() const { // bytes available to read
     uint32_t h = head_, t = tail_;
-    return (h >= t) ? (h - t) : (cap_ - (t - h));
+    return (h >= t) ? (h - t) : (cap_ - t + h);
   }
 
   uint32_t free_space() const { // bytes free for write (leave 1 byte to disambiguate full/empty)
