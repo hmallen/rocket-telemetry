@@ -1,7 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include "records.h"
- #include "cfg.h"
+#include "cfg.h"
 
 class BlockBuilder {
 public:
