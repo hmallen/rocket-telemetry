@@ -3,7 +3,7 @@
 static PpsLatch g_pps{false, 0};
 static uint8_t g_pps_pin = 255;
 
-static void IRAM_ATTR pps_isr() {
+static void pps_isr() {
   g_pps.t_us_at_pps = micros();
   g_pps.pending = true;
 }

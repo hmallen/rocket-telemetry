@@ -10,9 +10,10 @@ bool Sensors::begin() {
   I2C_BUS.setClock(I2C_HZ);
 
   if (!bmp.begin_I2C(0x77, &I2C_BUS)) return false;
-  // BMP390 setup for high rate
-  bmp.setTemperatureOversampling(BMP3_OVERSAMPLING_1X);
-  bmp.setPressureOversampling(BMP3_OVERSAMPLING_1X);
+
+  // Fastest / lowest-latency settings for high-rate logging
+  bmp.setTemperatureOversampling(BMP3_NO_OVERSAMPLING);
+  bmp.setPressureOversampling(BMP3_NO_OVERSAMPLING);
   bmp.setIIRFilterCoeff(BMP3_IIR_FILTER_DISABLE);
   bmp.setOutputDataRate(BMP3_ODR_200_HZ);
   return true;

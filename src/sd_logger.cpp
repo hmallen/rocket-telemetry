@@ -18,7 +18,7 @@ bool SdLogger::open_new_log(uint32_t prealloc_bytes) {
       f_ = sd_.open(name, O_CREAT | O_EXCL | O_RDWR);
       if (!f_) return false;
       if (!f_.preAllocate(prealloc_bytes)) return false;
-      if (!f_.rewind()) return false;
+      if (!f_.seekSet(0)) return false;
       last_sync_ms_ = millis();
       return true;
     }

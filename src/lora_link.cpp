@@ -1,10 +1,9 @@
 #include "lora_link.h"
+#include <RadioLib.h>
 #include "cfg.h"
 
-#include <RadioLib.h>
-
-static Module lora_module(LORA_CS, LORA_DIO0, LORA_RST, LORA_BUSY);
-static SX1276 radio(lora_module);
+static Module loraMod(LORA_CS, LORA_DIO0, LORA_RST, LORA_BUSY);
+static SX1276 radio(&loraMod);
 
 bool LoraLink::begin() {
   int state = radio.begin(LORA_FREQ_MHZ);
