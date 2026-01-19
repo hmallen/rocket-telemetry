@@ -7,7 +7,11 @@ static SX1276 radio(&loraMod);
 
 bool LoraLink::begin() {
   int state = radio.begin(LORA_FREQ_MHZ);
-  if (state != RADIOLIB_ERR_NONE) return false;
+  if (state != 0) {
+    DBG_PRINTF("lora: begin err %d\n", state);
+    return false;
+  }
+  DBG_PRINTLN("lora: begin ok");
 
   // Conservative baseline; tune later
   radio.setSpreadingFactor(10);
@@ -20,5 +24,8 @@ bool LoraLink::begin() {
 
 bool LoraLink::send(const uint8_t* data, size_t n) {
   int state = radio.transmit((uint8_t*)data, n);
-  return state == RADIOLIB_ERR_NONE;
+  if (state != 0) {
+    DBG_PRINTF("lora: tx err %d\n", state);
+  }
+  return state == 0;
 }

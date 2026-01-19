@@ -5,7 +5,11 @@ SdLogger::SdLogger() : last_sync_ms_(0), write_errs_(0) {}
 
 bool SdLogger::begin() {
   // SDIO on Teensy 4.1
-  if (!sd_.begin(SdioConfig(FIFO_SDIO))) return false;
+  if (!sd_.begin(SdioConfig(FIFO_SDIO))) {
+    DBG_PRINTLN("sd: begin failed");
+    return false;
+  }
+  DBG_PRINTLN("sd: begin ok");
   return true;
 }
 
@@ -16,10 +20,20 @@ bool SdLogger::open_new_log(uint32_t prealloc_bytes) {
     snprintf(name, sizeof(name), "LOG%05lu.BIN", (unsigned long)i);
     if (!sd_.exists(name)) {
       f_ = sd_.open(name, O_CREAT | O_EXCL | O_RDWR);
-      if (!f_) return false;
-      if (!f_.preAllocate(prealloc_bytes)) return false;
-      if (!f_.seekSet(0)) return false;
+      if (!f_) {
+        DBG_PRINTLN("sd: open failed");
+        return false;
+      }
+      if (!f_.preAllocate(prealloc_bytes)) {
+        DBG_PRINTLN("sd: prealloc failed");
+        return false;
+      }
+      if (!f_.seekSet(0)) {
+        DBG_PRINTLN("sd: seek failed");
+        return false;
+      }
       last_sync_ms_ = millis();
+      DBG_PRINTF("sd: log %s\n", name);
       return true;
     }
   }
@@ -29,9 +43,17 @@ bool SdLogger::open_new_log(uint32_t prealloc_bytes) {
 bool SdLogger::write_block(const BlockHdr& hdr, const uint8_t* payload) {
   if (!f_) return false;
   int32_t w1 = f_.write((const uint8_t*)&hdr, sizeof(hdr));
-  if (w1 != (int32_t)sizeof(hdr)) { write_errs_++; return false; }
+  if (w1 != (int32_t)sizeof(hdr)) {
+    write_errs_++;
+    DBG_PRINTLN("sd: write hdr failed");
+    return false;
+  }
   int32_t w2 = f_.write(payload, hdr.payload_len);
-  if (w2 != (int32_t)hdr.payload_len) { write_errs_++; return false; }
+  if (w2 != (int32_t)hdr.payload_len) {
+    write_errs_++;
+    DBG_PRINTLN("sd: write payload failed");
+    return false;
+  }
   return true;
 }
 

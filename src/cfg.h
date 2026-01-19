@@ -36,8 +36,24 @@ constexpr uint8_t LORA_BUSY = 255; // unused on SX127x
 constexpr float   LORA_FREQ_MHZ = 915.0; // set to your legal band
 
 // ---------- Build toggles ----------
-#define ENABLE_SD_LOGGER 1
+#define ENABLE_SD_LOGGER 0
 #define ENABLE_PSRAM_SPOOL 1
 #define ENABLE_GNSS 1
 #define ENABLE_SENSORS 1
-#define ENABLE_LORA 1
+#define ENABLE_LORA 0
+
+#ifndef DEBUG_MODE
+#define DEBUG_MODE 0
+#endif
+
+#if DEBUG_MODE
+#define DBG_INIT() do { Serial.begin(115200); delay(10); } while (0)
+#define DBG_PRINT(x) do { Serial.print(x); } while (0)
+#define DBG_PRINTLN(x) do { Serial.println(x); } while (0)
+#define DBG_PRINTF(...) do { Serial.printf(__VA_ARGS__); } while (0)
+#else
+#define DBG_INIT() do { } while (0)
+#define DBG_PRINT(x) do { } while (0)
+#define DBG_PRINTLN(x) do { } while (0)
+#define DBG_PRINTF(...) do { } while (0)
+#endif

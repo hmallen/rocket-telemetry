@@ -150,7 +150,8 @@ static inline void pump_ring_to_spool() {
 }
 
 void setup() {
-  Serial.begin(115200);
+  DBG_INIT();
+  DBG_PRINTLN("boot");
 
   ring.init(ring_mem, RING_BYTES);
 
