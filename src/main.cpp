@@ -188,7 +188,8 @@ void loop() {
   static uint32_t last_imu_us  = 0;
   static uint32_t last_baro_us = 0;
   static uint32_t last_gnss_us = 0;
-  static uint32_t last_lora_ms = 0;
+  static int32_t last_press_pa_x10 = 0;
+  static int16_t last_temp_c_x100 = 0;
   static uint32_t last_stats_ms = 0;
 
   const uint32_t now_us = micros();
@@ -222,7 +223,11 @@ void loop() {
   // Baro
   if ((uint32_t)(now_us - last_baro_us) >= (1000000UL / BARO_HZ)) {
     BaroSample b{};
-    if (sensors.read_baro(b)) ring_write_baro(now_us, b);
+    if (sensors.read_baro(b)) {
+      ring_write_baro(now_us, b);
+      last_press_pa_x10 = b.press_pa_x10;
+      last_temp_c_x100 = b.temp_c_x100;
+    }
     last_baro_us += (1000000UL / BARO_HZ);
   }
 #endif
@@ -240,25 +245,17 @@ void loop() {
   build_and_write_block_from_source(now_ms);
 
 #if ENABLE_LORA
-  // Low-rate downlink stub
-  if ((uint32_t)(now_ms - last_lora_ms) >= (1000UL / LORA_HZ)) {
-    struct __attribute__((packed)) TinyPkt {
-      uint32_t t_ms;
-      uint32_t ring_drops;
-      uint32_t spool_drops;
-      uint32_t sd_errs;
-    } pkt;
-    pkt.t_ms = now_ms;
-    pkt.ring_drops = ring.drops();
+  // Part 97 telemetry downlink (cleartext callsign embedded by LoraLink).
+  uint32_t spool_drops = 0;
 #if ENABLE_PSRAM_SPOOL
-    pkt.spool_drops = spool.drops();
-#else
-    pkt.spool_drops = 0;
+  spool_drops = spool.drops();
 #endif
-    pkt.sd_errs = sdlog.write_errs();
-    lora.send((const uint8_t*)&pkt, sizeof(pkt));
-    last_lora_ms = now_ms;
-  }
+  lora.poll_telem(now_ms,
+                  last_press_pa_x10,
+                  last_temp_c_x100,
+                  ring.drops(),
+                  spool_drops,
+                  sdlog.write_errs());
 #endif
 
   // Controlled SD sync

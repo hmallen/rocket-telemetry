@@ -1,4 +1,5 @@
 #pragma once
+#include <stdint.h>
 #include <Arduino.h>
 
 // ---------- Rates (Hz) ----------
@@ -29,11 +30,47 @@ constexpr uint8_t  GNSS_PPS_PIN = 2;   // pick an interrupt-capable pin
 constexpr uint32_t I2C_HZ = 1000000; // 1 MHz if your wiring allows
 
 // ---------- LoRa (SX127x-style via RadioLib) ----------
+// FCC Part 97 only (Amateur Radio Service). Not legal for unlicensed/uncontrolled operation.
+// Firmware must be operated under the supervision of a licensed control operator.
 constexpr uint8_t LORA_CS   = 10;
 constexpr uint8_t LORA_DIO0 = 9;
 constexpr uint8_t LORA_RST  = 8;
 constexpr uint8_t LORA_BUSY = 255; // unused on SX127x
-constexpr float   LORA_FREQ_MHZ = 915.0; // set to your legal band
+constexpr float   LORA_FREQ_MHZ = 433.0f; // 70 cm amateur band (420-450 MHz in the US)
+
+// Operator identification: embed callsign in clear, human-decodable ASCII in every telemetry frame.
+// Set these before enabling TX.
+constexpr const char LORA_CALLSIGN[] = "CALLSIGN";
+#define LORA_CONTROL_OPERATOR_OK 0
+
+// RF parameter discipline: choose minimum BW/SF/power that meets link budget.
+constexpr uint8_t LORA_SF = 9;            // 6..12
+constexpr float   LORA_BW_KHZ = 125.0f;   // one of standard LoRa BWs; validated at startup
+constexpr uint8_t LORA_CR = 5;            // 5..8 => 4/5..4/8
+constexpr int8_t  LORA_TX_POWER_DBM = 10; // conservative default; avoid max/PA_BOOST unless required
+
+// Deterministic scheduling + duty-cycle restraint.
+constexpr uint32_t LORA_MIN_TX_INTERVAL_MS = (1000UL / LORA_HZ);
+constexpr uint32_t LORA_HEARTBEAT_MS = 30000; // max silence between ID-bearing telemetry (0 disables)
+
+// Retries: bounded, with backoff; fail toward silence.
+constexpr uint8_t  LORA_RETRY_LIMIT = 2;
+constexpr uint32_t LORA_RETRY_BASE_MS = 250;
+constexpr uint8_t  LORA_MAX_CONSEC_TX_FAILS = 3;
+
+// Meaningful-change thresholds (duty-cycle restraint).
+constexpr int32_t  LORA_MEANINGFUL_PRESS_DELTA_PA_X10 = 100;   // 10 Pa
+constexpr int16_t  LORA_MEANINGFUL_TEMP_DELTA_C_X100  = 50;    // 0.50 C
+
+// Hard failsafes.
+constexpr uint32_t LORA_TX_WATCHDOG_MS = 5000;
+constexpr uint32_t LORA_MAX_MISSION_TX_MS = 20UL * 60UL * 1000UL;
+constexpr uint32_t LORA_LANDING_STABLE_MS = 30000;
+constexpr int32_t  LORA_LANDING_PRESS_STABLE_DELTA_PA_X10 = 50;
+constexpr int32_t  LORA_FLIGHT_PRESS_DELTA_PA_X10 = 5000;
+
+// TX is disabled by default on boot. Set to 1 only when intentional and supervised.
+#define LORA_TX_ENABLE_AT_BOOT 0
 
 // ---------- Build toggles ----------
 #define ENABLE_SD_LOGGER 0
