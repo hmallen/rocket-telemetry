@@ -153,6 +153,9 @@ void setup() {
   DBG_INIT();
   DBG_PRINTLN("boot");
 
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+
   ring.init(ring_mem, RING_BYTES);
 
 #if ENABLE_PSRAM_SPOOL
@@ -191,9 +194,21 @@ void loop() {
   static int32_t last_press_pa_x10 = 0;
   static int16_t last_temp_c_x100 = 0;
   static uint32_t last_stats_ms = 0;
+  static uint32_t buzzer_next_ms = 0;
+  static uint32_t buzzer_off_ms = 0;
 
   const uint32_t now_us = micros();
   const uint32_t now_ms = millis();
+
+  if ((int32_t)(now_ms - buzzer_next_ms) >= 0) {
+    digitalWrite(BUZZER_PIN, HIGH);
+    buzzer_off_ms = now_ms + 30;
+    buzzer_next_ms = now_ms + 2000;
+  }
+  if (buzzer_off_ms != 0 && (int32_t)(now_ms - buzzer_off_ms) >= 0) {
+    digitalWrite(BUZZER_PIN, LOW);
+    buzzer_off_ms = 0;
+  }
 
   // PPS anchor
   uint32_t t_pps;

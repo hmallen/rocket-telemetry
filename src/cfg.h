@@ -25,6 +25,9 @@ constexpr uint32_t GNSS_BAUD = 460800;
 #define GNSS_SERIAL Serial1
 constexpr uint8_t  GNSS_PPS_PIN = 2;   // pick an interrupt-capable pin
 
+// ---------- Buzzer ----------
+constexpr uint8_t BUZZER_PIN = 28;
+
 // ---------- I2C ----------
 #define I2C_BUS Wire
 constexpr uint32_t I2C_HZ = 1000000; // 1 MHz if your wiring allows
