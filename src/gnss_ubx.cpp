@@ -24,6 +24,10 @@ static inline uint16_t rd_u16_le(const uint8_t* p) {
   return (uint16_t)((uint16_t)p[0] | ((uint16_t)p[1] << 8));
 }
 
+static inline uint32_t rd_u32_le(const uint8_t* p) {
+  return (uint32_t)((uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24));
+}
+
 void GnssUbx::parse_byte(uint8_t b, uint32_t now_us) {
   auto ck_upd = [&](uint8_t v) {
     ck_a_ = (uint8_t)(ck_a_ + v);
@@ -82,8 +86,7 @@ void GnssUbx::parse_byte(uint8_t b, uint32_t now_us) {
       if (ck_a_recv_ == ck_a_ && ck_b_recv_ == ck_b_) {
         if (cls_ == 0x01 && id_ == 0x07 && len_ >= 40) {
           const uint8_t* p = payload_;
-          const uint32_t iTOW = (uint32_t)rd_i32_le(p + 0);
-          const uint16_t week = rd_u16_le(p + 8);
+          const uint32_t iTOW = rd_u32_le(p + 0);
           const uint8_t fixType = p[20];
           const uint8_t flags = p[21];
           const int32_t lon = rd_i32_le(p + 24);
@@ -91,13 +94,42 @@ void GnssUbx::parse_byte(uint8_t b, uint32_t now_us) {
           const int32_t height = rd_i32_le(p + 32);
 
           time_.tow_ms = iTOW;
-          time_.week = week;
           time_.fix_type = fixType;
           time_.fix_ok = (flags & 0x01) != 0;
           time_.lon_e7 = lon;
           time_.lat_e7 = lat;
           time_.height_mm = height;
           time_.last_pvt_ms = (uint32_t)(now_us / 1000U);
+        }
+
+        if (cls_ == 0x01 && id_ == 0x20 && len_ >= 16) {
+          const uint8_t* p = payload_;
+          const uint32_t iTOW = rd_u32_le(p + 0);
+          const uint16_t week = rd_u16_le(p + 8);
+          time_.tow_ms = iTOW;
+          time_.week = week;
+        }
+
+        if (cls_ == 0x01 && id_ == 0x35 && len_ >= 8) {
+          const uint8_t* p = payload_;
+          const uint8_t numSvs = p[5];
+          time_.navsat_num_svs = numSvs;
+          uint8_t nstore = 0;
+          uint16_t off = 8;
+          while (off + 12 <= len_ && nstore < (uint8_t)(sizeof(time_.navsat) / sizeof(time_.navsat[0]))) {
+            GnssTime::Sat s{};
+            s.gnss_id = p[off + 0];
+            s.sv_id = p[off + 1];
+            s.cno = p[off + 2];
+            s.elev_deg = (int8_t)p[off + 3];
+            s.azim_deg = (int16_t)rd_u16_le(p + off + 4);
+            s.pr_res_cm = (int16_t)rd_u16_le(p + off + 6);
+            s.flags = rd_u32_le(p + off + 8);
+            time_.navsat[nstore++] = s;
+            off = (uint16_t)(off + 12);
+          }
+          time_.navsat_n = nstore;
+          time_.last_sat_ms = (uint32_t)(now_us / 1000U);
         }
       }
       sync_ = 0;
@@ -199,6 +231,22 @@ void GnssUbx::configure() {
     uint8_t p[8] = {0};
     p[0] = 0x01;
     p[1] = 0x07;
+    p[3] = 1;
+    send(0x06, 0x01, p, (uint16_t)sizeof(p));
+  }
+
+  {
+    uint8_t p[8] = {0};
+    p[0] = 0x01;
+    p[1] = 0x35;
+    p[3] = 1;
+    send(0x06, 0x01, p, (uint16_t)sizeof(p));
+  }
+
+  {
+    uint8_t p[8] = {0};
+    p[0] = 0x01;
+    p[1] = 0x20;
     p[3] = 1;
     send(0x06, 0x01, p, (uint16_t)sizeof(p));
   }

@@ -14,6 +14,21 @@ struct GnssTime {
   int32_t lat_e7 = 0;
   int32_t height_mm = 0;
   uint32_t last_pvt_ms = 0;
+
+  struct Sat {
+    uint8_t gnss_id = 0;
+    uint8_t sv_id = 0;
+    uint8_t cno = 0;
+    int8_t elev_deg = 0;
+    int16_t azim_deg = 0;
+    int16_t pr_res_cm = 0;
+    uint32_t flags = 0;
+  };
+
+  uint8_t navsat_num_svs = 0;
+  uint8_t navsat_n = 0;
+  Sat navsat[16];
+  uint32_t last_sat_ms = 0;
 };
 
 // Minimal UBX stream logger + optional NAV-PVT time extraction later.
@@ -47,7 +62,7 @@ private:
   uint8_t ck_b_ = 0;
   uint8_t ck_a_recv_ = 0;
   uint8_t ck_b_recv_ = 0;
-  uint8_t payload_[96];
+  uint8_t payload_[512];
   uint8_t chunk_[240];
   uint16_t chunk_n_ = 0;
 };

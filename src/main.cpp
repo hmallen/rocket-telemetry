@@ -250,6 +250,18 @@ void loop() {
                (double)gt.lon_e7 / 1e7,
                (double)gt.height_mm / 1000.0,
                (unsigned long)gt.tow_ms, (unsigned)gt.week);
+
+    if (gt.last_sat_ms != 0) {
+      DBG_PRINTF(" sat=%u/%u", (unsigned)gt.navsat_n, (unsigned)gt.navsat_num_svs);
+      const uint8_t show = (gt.navsat_n < 4) ? gt.navsat_n : 4;
+      for (uint8_t i = 0; i < show; ++i) {
+        const auto& s = gt.navsat[i];
+        DBG_PRINTF(" [%u:%u cno=%u el=%d]", (unsigned)s.gnss_id, (unsigned)s.sv_id,
+                   (unsigned)s.cno, (int)s.elev_deg);
+      }
+    } else {
+      DBG_PRINT(" sat=none");
+    }
 #endif
     DBG_PRINTF(" sd_errs=%lu\n", (unsigned long)sdlog.write_errs());
   }
