@@ -219,9 +219,9 @@ void loop() {
   uint32_t t_pps;
   if (time_pop_pps(t_pps)) {
 #if ENABLE_GNSS
-    const GnssUbx& anchor = gnss_backup.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US)
-                              ? gnss_backup
-                              : gnss_primary;
+    const GnssUbx& anchor = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US)
+                              ? gnss_primary
+                              : gnss_backup;
     ring_write_time_anchor(t_pps, anchor.time());
 #else
     GnssTime dummy{};
