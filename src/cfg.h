@@ -99,7 +99,7 @@ constexpr int32_t  LORA_FLIGHT_PRESS_DELTA_PA_X10 = 5000;
 #endif
 
 #if DEBUG_MODE
-#define DBG_INIT() do { Serial.begin(115200); delay(10); } while (0)
+#define DBG_INIT() do { Serial.begin(115200); delay(10); uint32_t _t0 = millis(); while (!Serial && (uint32_t)(millis() - _t0) < 2000) { } } while (0)
 #define DBG_PRINT(x) do { Serial.print(x); } while (0)
 #define DBG_PRINTLN(x) do { Serial.println(x); } while (0)
 #define DBG_PRINTF(...) do { Serial.printf(__VA_ARGS__); } while (0)

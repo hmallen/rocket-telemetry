@@ -211,8 +211,49 @@ void loop() {
   static uint32_t buzzer_next_ms = 0;
   static uint32_t buzzer_off_ms = 0;
 
+#if DEBUG_MODE
+  static uint32_t last_dbg_ms = 0;
+  static ImuSample last_imu{};
+  static uint32_t last_imu_dbg_us = 0;
+#endif
+
   const uint32_t now_us = micros();
   const uint32_t now_ms = millis();
+
+#if DEBUG_MODE
+  if ((uint32_t)(now_ms - last_dbg_ms) >= 1000) {
+    last_dbg_ms = now_ms;
+    DBG_PRINTF("t=%lu ms baro_pa=%.1f temp_c=%.2f ring_avail=%lu ring_drops=%lu",
+               (unsigned long)now_ms,
+               (double)last_press_pa_x10 / 10.0,
+               (double)last_temp_c_x100 / 100.0,
+               (unsigned long)ring.available(), (unsigned long)ring.drops());
+    if (last_imu_dbg_us != 0) {
+      DBG_PRINTF(" imu_ax=%d ay=%d az=%d gx=%d gy=%d gz=%d ist=0x%04x",
+                 (int)last_imu.ax, (int)last_imu.ay, (int)last_imu.az,
+                 (int)last_imu.gx, (int)last_imu.gy, (int)last_imu.gz,
+                 (unsigned)last_imu.status);
+    } else {
+      DBG_PRINT(" imu=none");
+    }
+#if ENABLE_PSRAM_SPOOL
+    DBG_PRINTF(" spool_avail=%lu spool_drops=%lu", (unsigned long)spool.available(),
+               (unsigned long)spool.drops());
+#endif
+#if ENABLE_GNSS
+    const GnssUbx& g = gnss_use_backup_as_primary ? gnss_backup : gnss_primary;
+    const GnssTime& gt = g.time();
+    DBG_PRINTF(" gnss_fresh=%u fix_ok=%u fix=%u lat=%.7f lon=%.7f alt_m=%.3f tow_ms=%lu week=%u",
+               (unsigned)g.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US),
+               (unsigned)gt.fix_ok, (unsigned)gt.fix_type,
+               (double)gt.lat_e7 / 1e7,
+               (double)gt.lon_e7 / 1e7,
+               (double)gt.height_mm / 1000.0,
+               (unsigned long)gt.tow_ms, (unsigned)gt.week);
+#endif
+    DBG_PRINTF(" sd_errs=%lu\n", (unsigned long)sdlog.write_errs());
+  }
+#endif
 
   if ((int32_t)(now_ms - buzzer_next_ms) >= 0) {
     digitalWrite(BUZZER_PIN, HIGH);
@@ -267,7 +308,13 @@ void loop() {
     uint8_t imu_iters = 0;
     while ((uint32_t)(now_us - last_imu_us) >= imu_period_us) {
       ImuSample s{};
-      if (sensors.read_imu(s)) ring_write_imu(last_imu_us, s);
+      if (sensors.read_imu(s)) {
+        ring_write_imu(last_imu_us, s);
+#if DEBUG_MODE
+        last_imu = s;
+        last_imu_dbg_us = last_imu_us;
+#endif
+      }
       last_imu_us += imu_period_us;
       if (++imu_iters >= 4) {
         last_imu_us = now_us;
