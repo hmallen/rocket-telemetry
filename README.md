@@ -37,7 +37,7 @@ All pins and bus settings are defined in `src/cfg.h`:
   - `GNSS_SERIAL_PRIMARY`: `Serial1`
   - `GNSS_SERIAL_BACKUP`: `Serial2`
   - `GNSS_PPS_PIN`: `2`
-  - `GNSS_BAUD`: `460800`
+  - `GNSS_BAUD`: `115200`
 - **Buzzer**: `BUZZER_PIN = 28` (short beep every ~2 seconds)
 - **I2C**: `Wire`, `I2C_HZ = 1,000,000`
 - **BMP3XX SPI**
