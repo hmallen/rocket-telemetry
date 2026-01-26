@@ -40,18 +40,19 @@ bool Sensors::begin() {
 }
 
 bool Sensors::read_imu(ImuSample& out) {
-  // Framework stub:
-  // Replace with your chosen IMU/10-DOF driver reads.
-  // Keep this function non-blocking and fast.
-
   out = {};
   if (!imu_ok) return false;
+
+  const bool accel_ready = (LRDY_PIN == 255) ? true : (digitalRead(LRDY_PIN) != 0);
+  const bool gyro_ready  = (GRDY_PIN == 255) ? true : (digitalRead(GRDY_PIN) != 0);
+
+  if (!accel_ready && !gyro_ready) return false;
 
   sensors_event_t aev;
   sensors_event_t gev;
 
-  const bool accel_read = accel.getEvent(&aev);
-  const bool gyro_read  = gyro.getEvent(&gev);
+  const bool accel_read = accel_ready ? accel.getEvent(&aev) : false;
+  const bool gyro_read  = gyro_ready ? gyro.getEvent(&gev) : false;
 
   uint16_t status = 0;
 
