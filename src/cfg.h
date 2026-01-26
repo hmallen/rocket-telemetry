@@ -28,6 +28,9 @@ constexpr uint8_t  GNSS_PPS_PIN = 2;   // pick an interrupt-capable pin
 // ---------- I2C ----------
 #define I2C_BUS Wire
 constexpr uint32_t I2C_HZ = 1000000; // 1 MHz if your wiring allows
+constexpr uint8_t  BMP_CS = 6;
+constexpr uint32_t BMP_SPI_HZ = 1000000;
+#define BMP_SPI_BUS SPI
 
 // ---------- LoRa (SX127x-style via RadioLib) ----------
 // FCC Part 97 only (Amateur Radio Service). Not legal for unlicensed/uncontrolled operation.
