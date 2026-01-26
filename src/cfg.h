@@ -22,8 +22,19 @@ constexpr uint32_t SPOOL_BYTES = 6UL * 1024UL * 1024UL;
 
 // ---------- GNSS ----------
 constexpr uint32_t GNSS_BAUD = 460800;
-#define GNSS_SERIAL Serial1
+#define GNSS_SERIAL_PRIMARY Serial1
+#define GNSS_SERIAL_BACKUP  Serial2
+constexpr uint32_t GNSS_FAILOVER_TIMEOUT_US = 2000000;
 constexpr uint8_t  GNSS_PPS_PIN = 2;   // pick an interrupt-capable pin
+
+// ---------- Buzzer ----------
+constexpr uint8_t BUZZER_PIN = 28;
+
+constexpr uint8_t GINT_PIN = 33;
+constexpr uint8_t GRDY_PIN = 34;
+constexpr uint8_t LIN1_PIN = 35;
+constexpr uint8_t LIN2_PIN = 36;
+constexpr uint8_t LRDY_PIN = 37;
 
 // ---------- I2C ----------
 #define I2C_BUS Wire

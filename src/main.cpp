@@ -24,7 +24,11 @@ static PsramSpool spool;
 static BlockBuilder block;
 static SdLogger sdlog;
 
-static GnssUbx gnss;
+#if ENABLE_GNSS
+static GnssUbx gnss_primary(GNSS_SERIAL_PRIMARY);
+static GnssUbx gnss_backup(GNSS_SERIAL_BACKUP);
+static bool gnss_use_backup_as_primary = false;
+#endif
 static Sensors sensors;
 static LoraLink lora;
 
@@ -153,6 +157,9 @@ void setup() {
   DBG_INIT();
   DBG_PRINTLN("boot");
 
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+
   ring.init(ring_mem, RING_BYTES);
 
 #if ENABLE_PSRAM_SPOOL
@@ -167,7 +174,8 @@ void setup() {
 #endif
 
 #if ENABLE_GNSS
-  gnss.begin();
+  gnss_primary.begin();
+  gnss_backup.begin();
 #endif
 
 #if ENABLE_SENSORS
@@ -191,15 +199,30 @@ void loop() {
   static int32_t last_press_pa_x10 = 0;
   static int16_t last_temp_c_x100 = 0;
   static uint32_t last_stats_ms = 0;
+  static uint32_t buzzer_next_ms = 0;
+  static uint32_t buzzer_off_ms = 0;
 
   const uint32_t now_us = micros();
   const uint32_t now_ms = millis();
+
+  if ((int32_t)(now_ms - buzzer_next_ms) >= 0) {
+    digitalWrite(BUZZER_PIN, HIGH);
+    buzzer_off_ms = now_ms + 30;
+    buzzer_next_ms = now_ms + 2000;
+  }
+  if (buzzer_off_ms != 0 && (int32_t)(now_ms - buzzer_off_ms) >= 0) {
+    digitalWrite(BUZZER_PIN, LOW);
+    buzzer_off_ms = 0;
+  }
 
   // PPS anchor
   uint32_t t_pps;
   if (time_pop_pps(t_pps)) {
 #if ENABLE_GNSS
-    ring_write_time_anchor(t_pps, gnss.time());
+    const GnssUbx& anchor = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US)
+                              ? gnss_primary
+                              : gnss_backup;
+    ring_write_time_anchor(t_pps, anchor.time());
 #else
     GnssTime dummy{};
     ring_write_time_anchor(t_pps, dummy);
@@ -207,8 +230,23 @@ void loop() {
   }
 
 #if ENABLE_GNSS
-  if (GNSS_SERIAL.available() > 0) {
-    gnss.poll(ring, now_us);
+  const bool primary_fresh = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+  const bool backup_fresh  = gnss_backup.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+
+  if (!gnss_use_backup_as_primary) {
+    if (!primary_fresh && backup_fresh) gnss_use_backup_as_primary = true;
+  } else {
+    if (primary_fresh) gnss_use_backup_as_primary = false;
+  }
+
+  ByteRing* ring_out_primary = gnss_use_backup_as_primary ? nullptr : &ring;
+  ByteRing* ring_out_backup  = gnss_use_backup_as_primary ? &ring : nullptr;
+
+  if (GNSS_SERIAL_PRIMARY.available() > 0) {
+    gnss_primary.poll(ring_out_primary, now_us);
+  }
+  if (GNSS_SERIAL_BACKUP.available() > 0) {
+    gnss_backup.poll(ring_out_backup, now_us);
   }
 #endif
 
