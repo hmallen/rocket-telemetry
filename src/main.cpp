@@ -68,6 +68,16 @@ static inline void ring_write_baro(uint32_t t_us, const BaroSample& s) {
   ring.write(&r, sizeof(r));
 }
 
+static inline void ring_write_baro2(uint32_t t_us, const BaroSample& s) {
+  RecBaro2 r{};
+  r.h.type = REC_BARO2; r.h.ver = 1; r.h.len = sizeof(r);
+  r.t_us = t_us;
+  r.press_pa_x10 = s.press_pa_x10;
+  r.temp_c_x100 = s.temp_c_x100;
+  r.status = s.status;
+  ring.write(&r, sizeof(r));
+}
+
 static inline void ring_write_imu(uint32_t t_us, const ImuSample& s) {
   RecImuFast r{};
   r.h.type = REC_IMU_FAST; r.h.ver = 1; r.h.len = sizeof(r);
@@ -194,6 +204,7 @@ void setup() {
 void loop() {
   static uint32_t last_imu_us  = 0;
   static uint32_t last_baro_us = 0;
+  static uint32_t last_baro2_us = 0;
   static int32_t last_press_pa_x10 = 0;
   static int16_t last_temp_c_x100 = 0;
   static uint32_t last_stats_ms = 0;
@@ -280,6 +291,24 @@ void loop() {
       last_baro_us += baro_period_us;
       if (++baro_iters >= 2) {
         last_baro_us = now_us;
+        break;
+      }
+    }
+  }
+
+  // Baro2
+  const uint32_t baro2_period_us = (BARO2_HZ == 0) ? 0 : (1000000UL / BARO2_HZ);
+  if (baro2_period_us) {
+    if (last_baro2_us == 0) last_baro2_us = now_us;
+    uint8_t baro2_iters = 0;
+    while ((uint32_t)(now_us - last_baro2_us) >= baro2_period_us) {
+      BaroSample b2{};
+      if (sensors.read_baro2(b2)) {
+        ring_write_baro2(last_baro2_us, b2);
+      }
+      last_baro2_us += baro2_period_us;
+      if (++baro2_iters >= 1) {
+        last_baro2_us = now_us;
         break;
       }
     }
