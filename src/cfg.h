@@ -21,7 +21,7 @@ constexpr uint32_t RING_BYTES = 256 * 1024;
 constexpr uint32_t SPOOL_BYTES = 6UL * 1024UL * 1024UL;
 
 // ---------- GNSS ----------
-constexpr uint32_t GNSS_BAUD = 460800;
+constexpr uint32_t GNSS_BAUD = 115200;
 #define GNSS_SERIAL_PRIMARY Serial1
 #define GNSS_SERIAL_BACKUP  Serial2
 constexpr uint32_t GNSS_FAILOVER_TIMEOUT_US = 2000000;
