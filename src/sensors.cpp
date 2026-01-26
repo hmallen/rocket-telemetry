@@ -15,7 +15,8 @@ static Adafruit_BMP3XX bmp;
 static Adafruit_BMP085 bmp180;
 static Adafruit_L3GD20_Unified gyro(20);
 static Adafruit_LSM303_Accel_Unified accel(30301);
-static bool imu_ok = false;
+static bool gyro_ok = false;
+static bool accel_ok = false;
 static bool baro2_ok = false;
 
 bool Sensors::begin() {
@@ -28,13 +29,37 @@ bool Sensors::begin() {
   I2C_BUS.begin();
   I2C_BUS.setClock(I2C_HZ);
 
-  const bool gyro_ok  = gyro.begin(GYRO_RANGE_2000DPS, &I2C_BUS);
-  const bool accel_ok = accel.begin();
-  imu_ok = gyro_ok && accel_ok;
+#if DEBUG_MODE
+  uint8_t i2c_found = 0;
+  for (uint8_t addr = 0x08; addr < 0x78; ++addr) {
+    I2C_BUS.beginTransmission(addr);
+    const uint8_t err = I2C_BUS.endTransmission();
+    if (err == 0) {
+      DBG_PRINTF("sensors: i2c_found=0x%02x\n", (unsigned)addr);
+      ++i2c_found;
+    }
+  }
+  DBG_PRINTF("sensors: i2c_devices=%u\n", (unsigned)i2c_found);
+#endif
+
+  gyro_ok = gyro.begin(GYRO_RANGE_2000DPS, &I2C_BUS);
+  accel_ok = accel.begin();
+
+  DBG_PRINTF("sensors: gyro=%u accel=%u\n", (unsigned)gyro_ok, (unsigned)accel_ok);
 
   baro2_ok = bmp180.begin(BMP085_STANDARD, &I2C_BUS);
 
-  if (!bmp.begin_SPI(BMP_CS, &BMP_SPI_BUS, BMP_SPI_HZ)) return false;
+  DBG_PRINTF("sensors: bmp180=%u\n", (unsigned)baro2_ok);
+
+  pinMode(BMP_CS, OUTPUT);
+  digitalWrite(BMP_CS, HIGH);
+  BMP_SPI_BUS.setMOSI(BMP_MOSI_PIN);
+  BMP_SPI_BUS.setSCK(BMP_SCK_PIN);
+  BMP_SPI_BUS.setMISO(BMP_MISO_PIN);
+  BMP_SPI_BUS.begin();
+  const bool bmp_ok = bmp.begin_SPI(BMP_CS, &BMP_SPI_BUS, BMP_SPI_HZ);
+  DBG_PRINTF("sensors: bmp3xx_spi=%u\n", (unsigned)bmp_ok);
+  if (!bmp_ok) return false;
 
   // Fastest / lowest-latency settings for high-rate logging
   bmp.setTemperatureOversampling(BMP3_NO_OVERSAMPLING);
@@ -46,7 +71,7 @@ bool Sensors::begin() {
 
 bool Sensors::read_imu(ImuSample& out) {
   out = {};
-  if (!imu_ok) return false;
+  if (!gyro_ok && !accel_ok) return false;
 
   const bool accel_ready = (LRDY_PIN == 255) ? true : (digitalRead(LRDY_PIN) != 0);
   const bool gyro_ready  = (GRDY_PIN == 255) ? true : (digitalRead(GRDY_PIN) != 0);
@@ -56,8 +81,8 @@ bool Sensors::read_imu(ImuSample& out) {
   sensors_event_t aev;
   sensors_event_t gev;
 
-  const bool accel_read = accel_ready ? accel.getEvent(&aev) : false;
-  const bool gyro_read  = gyro_ready ? gyro.getEvent(&gev) : false;
+  const bool accel_read = (accel_ok && accel_ready) ? accel.getEvent(&aev) : false;
+  const bool gyro_read  = (gyro_ok && gyro_ready) ? gyro.getEvent(&gev) : false;
 
   uint16_t status = 0;
 

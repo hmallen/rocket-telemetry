@@ -188,7 +188,11 @@ void setup() {
 #endif
 
 #if ENABLE_SENSORS
-  sensors.begin();
+  if (!sensors.begin()) {
+    DBG_PRINTLN("sensors.begin failed");
+  } else {
+    DBG_PRINTLN("sensors.begin ok");
+  }
 #endif
 
   // Warm-up: force one small write path activity early (filesystem + card)
