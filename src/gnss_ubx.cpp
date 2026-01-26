@@ -2,6 +2,7 @@
 #include "cfg.h"
 #include "records.h"
 #include <stddef.h>
+#include <string.h>
 
 static void write_gnss_chunk(ByteRing& ring, uint32_t t_us, const uint8_t* data, uint16_t n) {
   while (n) {
@@ -20,14 +21,14 @@ static void write_gnss_chunk(ByteRing& ring, uint32_t t_us, const uint8_t* data,
 }
 
 bool GnssUbx::begin() {
-  GNSS_SERIAL.begin(GNSS_BAUD);
+  serial_.begin(GNSS_BAUD);
   delay(50);
   configure();
   return true;
 }
 
 void GnssUbx::send_ubx(const uint8_t* msg, uint16_t n) {
-  GNSS_SERIAL.write(msg, n);
+  serial_.write(msg, n);
 }
 
 void GnssUbx::configure() {
@@ -38,18 +39,19 @@ void GnssUbx::configure() {
   // Implement by sending UBX-CFG messages for your exact module/firmware.
 }
 
-void GnssUbx::poll(ByteRing& ring, uint32_t now_us) {
-  while (GNSS_SERIAL.available()) {
-    int c = GNSS_SERIAL.read();
+void GnssUbx::poll(ByteRing* ring, uint32_t now_us) {
+  while (serial_.available()) {
+    int c = serial_.read();
     if (c < 0) break;
+    last_rx_us_ = now_us;
     chunk_[chunk_n_++] = (uint8_t)c;
     if (chunk_n_ == sizeof(chunk_)) {
-      write_gnss_chunk(ring, now_us, chunk_, chunk_n_);
+      if (ring) write_gnss_chunk(*ring, now_us, chunk_, chunk_n_);
       chunk_n_ = 0;
     }
   }
-  if (chunk_n_ && GNSS_SERIAL.available() == 0) {
-    write_gnss_chunk(ring, now_us, chunk_, chunk_n_);
+  if (chunk_n_ && serial_.available() == 0) {
+    if (ring) write_gnss_chunk(*ring, now_us, chunk_, chunk_n_);
     chunk_n_ = 0;
   }
 }

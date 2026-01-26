@@ -24,7 +24,11 @@ static PsramSpool spool;
 static BlockBuilder block;
 static SdLogger sdlog;
 
-static GnssUbx gnss;
+#if ENABLE_GNSS
+static GnssUbx gnss_primary(GNSS_SERIAL_PRIMARY);
+static GnssUbx gnss_backup(GNSS_SERIAL_BACKUP);
+static bool gnss_use_backup_as_primary = false;
+#endif
 static Sensors sensors;
 static LoraLink lora;
 
@@ -170,7 +174,8 @@ void setup() {
 #endif
 
 #if ENABLE_GNSS
-  gnss.begin();
+  gnss_primary.begin();
+  gnss_backup.begin();
 #endif
 
 #if ENABLE_SENSORS
@@ -214,7 +219,10 @@ void loop() {
   uint32_t t_pps;
   if (time_pop_pps(t_pps)) {
 #if ENABLE_GNSS
-    ring_write_time_anchor(t_pps, gnss.time());
+    const GnssUbx& anchor = gnss_backup.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US)
+                              ? gnss_backup
+                              : gnss_primary;
+    ring_write_time_anchor(t_pps, anchor.time());
 #else
     GnssTime dummy{};
     ring_write_time_anchor(t_pps, dummy);
@@ -222,8 +230,23 @@ void loop() {
   }
 
 #if ENABLE_GNSS
-  if (GNSS_SERIAL.available() > 0) {
-    gnss.poll(ring, now_us);
+  const bool primary_fresh = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+  const bool backup_fresh  = gnss_backup.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+
+  if (!gnss_use_backup_as_primary) {
+    if (!primary_fresh && backup_fresh) gnss_use_backup_as_primary = true;
+  } else {
+    if (primary_fresh) gnss_use_backup_as_primary = false;
+  }
+
+  ByteRing* ring_out_primary = gnss_use_backup_as_primary ? nullptr : &ring;
+  ByteRing* ring_out_backup  = gnss_use_backup_as_primary ? &ring : nullptr;
+
+  if (GNSS_SERIAL_PRIMARY.available() > 0) {
+    gnss_primary.poll(ring_out_primary, now_us);
+  }
+  if (GNSS_SERIAL_BACKUP.available() > 0) {
+    gnss_backup.poll(ring_out_backup, now_us);
   }
 #endif
 
