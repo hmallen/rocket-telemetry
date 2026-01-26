@@ -33,7 +33,6 @@ static Sensors sensors;
 static LoraLink lora;
 
 static uint32_t block_seq = 0;
-static uint32_t sd_errs_last = 0;
 
 static inline void ring_write_stats() {
   RecStats r{};
@@ -195,7 +194,6 @@ void setup() {
 void loop() {
   static uint32_t last_imu_us  = 0;
   static uint32_t last_baro_us = 0;
-  static uint32_t last_gnss_us = 0;
   static int32_t last_press_pa_x10 = 0;
   static int16_t last_temp_c_x100 = 0;
   static uint32_t last_stats_ms = 0;
@@ -252,21 +250,39 @@ void loop() {
 
 #if ENABLE_SENSORS
   // IMU target scheduler (framework stub read)
-  if ((uint32_t)(now_us - last_imu_us) >= (1000000UL / IMU_HZ)) {
-    ImuSample s{};
-    if (sensors.read_imu(s)) ring_write_imu(now_us, s);
-    last_imu_us += (1000000UL / IMU_HZ);
+  const uint32_t imu_period_us = (IMU_HZ == 0) ? 0 : (1000000UL / IMU_HZ);
+  if (imu_period_us) {
+    if (last_imu_us == 0) last_imu_us = now_us;
+    uint8_t imu_iters = 0;
+    while ((uint32_t)(now_us - last_imu_us) >= imu_period_us) {
+      ImuSample s{};
+      if (sensors.read_imu(s)) ring_write_imu(last_imu_us, s);
+      last_imu_us += imu_period_us;
+      if (++imu_iters >= 4) {
+        last_imu_us = now_us;
+        break;
+      }
+    }
   }
 
   // Baro
-  if ((uint32_t)(now_us - last_baro_us) >= (1000000UL / BARO_HZ)) {
-    BaroSample b{};
-    if (sensors.read_baro(b)) {
-      ring_write_baro(now_us, b);
-      last_press_pa_x10 = b.press_pa_x10;
-      last_temp_c_x100 = b.temp_c_x100;
+  const uint32_t baro_period_us = (BARO_HZ == 0) ? 0 : (1000000UL / BARO_HZ);
+  if (baro_period_us) {
+    if (last_baro_us == 0) last_baro_us = now_us;
+    uint8_t baro_iters = 0;
+    while ((uint32_t)(now_us - last_baro_us) >= baro_period_us) {
+      BaroSample b{};
+      if (sensors.read_baro(b)) {
+        ring_write_baro(last_baro_us, b);
+        last_press_pa_x10 = b.press_pa_x10;
+        last_temp_c_x100 = b.temp_c_x100;
+      }
+      last_baro_us += baro_period_us;
+      if (++baro_iters >= 2) {
+        last_baro_us = now_us;
+        break;
+      }
     }
-    last_baro_us += (1000000UL / BARO_HZ);
   }
 #endif
 
