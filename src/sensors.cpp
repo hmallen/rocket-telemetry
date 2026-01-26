@@ -3,6 +3,7 @@
 
 #include <SPI.h>
 #include <Adafruit_BMP3XX.h>
+#include <Adafruit_BMP085.h>
 
  #include <Wire.h>
  #include <Adafruit_Sensor.h>
@@ -11,9 +12,11 @@
  #include <math.h>
 
 static Adafruit_BMP3XX bmp;
+static Adafruit_BMP085 bmp180;
 static Adafruit_L3GD20_Unified gyro(20);
 static Adafruit_LSM303_Accel_Unified accel(30301);
 static bool imu_ok = false;
+static bool baro2_ok = false;
 
 bool Sensors::begin() {
   if (GINT_PIN != 255) pinMode(GINT_PIN, INPUT);
@@ -28,6 +31,8 @@ bool Sensors::begin() {
   const bool gyro_ok  = gyro.begin(GYRO_RANGE_2000DPS, &I2C_BUS);
   const bool accel_ok = accel.begin();
   imu_ok = gyro_ok && accel_ok;
+
+  baro2_ok = bmp180.begin(BMP085_STANDARD, &I2C_BUS);
 
   if (!bmp.begin_SPI(BMP_CS, &BMP_SPI_BUS, BMP_SPI_HZ)) return false;
 
@@ -89,6 +94,16 @@ bool Sensors::read_baro(BaroSample& out) {
   float pa = bmp.pressure;       // Pa
   float tc = bmp.temperature;    // C
   out.press_pa_x10 = (int32_t)(pa * 10.0f);
+  out.temp_c_x100  = (int16_t)(tc * 100.0f);
+  out.status = 1;
+  return true;
+}
+
+bool Sensors::read_baro2(BaroSample& out) {
+  if (!baro2_ok) return false;
+  const int32_t pa = (int32_t)bmp180.readPressure();
+  const float tc = bmp180.readTemperature();
+  out.press_pa_x10 = (int32_t)(pa * 10);
   out.temp_c_x100  = (int16_t)(tc * 100.0f);
   out.status = 1;
   return true;

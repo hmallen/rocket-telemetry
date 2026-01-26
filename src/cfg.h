@@ -6,6 +6,7 @@
 constexpr uint32_t IMU_HZ   = 400;   // accel
 constexpr uint32_t GYRO_HZ  = 760;   // gyro
 constexpr uint32_t BARO_HZ  = 200;
+constexpr uint32_t BARO2_HZ = 25;
 constexpr uint32_t GNSS_HZ  = 10;
 constexpr uint32_t LORA_HZ  = 2;
 
@@ -39,9 +40,9 @@ constexpr uint8_t LRDY_PIN = 37;
 // ---------- I2C ----------
 #define I2C_BUS Wire
 constexpr uint32_t I2C_HZ = 1000000; // 1 MHz if your wiring allows
-constexpr uint8_t  BMP_CS = 6;
+constexpr uint8_t  BMP_CS = 38;
 constexpr uint32_t BMP_SPI_HZ = 1000000;
-#define BMP_SPI_BUS SPI
+#define BMP_SPI_BUS SPI2
 
 // ---------- LoRa (SX127x-style via RadioLib) ----------
 // FCC Part 97 only (Amateur Radio Service). Not legal for unlicensed/uncontrolled operation.

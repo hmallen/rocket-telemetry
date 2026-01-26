@@ -8,6 +8,7 @@ enum RecordType : uint8_t {
   REC_TIME_ANCHOR  = 0x04, // PPS-to-GNSS anchor (fixed)
   REC_EVENT        = 0x05, // markers (fixed)
   REC_STATS        = 0x06, // drop counters, voltages, etc (fixed)
+  REC_BARO2        = 0x07, // bmp180 (fixed)
 };
 
 #pragma pack(push, 1)
@@ -28,6 +29,14 @@ struct RecImuFast {
 
 struct RecBaro {
   RecHdr   h;        // type=REC_BARO
+  uint32_t t_us;
+  int32_t  press_pa_x10;
+  int16_t  temp_c_x100;
+  uint16_t status;
+};
+
+struct RecBaro2 {
+  RecHdr   h;        // type=REC_BARO2
   uint32_t t_us;
   int32_t  press_pa_x10;
   int16_t  temp_c_x100;

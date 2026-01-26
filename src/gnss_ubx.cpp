@@ -1,6 +1,7 @@
 #include "gnss_ubx.h"
 #include "cfg.h"
 #include "records.h"
+#include <Arduino.h>
 #include <stddef.h>
 #include <string.h>
 
