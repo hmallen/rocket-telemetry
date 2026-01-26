@@ -283,8 +283,14 @@ void setup() {
   build_and_write_block_from_source(millis());
 
 #if ENABLE_LORA
-  lora.begin();
-  buzzer_ok();
+  {
+    const bool lora_ok = lora.begin();
+    if (lora_ok) {
+      buzzer_ok();
+    } else {
+      buzzer_fail();
+    }
+  }
 #endif
 }
 
