@@ -1,15 +1,13 @@
 #include "sensors.h"
 #include "cfg.h"
 
+#include <SPI.h>
 #include <Adafruit_BMP3XX.h>
 
 static Adafruit_BMP3XX bmp;
 
 bool Sensors::begin() {
-  I2C_BUS.begin();
-  I2C_BUS.setClock(I2C_HZ);
-
-  if (!bmp.begin_I2C(0x77, &I2C_BUS)) return false;
+  if (!bmp.begin_SPI(BMP_CS, &BMP_SPI_BUS, BMP_SPI_HZ)) return false;
 
   // Fastest / lowest-latency settings for high-rate logging
   bmp.setTemperatureOversampling(BMP3_NO_OVERSAMPLING);
