@@ -34,6 +34,72 @@ static LoraLink lora;
 
 static uint32_t block_seq = 0;
 
+static inline void buzzer_set(bool on) {
+  digitalWrite(BUZZER_PIN, on ? HIGH : LOW);
+}
+
+struct BuzzerSeq {
+  bool active = false;
+  bool is_on = false;
+  uint8_t remaining = 0;
+  uint16_t on_ms = 0;
+  uint16_t off_ms = 0;
+  uint32_t next_ms = 0;
+};
+
+static BuzzerSeq buzzer_seq;
+
+static inline bool buzzer_busy() {
+  return buzzer_seq.active;
+}
+
+static void buzzer_start_seq(uint16_t on_ms, uint16_t off_ms, uint8_t n, uint32_t now_ms) {
+  buzzer_seq.active = (n != 0);
+  buzzer_seq.is_on = false;
+  buzzer_seq.remaining = n;
+  buzzer_seq.on_ms = on_ms;
+  buzzer_seq.off_ms = off_ms;
+  buzzer_seq.next_ms = now_ms;
+}
+
+static void buzzer_poll(uint32_t now_ms) {
+  if (!buzzer_seq.active) return;
+  if ((int32_t)(now_ms - buzzer_seq.next_ms) < 0) return;
+
+  if (!buzzer_seq.is_on) {
+    buzzer_set(true);
+    buzzer_seq.is_on = true;
+    buzzer_seq.next_ms = now_ms + buzzer_seq.on_ms;
+    return;
+  }
+
+  buzzer_set(false);
+  buzzer_seq.is_on = false;
+  if (buzzer_seq.remaining) buzzer_seq.remaining--;
+  if (buzzer_seq.remaining == 0) {
+    buzzer_seq.active = false;
+    return;
+  }
+  buzzer_seq.next_ms = now_ms + buzzer_seq.off_ms;
+}
+
+static void buzzer_pulse(uint16_t on_ms, uint16_t off_ms, uint8_t n) {
+  for (uint8_t i = 0; i < n; ++i) {
+    buzzer_set(true);
+    delay(on_ms);
+    buzzer_set(false);
+    if (i + 1 < n) delay(off_ms);
+  }
+}
+
+static inline void buzzer_ok() {
+  buzzer_pulse(200, 100, 1);
+}
+
+static inline void buzzer_fail() {
+  buzzer_pulse(250, 150, 3);
+}
+
 static inline void ring_write_stats() {
   RecStats r{};
   r.h.type = REC_STATS; r.h.ver = 1; r.h.len = sizeof(r);
@@ -167,7 +233,8 @@ void setup() {
   DBG_PRINTLN("boot");
 
   pinMode(BUZZER_PIN, OUTPUT);
-  digitalWrite(BUZZER_PIN, LOW);
+  buzzer_set(false);
+  buzzer_ok();
 
   ring.init(ring_mem, RING_BYTES);
 
@@ -178,20 +245,35 @@ void setup() {
   timebase_init(GNSS_PPS_PIN);
 
 #if ENABLE_SD_LOGGER
-  sdlog.begin();
-  sdlog.open_new_log(PREALLOC_BYTES);
+  {
+    const bool sd_ok = sdlog.begin() && sdlog.open_new_log(PREALLOC_BYTES);
+    if (sd_ok) {
+      buzzer_ok();
+    } else {
+      buzzer_fail();
+    }
+  }
 #endif
 
 #if ENABLE_GNSS
-  gnss_primary.begin();
-  gnss_backup.begin();
+  {
+    const bool g1_ok = gnss_primary.begin();
+    const bool g2_ok = gnss_backup.begin();
+    if (g1_ok && g2_ok) {
+      buzzer_ok();
+    } else {
+      buzzer_fail();
+    }
+  }
 #endif
 
 #if ENABLE_SENSORS
   if (!sensors.begin()) {
     DBG_PRINTLN("sensors.begin failed");
+    buzzer_fail();
   } else {
     DBG_PRINTLN("sensors.begin ok");
+    buzzer_ok();
   }
 #endif
 
@@ -201,7 +283,14 @@ void setup() {
   build_and_write_block_from_source(millis());
 
 #if ENABLE_LORA
-  lora.begin();
+  {
+    const bool lora_ok = lora.begin();
+    if (lora_ok) {
+      buzzer_ok();
+    } else {
+      buzzer_fail();
+    }
+  }
 #endif
 }
 
@@ -212,8 +301,7 @@ void loop() {
   static int32_t last_press_pa_x10 = 0;
   static int16_t last_temp_c_x100 = 0;
   static uint32_t last_stats_ms = 0;
-  static uint32_t buzzer_next_ms = 0;
-  static uint32_t buzzer_off_ms = 0;
+  static bool primary_3d_beeped = false;
 
 #if DEBUG_MODE
   static uint32_t last_dbg_ms = 0;
@@ -223,6 +311,8 @@ void loop() {
 
   const uint32_t now_us = micros();
   const uint32_t now_ms = millis();
+
+  buzzer_poll(now_ms);
 
 #if DEBUG_MODE
   if ((uint32_t)(now_ms - last_dbg_ms) >= 1000) {
@@ -271,16 +361,6 @@ void loop() {
   }
 #endif
 
-  if ((int32_t)(now_ms - buzzer_next_ms) >= 0) {
-    digitalWrite(BUZZER_PIN, HIGH);
-    buzzer_off_ms = now_ms + 30;
-    buzzer_next_ms = now_ms + 2000;
-  }
-  if (buzzer_off_ms != 0 && (int32_t)(now_ms - buzzer_off_ms) >= 0) {
-    digitalWrite(BUZZER_PIN, LOW);
-    buzzer_off_ms = 0;
-  }
-
   // PPS anchor
   uint32_t t_pps;
   if (time_pop_pps(t_pps)) {
@@ -296,6 +376,16 @@ void loop() {
   }
 
 #if ENABLE_GNSS
+  if (!primary_3d_beeped) {
+    const GnssTime& pt = gnss_primary.time();
+    const bool primary_fresh = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const bool primary_3d = primary_fresh && pt.fix_ok && pt.fix_type >= 3;
+    if (primary_3d && !buzzer_busy()) {
+      buzzer_start_seq(150, 150, 2, now_ms);
+      primary_3d_beeped = true;
+    }
+  }
+
   const bool primary_fresh = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
   const bool backup_fresh  = gnss_backup.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
 
