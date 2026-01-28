@@ -13,7 +13,7 @@ def _get_board_pin(board_module, pin_name: str):
 def main() -> int:
     parser = argparse.ArgumentParser(description="Receive LoRa packets and print them.")
     parser.add_argument("--freq-mhz", type=float, default=433.0)
-    parser.add_argument("--cs", default="CE1")
+    parser.add_argument("--cs", default="CE0")
     parser.add_argument("--reset", default="D25")
     parser.add_argument("--sf", type=int, default=9)
     parser.add_argument("--bw-khz", type=float, default=125.0)
