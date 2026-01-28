@@ -123,6 +123,9 @@ class SPI:
     def read(self, n, write=0x00):
         return bytes(self._spi.xfer2([write] * int(n)))
 
+    def close(self):
+        self._spi.close()
+
  
 PIN_NSS   = 17
 PIN_RST   = 20
@@ -286,25 +289,48 @@ radio = SX1278(
 radio.init_rx_433()
 
 # -------- main loop --------
-while True:
-    pkt = radio.poll_packet()
-    if pkt:
-        payload, crc_ok, rssi, snr = pkt
+try:
+    while True:
+        pkt = radio.poll_packet()
+        if pkt:
+            payload, crc_ok, rssi, snr = pkt
 
-        if crc_ok:
-            LED.on()
-        else:
-            LED.off()
+            if crc_ok:
+                LED.on()
+            else:
+                LED.off()
 
-        print("RX %d bytes | CRC_OK=%s | RSSI=%d dBm | SNR=%.2f dB"
-              % (len(payload), "YES" if crc_ok else "NO", rssi, snr))
-        print("ASCII:", safe_ascii(payload))
-        print("HEX:  ", payload.hex())
-        print("-" * 50)
+            print("RX %d bytes | CRC_OK=%s | RSSI=%d dBm | SNR=%.2f dB"
+                  % (len(payload), "YES" if crc_ok else "NO", rssi, snr))
+            print("ASCII:", safe_ascii(payload))
+            print("HEX:  ", payload.hex())
+            print("-" * 50)
 
-        # LED on briefly, then off
-        if crc_ok:
-            time.sleep_ms(100)
-            LED.off()
+            # LED on briefly, then off
+            if crc_ok:
+                time.sleep_ms(100)
+                LED.off()
 
-    time.sleep_ms(10)
+        time.sleep_ms(10)
+except KeyboardInterrupt:
+    pass
+finally:
+    try:
+        LED.off()
+    except Exception:
+        pass
+
+    try:
+        radio.cs(1)
+    except Exception:
+        pass
+
+    try:
+        spi.close()
+    except Exception:
+        pass
+
+    try:
+        GPIO.cleanup()
+    except Exception:
+        pass
