@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Offline Map Setup</title>
+    <link rel="stylesheet" href="/style.css" />
+    <link rel="stylesheet" href="/map-setup.css" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+  </head>
+  <body class="map-setup">
+    <header class="top-bar">
+      <div>
+        <p class="eyebrow">Ground Station</p>
+        <h1>Offline Map Setup</h1>
+        <p class="subhead">Select a region to cache map tiles for offline tracking.</p>
+      </div>
+      <div class="top-actions">
+        <a class="ghost-button" href="/">Telemetry Console</a>
+      </div>
+    </header>
+
+    <main>
+      <section class="setup-grid">
+        <article class="panel setup-map-panel">
+          <div class="panel-header">
+            <div>
+              <h2>Map Selection</h2>
+              <p class="muted">Click two corners or use the current view to define the download area.</p>
+            </div>
+            <div class="status-pill compact">
+              <span class="label">Tiles cached</span>
+              <span id="cached-count">--</span>
+            </div>
+          </div>
+          <div class="map-shell">
+            <div id="setup-map"></div>
+            <div class="map-instructions" id="map-instructions">Click to set the first corner</div>
+          </div>
+          <div class="map-toolbar">
+            <button class="btn primary" id="use-view" type="button">Use current view</button>
+            <button class="btn secondary" id="clear-selection" type="button">Clear selection</button>
+          </div>
+        </article>
+
+        <article class="panel setup-controls">
+          <div class="panel-header">
+            <div>
+              <h2>Download Settings</h2>
+              <p class="muted">Choose a zoom range, then download tiles to the local cache.</p>
+            </div>
+          </div>
+
+          <div class="form-grid">
+            <label>
+              South
+              <input id="bounds-south" type="text" readonly />
+            </label>
+            <label>
+              West
+              <input id="bounds-west" type="text" readonly />
+            </label>
+            <label>
+              North
+              <input id="bounds-north" type="text" readonly />
+            </label>
+            <label>
+              East
+              <input id="bounds-east" type="text" readonly />
+            </label>
+          </div>
+
+          <div class="form-grid two">
+            <label>
+              Min zoom
+              <input id="min-zoom" type="number" min="0" max="18" value="11" />
+            </label>
+            <label>
+              Max zoom
+              <input id="max-zoom" type="number" min="0" max="18" value="14" />
+            </label>
+          </div>
+
+          <div class="summary-grid">
+            <div>
+              <span class="label">Estimated tiles</span>
+              <span id="tile-count">--</span>
+            </div>
+            <div>
+              <span class="label">Estimated size</span>
+              <span id="tile-size">--</span>
+            </div>
+          </div>
+
+          <div class="download-actions">
+            <button class="btn primary" id="start-download" type="button">Download tiles</button>
+            <button class="btn secondary" id="cancel-download" type="button">Cancel</button>
+          </div>
+
+          <div class="progress-card">
+            <div class="progress-bar">
+              <div id="progress-fill"></div>
+            </div>
+            <div class="progress-meta">
+              <span id="progress-text">Idle</span>
+              <span id="progress-count">0 / 0</span>
+            </div>
+            <div class="progress-errors" id="progress-errors"></div>
+          </div>
+
+          <p class="muted small-note" id="status-message">
+            Tiles are fetched from OpenStreetMap while you are online, then stored locally for offline use.
+          </p>
+        </article>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Offline tiles are served from /tiles/{z}/{x}/{y}.png</span>
+    </footer>
+
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="/map-setup.js"></script>
+  </body>
+</html>

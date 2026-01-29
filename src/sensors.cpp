@@ -90,8 +90,8 @@ bool Sensors::read_imu(ImuSample& out) {
     // m/s^2 -> mg
     const float g = 9.80665f;
     out.ax = (int16_t)lrintf((aev.acceleration.x / g) * 1000.0f);
-    out.ay = (int16_t)lrintf((aev.acceleration.y / g) * 1000.0f);
-    out.az = (int16_t)lrintf((aev.acceleration.z / g) * 1000.0f);
+    out.ay = (int16_t)lrintf((aev.acceleration.z / g) * 1000.0f);
+    out.az = (int16_t)lrintf((aev.acceleration.y / g) * 1000.0f);
     status |= 0x0001;
   }
 
@@ -99,8 +99,8 @@ bool Sensors::read_imu(ImuSample& out) {
     // rad/s -> deg/s -> deci-deg/s (0.1 dps)
     const float r2d = 57.2957795f;
     out.gx = (int16_t)lrintf((gev.gyro.x * r2d) * 10.0f);
-    out.gy = (int16_t)lrintf((gev.gyro.y * r2d) * 10.0f);
-    out.gz = (int16_t)lrintf((gev.gyro.z * r2d) * 10.0f);
+    out.gy = (int16_t)lrintf((gev.gyro.z * r2d) * 10.0f);
+    out.gz = (int16_t)lrintf((gev.gyro.y * r2d) * 10.0f);
     status |= 0x0002;
 
     if (!isnan(gev.temperature)) {

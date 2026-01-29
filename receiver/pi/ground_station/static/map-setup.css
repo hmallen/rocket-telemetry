@@ -1,0 +1,205 @@
+:root {
+  --setup-bg: #0f1716;
+  --setup-panel: #f9f6f1;
+  --setup-accent: #2b7a65;
+  --setup-accent-dark: #1c5142;
+  --setup-highlight: rgba(43, 122, 101, 0.18);
+}
+
+body.map-setup {
+  background:
+    radial-gradient(circle at 15% 20%, rgba(43, 122, 101, 0.18), transparent 55%),
+    radial-gradient(circle at 85% 15%, rgba(20, 20, 20, 0.12), transparent 55%),
+    linear-gradient(145deg, #f9f6f0 0%, #e8e1d6 100%);
+}
+
+.top-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ghost-button {
+  border: 1px solid var(--line);
+  padding: 8px 14px;
+  border-radius: 999px;
+  text-decoration: none;
+  color: var(--accent-strong);
+  font-weight: 600;
+  font-size: 0.9rem;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.setup-grid {
+  display: grid;
+  grid-template-columns: minmax(320px, 1.4fr) minmax(280px, 1fr);
+  gap: 24px;
+}
+
+.setup-map-panel {
+  min-height: 520px;
+}
+
+.map-shell {
+  position: relative;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--setup-bg);
+  height: 420px;
+}
+
+#setup-map {
+  height: 100%;
+}
+
+.map-instructions {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 8px 12px;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--setup-accent-dark);
+  box-shadow: var(--shadow);
+}
+
+.map-toolbar {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.setup-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.form-grid.two {
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+
+label input {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-family: "Space Mono", "Courier New", monospace;
+  font-size: 0.85rem;
+}
+
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  font-size: 0.9rem;
+}
+
+.summary-grid .label {
+  display: block;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.download-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  border: none;
+  border-radius: 999px;
+  padding: 10px 18px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.btn.primary {
+  background: var(--setup-accent);
+  color: #fff;
+  box-shadow: 0 12px 24px rgba(43, 122, 101, 0.25);
+}
+
+.btn.secondary {
+  background: rgba(20, 20, 20, 0.1);
+  color: var(--ink);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.progress-card {
+  border-radius: 14px;
+  padding: 12px;
+  background: #fff;
+  border: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+}
+
+.progress-bar {
+  height: 8px;
+  background: rgba(20, 20, 20, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+#progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(120deg, var(--setup-accent), #8bb89f);
+  transition: width 0.2s ease;
+}
+
+.progress-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.progress-errors {
+  font-size: 0.78rem;
+  color: var(--danger);
+  min-height: 18px;
+}
+
+.small-note {
+  font-size: 0.8rem;
+}
+
+@media (max-width: 960px) {
+  .setup-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .setup-map-panel {
+    min-height: 480px;
+  }
+}
