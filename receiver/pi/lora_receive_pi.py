@@ -309,7 +309,7 @@ spi = SPI(
 
 radio = SX1278(
     spi=spi,
-    nss=Pin(PIN_NSS, Pin.OUT),
+    nss=Pin(PIN_NSS) if USE_HW_CS else Pin(PIN_NSS, Pin.OUT),
     rst=Pin(PIN_RST, Pin.OUT),
     dio0=Pin(PIN_DIO0, Pin.IN),
 )
