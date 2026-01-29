@@ -419,10 +419,12 @@ void loop() {
 #if DEBUG_MODE
   if ((uint32_t)(now_ms - last_dbg_ms) >= 1000) {
     last_dbg_ms = now_ms;
-    DBG_PRINTF("t=%lu ms baro_pa=%.1f temp_c=%.2f ring_avail=%lu ring_drops=%lu",
+    DBG_PRINTF("t=%lu ms baro_pa=%.1f temp_c=%.2f vbat=%.3f bat_state=%u ring_avail=%lu ring_drops=%lu",
                (unsigned long)now_ms,
                (double)last_press_pa_x10 / 10.0,
                (double)last_temp_c_x100 / 100.0,
+               (double)g_vbat_mv / 1000.0,
+               (unsigned)g_bat_state,
                (unsigned long)ring.available(), (unsigned long)ring.drops());
     if (last_imu_dbg_us != 0) {
       DBG_PRINTF(" imu_ax=%d ay=%d az=%d gx=%d gy=%d gz=%d ist=0x%04x",

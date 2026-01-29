@@ -440,6 +440,7 @@ def init_radio(use_hw_cs):
 
 
 def setup_radio():
+    global USE_HW_CS
     use_hw_cs = USE_HW_CS
     spi, radio = init_radio(use_hw_cs)
 
@@ -455,7 +456,8 @@ def setup_radio():
             spi.close()
         except Exception:
             pass
-        use_hw_cs = False
+        USE_HW_CS = False
+        use_hw_cs = USE_HW_CS
         spi, radio = init_radio(use_hw_cs)
         radio.reset()
         raw = radio.spi.xfer(bytearray([REG_VERSION & 0x7F, 0x00]))

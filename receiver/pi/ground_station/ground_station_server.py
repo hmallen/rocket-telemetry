@@ -1,10 +1,13 @@
 import copy
 import json
+import math
 import mimetypes
 import queue
 import sys
 import threading
 import time
+import urllib.error
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
@@ -24,9 +27,15 @@ HOST = "0.0.0.0"
 PORT = 8000
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+TILE_CACHE_DIR = STATIC_DIR / "tiles"
+TILE_SOURCE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+TILE_USER_AGENT = "RocketTelemetryGroundStation/1.0"
+TILE_REQUEST_TIMEOUT = 10
+MAX_TILE_REQUEST = 50000
 
 mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("text/javascript", ".js")
+mimetypes.add_type("image/png", ".png")
 
 BAT_STATE_LABELS = {
     0: "OK",
@@ -180,7 +189,186 @@ class TelemetryStore:
             return copy.deepcopy(self._state)
 
 
+class MapDownloadManager:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._thread = None
+        self._state = {
+            "running": False,
+            "total": 0,
+            "completed": 0,
+            "failed": 0,
+            "last_error": None,
+            "bounds": None,
+            "min_zoom": None,
+            "max_zoom": None,
+            "started_at": None,
+            "finished_at": None,
+            "cached_tiles": self._count_cached_tiles(),
+            "canceled": False,
+        }
+
+    def _count_cached_tiles(self):
+        if not TILE_CACHE_DIR.exists():
+            return 0
+        return sum(1 for _ in TILE_CACHE_DIR.rglob("*.png"))
+
+    def snapshot(self):
+        with self._lock:
+            return copy.deepcopy(self._state)
+
+    def cancel(self):
+        with self._lock:
+            if not self._state["running"]:
+                return False
+            self._stop_event.set()
+            self._state["canceled"] = True
+        return True
+
+    def start(self, payload):
+        if not payload:
+            return False, "Missing request payload."
+
+        bounds = payload.get("bounds")
+        try:
+            min_zoom = int(payload.get("min_zoom"))
+            max_zoom = int(payload.get("max_zoom"))
+        except (TypeError, ValueError):
+            return False, "Zoom levels must be integers."
+
+        if bounds is None:
+            return False, "Bounds are required."
+
+        try:
+            south = float(bounds.get("south"))
+            west = float(bounds.get("west"))
+            north = float(bounds.get("north"))
+            east = float(bounds.get("east"))
+        except (TypeError, ValueError):
+            return False, "Bounds must be numeric."
+
+        if min_zoom < 0 or max_zoom < 0 or min_zoom > max_zoom:
+            return False, "Invalid zoom range."
+
+        if south >= north or west >= east:
+            return False, "Bounds must define a valid rectangle."
+
+        tile_plan = self._calculate_tile_plan(south, west, north, east, min_zoom, max_zoom)
+        total_tiles = tile_plan["total"]
+        if total_tiles == 0:
+            return False, "Selection produced no tiles."
+        if total_tiles > MAX_TILE_REQUEST:
+            return False, "Tile request too large. Reduce area or zoom range."
+
+        with self._lock:
+            if self._state["running"]:
+                return False, "Download already running."
+            self._stop_event.clear()
+            self._state.update({
+                "running": True,
+                "total": total_tiles,
+                "completed": 0,
+                "failed": 0,
+                "last_error": None,
+                "bounds": {
+                    "south": south,
+                    "west": west,
+                    "north": north,
+                    "east": east,
+                },
+                "min_zoom": min_zoom,
+                "max_zoom": max_zoom,
+                "started_at": time.time(),
+                "finished_at": None,
+                "cached_tiles": self._count_cached_tiles(),
+                "canceled": False,
+            })
+
+        self._thread = threading.Thread(
+            target=self._download_tiles,
+            args=(south, west, north, east, min_zoom, max_zoom, tile_plan["ranges"],),
+            daemon=True,
+        )
+        self._thread.start()
+        return True, None
+
+    def _download_tiles(self, south, west, north, east, min_zoom, max_zoom, ranges):
+        TILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        for zoom in range(min_zoom, max_zoom + 1):
+            x_min, x_max, y_min, y_max = ranges[zoom]
+            for x in range(x_min, x_max + 1):
+                for y in range(y_min, y_max + 1):
+                    if self._stop_event.is_set():
+                        self._finalize(cancelled=True)
+                        return
+
+                    file_path = TILE_CACHE_DIR / str(zoom) / str(x) / f"{y}.png"
+                    if file_path.exists():
+                        self._increment_progress()
+                        continue
+
+                    file_path.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        request = urllib.request.Request(
+                            TILE_SOURCE_URL.format(z=zoom, x=x, y=y),
+                            headers={"User-Agent": TILE_USER_AGENT},
+                        )
+                        with urllib.request.urlopen(request, timeout=TILE_REQUEST_TIMEOUT) as response:
+                            if response.status != 200:
+                                raise urllib.error.HTTPError(
+                                    request.full_url, response.status, response.reason, response.headers, None
+                                )
+                            data = response.read()
+                        file_path.write_bytes(data)
+                        self._increment_progress(cached_inc=1)
+                    except (urllib.error.URLError, urllib.error.HTTPError, OSError) as exc:
+                        self._increment_progress(failed_inc=1, error=str(exc))
+
+        self._finalize(cancelled=False)
+
+    def _finalize(self, cancelled):
+        with self._lock:
+            self._state["running"] = False
+            self._state["finished_at"] = time.time()
+            self._state["canceled"] = cancelled
+
+    def _increment_progress(self, failed_inc=0, cached_inc=0, error=None):
+        with self._lock:
+            self._state["completed"] += 1
+            if failed_inc:
+                self._state["failed"] += failed_inc
+                if error:
+                    self._state["last_error"] = error
+            if cached_inc:
+                self._state["cached_tiles"] += cached_inc
+
+    def _calculate_tile_plan(self, south, west, north, east, min_zoom, max_zoom):
+        ranges = {}
+        total = 0
+        for zoom in range(min_zoom, max_zoom + 1):
+            x_min, y_min = self._latlon_to_tile(north, west, zoom)
+            x_max, y_max = self._latlon_to_tile(south, east, zoom)
+            x_min, x_max = sorted((x_min, x_max))
+            y_min, y_max = sorted((y_min, y_max))
+            ranges[zoom] = (x_min, x_max, y_min, y_max)
+            total += (x_max - x_min + 1) * (y_max - y_min + 1)
+        return {"ranges": ranges, "total": total}
+
+    def _latlon_to_tile(self, lat, lon, zoom):
+        lat = max(min(lat, 85.0511), -85.0511)
+        lon = max(min(lon, 180.0), -180.0)
+        n = 2 ** zoom
+        x = int((lon + 180.0) / 360.0 * n)
+        lat_rad = math.radians(lat)
+        y = int((1.0 - math.log(math.tan(lat_rad) + (1 / math.cos(lat_rad))) / math.pi) / 2.0 * n)
+        x = max(0, min(x, n - 1))
+        y = max(0, min(y, n - 1))
+        return x, y
+
+
 TELEMETRY = TelemetryStore()
+MAP_DOWNLOADS = MapDownloadManager()
 CLIENTS = []
 CLIENTS_LOCK = threading.Lock()
 STOP_EVENT = threading.Event()
@@ -268,14 +456,24 @@ class GroundStationHandler(BaseHTTPRequestHandler):
 
         if path in ("/", "/index.html"):
             return self._serve_static("index.html")
+        if path in ("/map-setup", "/map-setup.html"):
+            return self._serve_static("map_setup.html")
         if path == "/style.css":
             return self._serve_static("style.css")
+        if path == "/map-setup.css":
+            return self._serve_static("map-setup.css")
         if path == "/app.js":
             return self._serve_static("app.js")
+        if path == "/map-setup.js":
+            return self._serve_static("map-setup.js")
         if path == "/api/state":
             return self._send_json({"state": TELEMETRY.snapshot()})
+        if path == "/api/map/status":
+            return self._send_json({"status": MAP_DOWNLOADS.snapshot()})
         if path == "/events":
             return self._serve_events()
+        if path.startswith("/tiles/"):
+            return self._serve_tiles(path)
         if path == "/favicon.ico":
             self.send_response(204)
             self.end_headers()
@@ -283,8 +481,46 @@ class GroundStationHandler(BaseHTTPRequestHandler):
 
         self.send_error(404, "Not Found")
 
+    def do_POST(self):
+        path = urlparse(self.path).path
+
+        if path == "/api/map/download":
+            payload = self._read_json()
+            ok, error = MAP_DOWNLOADS.start(payload)
+            if not ok:
+                return self._send_json({"ok": False, "error": error}, status=400)
+            return self._send_json({"ok": True})
+
+        if path == "/api/map/cancel":
+            MAP_DOWNLOADS.cancel()
+            return self._send_json({"ok": True})
+
+        self.send_error(404, "Not Found")
+
     def _serve_static(self, filename):
         file_path = STATIC_DIR / filename
+        return self._serve_file(file_path)
+
+    def _serve_tiles(self, path):
+        parts = path.strip("/").split("/")
+        if len(parts) != 4:
+            self.send_error(404, "Not Found")
+            return
+
+        _, zoom, x, y_file = parts
+        if not (zoom.isdigit() and x.isdigit() and y_file.endswith(".png")):
+            self.send_error(404, "Not Found")
+            return
+
+        y = y_file[:-4]
+        if not y.isdigit():
+            self.send_error(404, "Not Found")
+            return
+
+        file_path = TILE_CACHE_DIR / zoom / x / y_file
+        return self._serve_file(file_path)
+
+    def _serve_file(self, file_path):
         if not file_path.exists():
             self.send_error(404, "Not Found")
             return
@@ -297,13 +533,23 @@ class GroundStationHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
-    def _send_json(self, payload):
+    def _send_json(self, payload, status=200):
         data = json.dumps(payload).encode("utf-8")
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
+
+    def _read_json(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        if length <= 0:
+            return None
+        raw = self.rfile.read(length)
+        try:
+            return json.loads(raw.decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return None
 
     def _serve_events(self):
         self.send_response(200)
@@ -348,6 +594,8 @@ class GroundStationHandler(BaseHTTPRequestHandler):
 def main():
     if not STATIC_DIR.exists():
         raise SystemExit("Static assets not found at %s" % STATIC_DIR)
+
+    TILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     worker = threading.Thread(target=lora_worker, daemon=True)
     worker.start()
