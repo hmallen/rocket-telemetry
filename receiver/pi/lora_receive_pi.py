@@ -120,6 +120,9 @@ class SPI:
     def write(self, buf):
         self._spi.writebytes(list(buf))
 
+    def xfer(self, buf):
+        return bytes(self._spi.xfer2(list(buf)))
+
     def read(self, n, write=0x00):
         return bytes(self._spi.xfer2([write] * int(n)))
 
@@ -195,21 +198,26 @@ class SX1278:
         time.sleep_ms(50)
 
     def read_reg(self, addr):
+        if USE_HW_CS:
+            return self.spi.xfer(bytearray([addr & 0x7F, 0x00]))[1]
         self.cs(0)
-        self.spi.write(bytearray([addr & 0x7F]))
-        val = self.spi.read(1, 0x00)[0]
+        val = self.spi.xfer(bytearray([addr & 0x7F, 0x00]))[1]
         self.cs(1)
         return val
 
     def write_reg(self, addr, val):
+        if USE_HW_CS:
+            self.spi.xfer(bytearray([addr | 0x80, val & 0xFF]))
+            return
         self.cs(0)
-        self.spi.write(bytearray([addr | 0x80, val & 0xFF]))
+        self.spi.xfer(bytearray([addr | 0x80, val & 0xFF]))
         self.cs(1)
 
     def read_fifo(self, n):
+        if USE_HW_CS:
+            return self.spi.xfer(bytearray([REG_FIFO & 0x7F] + ([0x00] * int(n))))[1:]
         self.cs(0)
-        self.spi.write(bytearray([REG_FIFO & 0x7F]))
-        data = self.spi.read(n, 0x00)
+        data = self.spi.xfer(bytearray([REG_FIFO & 0x7F] + ([0x00] * int(n))))[1:]
         self.cs(1)
         return data
 
