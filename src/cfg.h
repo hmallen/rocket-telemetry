@@ -8,7 +8,7 @@ constexpr uint32_t GYRO_HZ  = 760;   // gyro
 constexpr uint32_t BARO_HZ  = 200;
 constexpr uint32_t BARO2_HZ = 25;
 constexpr uint32_t GNSS_HZ  = 10;
-constexpr uint32_t LORA_HZ  = 2;
+constexpr uint32_t LORA_HZ  = 5;
 
 // ---------- Logging ----------
 constexpr uint32_t LOG_BLOCK_BYTES = 32768;    // SD write unit (32 KiB)
@@ -29,7 +29,22 @@ constexpr uint32_t GNSS_FAILOVER_TIMEOUT_US = 2000000;
 constexpr uint8_t  GNSS_PPS_PIN = 2;   // pick an interrupt-capable pin
 
 // ---------- Buzzer ----------
+#define ENABLE_BUZZER 0
 constexpr uint8_t BUZZER_PIN = 28;
+
+// ---------- Battery monitoring ----------
+constexpr int VBAT_PIN = A2;
+constexpr float VBAT_CAL_SCALE = 1.0f;
+constexpr uint8_t VBAT_AVG_SAMPLES = 16;
+constexpr float VBAT_LP_ALPHA = 0.1f;
+
+constexpr float VBAT_WARN_V = 3.55f;
+constexpr float VBAT_SHED_V = 3.45f;
+constexpr float VBAT_CUTOFF_V = 3.30f;
+constexpr float VBAT_HYST_V = 0.15f;
+constexpr uint32_t VBAT_DWELL_MS = 2000;
+
+constexpr uint8_t SENSOR_RAIL_EN_PIN = 255;
 
 constexpr uint8_t GINT_PIN = 33;
 constexpr uint8_t GRDY_PIN = 255;
@@ -59,10 +74,10 @@ constexpr float   LORA_FREQ_MHZ = 433.0f; // 70 cm amateur band (420-450 MHz in 
 // Operator identification: embed callsign in clear, human-decodable ASCII in every telemetry frame.
 // Set these before enabling TX.
 constexpr const char LORA_CALLSIGN[] = "CALLSIGN";
-#define LORA_CONTROL_OPERATOR_OK 0
+#define LORA_CONTROL_OPERATOR_OK 1
 
 // RF parameter discipline: choose minimum BW/SF/power that meets link budget.
-constexpr uint8_t LORA_SF = 9;            // 6..12
+constexpr uint8_t LORA_SF = 7;            // 6..12
 constexpr float   LORA_BW_KHZ = 125.0f;   // one of standard LoRa BWs; validated at startup
 constexpr uint8_t LORA_CR = 5;            // 5..8 => 4/5..4/8
 constexpr int8_t  LORA_TX_POWER_DBM = 10; // conservative default; avoid max/PA_BOOST unless required
@@ -70,6 +85,13 @@ constexpr int8_t  LORA_TX_POWER_DBM = 10; // conservative default; avoid max/PA_
 // Deterministic scheduling + duty-cycle restraint.
 constexpr uint32_t LORA_MIN_TX_INTERVAL_MS = (1000UL / LORA_HZ);
 constexpr uint32_t LORA_HEARTBEAT_MS = 30000; // max silence between ID-bearing telemetry (0 disables)
+
+// Telemetry packet type intervals (0 disables that packet type).
+// GPS: Lat/Lon/Elevation, Alt: BMP390 pressure/temp, IMU: gyro+accel.
+constexpr uint32_t LORA_GPS_INTERVAL_MS = 1000;
+constexpr uint32_t LORA_ALT_INTERVAL_MS = 200;
+constexpr uint32_t LORA_IMU_INTERVAL_MS = 200;
+constexpr uint32_t LORA_BAT_INTERVAL_MS = 1000;
 
 // Retries: bounded, with backoff; fail toward silence.
 constexpr uint8_t  LORA_RETRY_LIMIT = 2;
@@ -95,7 +117,7 @@ constexpr int32_t  LORA_FLIGHT_PRESS_DELTA_PA_X10 = 5000;
 #define ENABLE_PSRAM_SPOOL 1
 #define ENABLE_GNSS 1
 #define ENABLE_SENSORS 1
-#define ENABLE_LORA 0
+#define ENABLE_LORA 1
 
 #ifndef DEBUG_MODE
 #define DEBUG_MODE 0

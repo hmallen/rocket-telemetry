@@ -211,6 +211,13 @@ def decode_payload(payload):
         return "IMU t_ms=%d gx=%d gy=%d gz=%d ax=%d ay=%d az=%d" % (
             t_ms, gx, gy, gz, ax, ay, az
         )
+    if typ == 4:
+        if len(payload) < 9:
+            return "PROTO A1 BAT (short)"
+        t_ms = int.from_bytes(payload[2:6], "little", signed=False)
+        vbat_mv = int.from_bytes(payload[6:8], "little", signed=False)
+        bat_state = int(payload[8])
+        return "BAT t_ms=%d vbat_v=%.3f state=%d" % (t_ms, vbat_mv / 1000.0, bat_state)
     return "PROTO A1 type=%d" % typ
 
 spi = SPI(

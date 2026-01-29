@@ -74,6 +74,9 @@ struct RecStats {
   uint32_t  ring_drops;
   uint32_t  spool_drops;
   uint32_t  sd_write_errs;
+  uint16_t  vbat_mv;
+  uint8_t   bat_state;
+  uint8_t   reserved;
 };
 #pragma pack(pop)
 

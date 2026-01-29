@@ -34,6 +34,16 @@ static LoraLink lora;
 
 static uint32_t block_seq = 0;
 
+enum BatState : uint8_t {
+  BAT_OK = 0,
+  BAT_WARN = 1,
+  BAT_SHED = 2,
+  BAT_CUTOFF = 3,
+};
+
+static uint16_t g_vbat_mv = 0;
+static uint8_t g_bat_state = BAT_OK;
+
 static inline void buzzer_set(bool on) {
  #if ENABLE_BUZZER
   digitalWrite(BUZZER_PIN, on ? HIGH : LOW);
@@ -123,7 +133,7 @@ static inline void buzzer_fail() {
 
 static inline void ring_write_stats() {
   RecStats r{};
-  r.h.type = REC_STATS; r.h.ver = 1; r.h.len = sizeof(r);
+  r.h.type = REC_STATS; r.h.ver = 2; r.h.len = sizeof(r);
   r.t_us = micros();
   r.ring_drops = ring.drops();
 #if ENABLE_PSRAM_SPOOL
@@ -132,6 +142,8 @@ static inline void ring_write_stats() {
   r.spool_drops = 0;
 #endif
   r.sd_write_errs = sdlog.write_errs();
+  r.vbat_mv = g_vbat_mv;
+  r.bat_state = g_bat_state;
   ring.write(&r, sizeof(r));
 }
 
@@ -253,6 +265,14 @@ void setup() {
   DBG_INIT();
   DBG_PRINTLN("boot");
 
+  analogReadResolution(12);
+  pinMode(VBAT_PIN, INPUT);
+
+  if (SENSOR_RAIL_EN_PIN != 255) {
+    pinMode(SENSOR_RAIL_EN_PIN, OUTPUT);
+    digitalWrite(SENSOR_RAIL_EN_PIN, HIGH);
+  }
+
  #if ENABLE_BUZZER
   pinMode(BUZZER_PIN, OUTPUT);
   buzzer_set(false);
@@ -328,6 +348,11 @@ void loop() {
   static ImuSample last_imu_sample{};
   static bool have_imu_sample = false;
 
+  static float vbat_filt_v = 0.0f;
+  static uint32_t vbat_last_sample_ms = 0;
+  static uint32_t shed_below_start_ms = 0;
+  static uint32_t cutoff_below_start_ms = 0;
+
 #if DEBUG_MODE
   static uint32_t last_dbg_ms = 0;
   static ImuSample last_imu{};
@@ -336,6 +361,58 @@ void loop() {
 
   const uint32_t now_us = micros();
   const uint32_t now_ms = millis();
+
+  if (vbat_last_sample_ms == 0 || (uint32_t)(now_ms - vbat_last_sample_ms) >= 50) {
+    vbat_last_sample_ms = now_ms;
+
+    uint32_t sum = 0;
+    for (uint8_t i = 0; i < VBAT_AVG_SAMPLES; ++i) {
+      sum += (uint32_t)analogRead(VBAT_PIN);
+    }
+    const float counts = (float)sum / (float)VBAT_AVG_SAMPLES;
+    const float vadc = counts * (3.3f / 4095.0f);
+    const float vbat = vadc * 2.0f * VBAT_CAL_SCALE;
+
+    if (vbat_filt_v == 0.0f) vbat_filt_v = vbat;
+    else vbat_filt_v = vbat_filt_v + VBAT_LP_ALPHA * (vbat - vbat_filt_v);
+
+    const float vf = vbat_filt_v;
+
+    if (g_bat_state == BAT_OK) {
+      if (vf <= VBAT_WARN_V) g_bat_state = BAT_WARN;
+    } else if (g_bat_state == BAT_WARN) {
+      if (vf <= VBAT_SHED_V) {
+        if (shed_below_start_ms == 0) shed_below_start_ms = now_ms;
+        if ((uint32_t)(now_ms - shed_below_start_ms) >= VBAT_DWELL_MS) {
+          g_bat_state = BAT_SHED;
+          shed_below_start_ms = 0;
+        }
+      } else {
+        shed_below_start_ms = 0;
+      }
+      if (vf >= (VBAT_WARN_V + VBAT_HYST_V)) g_bat_state = BAT_OK;
+    } else if (g_bat_state == BAT_SHED) {
+      if (vf <= VBAT_CUTOFF_V) {
+        if (cutoff_below_start_ms == 0) cutoff_below_start_ms = now_ms;
+        if ((uint32_t)(now_ms - cutoff_below_start_ms) >= VBAT_DWELL_MS) {
+          g_bat_state = BAT_CUTOFF;
+          cutoff_below_start_ms = 0;
+        }
+      } else {
+        cutoff_below_start_ms = 0;
+      }
+      if (vf >= (VBAT_SHED_V + VBAT_HYST_V)) g_bat_state = BAT_WARN;
+    } else {
+      if (vf >= (VBAT_CUTOFF_V + VBAT_HYST_V)) g_bat_state = BAT_SHED;
+    }
+
+    if (SENSOR_RAIL_EN_PIN != 255) {
+      const bool rail_on = (g_bat_state == BAT_OK) || (g_bat_state == BAT_WARN);
+      digitalWrite(SENSOR_RAIL_EN_PIN, rail_on ? HIGH : LOW);
+    }
+
+    g_vbat_mv = (uint16_t)max(0, (int)lrintf(vf * 1000.0f));
+  }
 
   buzzer_poll(now_ms);
 
@@ -535,6 +612,8 @@ void loop() {
   lora.poll_telem(now_ms,
                   last_press_pa_x10,
                   last_temp_c_x100,
+                  g_vbat_mv,
+                  g_bat_state,
                   lora_gps,
                   have_imu_sample ? &last_imu_sample : nullptr);
 #endif

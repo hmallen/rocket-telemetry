@@ -24,6 +24,8 @@ public:
   void poll_telem(uint32_t now_ms,
                   int32_t press_pa_x10,
                   int16_t temp_c_x100,
+                  uint16_t vbat_mv,
+                  uint8_t bat_state,
                   const GnssTime* gps,
                   const ImuSample* imu);
 
@@ -67,6 +69,7 @@ private:
   uint32_t last_gps_tx_ms_ = 0;
   uint32_t last_alt_tx_ms_ = 0;
   uint32_t last_imu_tx_ms_ = 0;
+  uint32_t last_bat_tx_ms_ = 0;
 
   int32_t  last_press_pa_x10_ = 0;
   int16_t  last_temp_c_x100_ = 0;
