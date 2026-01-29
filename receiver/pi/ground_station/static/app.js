@@ -39,6 +39,7 @@ const elements = {
   attRoll: document.getElementById("att-roll"),
   attPitch: document.getElementById("att-pitch"),
   attYaw: document.getElementById("att-yaw"),
+  attitudeFilter: document.getElementById("attitude-filter"),
   mapOverlay: document.getElementById("map-overlay"),
 };
 
@@ -52,12 +53,18 @@ const state = {
   connected: false,
   orientation: { roll: 0, pitch: 0, yaw: 0 },
   lastImuTime: null,
+  attitudeFilter: null,
   mapOrigin: null,
   mapPath: [],
 };
 
 const DEG_TO_RAD = Math.PI / 180;
 const RAD_TO_DEG = 180 / Math.PI;
+const FILTER_LABELS = {
+  madgwick: "Madgwick AHRS",
+  mahony: "Mahony AHRS",
+  complementary: "Complementary",
+};
 
 const rocketModel = (() => {
   const points = [];
@@ -107,6 +114,68 @@ function formatInt(value) {
     return "--";
   }
   return Math.round(value).toString();
+}
+
+function labelForFilter(value) {
+  if (!value) {
+    return "Unknown";
+  }
+  return FILTER_LABELS[value] || value;
+}
+
+function setFilterOptions(filters, active) {
+  if (!elements.attitudeFilter) {
+    return;
+  }
+  elements.attitudeFilter.innerHTML = "";
+  filters.forEach((filter) => {
+    const option = document.createElement("option");
+    option.value = filter;
+    option.textContent = labelForFilter(filter);
+    elements.attitudeFilter.appendChild(option);
+  });
+  if (active) {
+    elements.attitudeFilter.value = active;
+    state.attitudeFilter = active;
+  }
+}
+
+function syncFilterSelection(attitude) {
+  if (!elements.attitudeFilter || !attitude) {
+    return;
+  }
+  const active = attitude.filter;
+  if (!active) {
+    return;
+  }
+  if (document.activeElement !== elements.attitudeFilter && elements.attitudeFilter.value !== active) {
+    elements.attitudeFilter.value = active;
+  }
+  state.attitudeFilter = active;
+}
+
+function postFilterSelection(value) {
+  const previous = state.attitudeFilter;
+  fetch("/api/attitude/filter", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filter: value }),
+  })
+    .then((res) => res.json())
+    .then((payload) => {
+      if (!payload.ok) {
+        throw new Error(payload.error || "Filter update failed");
+      }
+      state.attitudeFilter = payload.filter;
+      if (elements.attitudeFilter) {
+        elements.attitudeFilter.value = payload.filter;
+      }
+    })
+    .catch(() => {
+      if (elements.attitudeFilter && previous) {
+        elements.attitudeFilter.value = previous;
+      }
+    });
 }
 
 function updateConnection(connected) {
@@ -175,43 +244,60 @@ function updateFromTelemetry(snapshot) {
   elements.batVoltageMv.textContent = battery.vbat_mv ?? "--";
   elements.batState.textContent = battery.bat_state_label || "--";
 
-  updateOrientation(imu);
+  const attitude = snapshot.attitude || {};
+  updateOrientation(attitude, imu);
+  syncFilterSelection(attitude);
   updateMap(gps);
 }
 
-function updateOrientation(imu) {
-  if (!imu || imu.gx === null || imu.ax === null) {
-    return;
-  }
+function updateOrientation(attitude, imu) {
+  const hasAttitude = attitude
+    && attitude.roll !== null
+    && attitude.pitch !== null
+    && attitude.yaw !== null
+    && attitude.roll !== undefined
+    && attitude.pitch !== undefined
+    && attitude.yaw !== undefined;
 
-  const nowMs = imu.t_ms !== null && imu.t_ms !== undefined ? imu.t_ms : Date.now();
-  let dt = 0.02;
-  if (state.lastImuTime !== null) {
-    dt = (nowMs - state.lastImuTime) / 1000;
-    if (!Number.isFinite(dt) || dt <= 0 || dt > 1) {
-      dt = 0.02;
+  if (hasAttitude) {
+    state.orientation.roll = attitude.roll;
+    state.orientation.pitch = attitude.pitch;
+    state.orientation.yaw = attitude.yaw;
+    state.lastImuTime = null;
+  } else {
+    if (!imu || imu.gx === null || imu.ax === null) {
+      return;
     }
-  }
-  state.lastImuTime = nowMs;
 
-  const gx = imu.gx_dps ?? (imu.gx / 10);
-  const gy = imu.gy_dps ?? (imu.gy / 10);
-  const gz = imu.gz_dps ?? (imu.gz / 10);
+    const nowMs = imu.t_ms !== null && imu.t_ms !== undefined ? imu.t_ms : Date.now();
+    let dt = 0.02;
+    if (state.lastImuTime !== null) {
+      dt = (nowMs - state.lastImuTime) / 1000;
+      if (!Number.isFinite(dt) || dt <= 0 || dt > 1) {
+        dt = 0.02;
+      }
+    }
+    state.lastImuTime = nowMs;
 
-  state.orientation.roll += gx * dt;
-  state.orientation.pitch += gy * dt;
-  state.orientation.yaw += gz * dt;
+    const gx = imu.gx_dps ?? (imu.gx / 10);
+    const gy = imu.gy_dps ?? (imu.gy / 10);
+    const gz = imu.gz_dps ?? (imu.gz / 10);
 
-  const ax = imu.ax_g ?? (imu.ax / 1000);
-  const ay = imu.ay_g ?? (imu.ay / 1000);
-  const az = imu.az_g ?? (imu.az / 1000);
+    state.orientation.roll += gx * dt;
+    state.orientation.pitch += gy * dt;
+    state.orientation.yaw += gz * dt;
 
-  if (ax !== null && ay !== null && az !== null) {
-    const rollAcc = Math.atan2(ay, az) * RAD_TO_DEG;
-    const pitchAcc = Math.atan2(-ax, Math.sqrt(ay * ay + az * az)) * RAD_TO_DEG;
-    const alpha = 0.96;
-    state.orientation.roll = alpha * state.orientation.roll + (1 - alpha) * rollAcc;
-    state.orientation.pitch = alpha * state.orientation.pitch + (1 - alpha) * pitchAcc;
+    const ax = imu.ax_g ?? (imu.ax / 1000);
+    const ay = imu.ay_g ?? (imu.ay / 1000);
+    const az = imu.az_g ?? (imu.az / 1000);
+
+    if (ax !== null && ay !== null && az !== null) {
+      const rollAcc = Math.atan2(ay, az) * RAD_TO_DEG;
+      const pitchAcc = Math.atan2(-ax, Math.sqrt(ay * ay + az * az)) * RAD_TO_DEG;
+      const alpha = 0.96;
+      state.orientation.roll = alpha * state.orientation.roll + (1 - alpha) * rollAcc;
+      state.orientation.pitch = alpha * state.orientation.pitch + (1 - alpha) * pitchAcc;
+    }
   }
 
   elements.attRoll.textContent = `${formatNumber(state.orientation.roll, 1)}°`;
@@ -417,6 +503,15 @@ function initEventSource() {
     .then((payload) => updateFromTelemetry(payload.state))
     .catch(() => {});
 
+  fetch("/api/attitude/filters")
+    .then((res) => res.json())
+    .then((payload) => {
+      if (payload && Array.isArray(payload.filters)) {
+        setFilterOptions(payload.filters, payload.active);
+      }
+    })
+    .catch(() => {});
+
   const source = new EventSource("/events");
   source.onmessage = (event) => {
     try {
@@ -435,6 +530,15 @@ function initEventSource() {
 window.addEventListener("resize", () => {
   renderMap();
 });
+
+if (elements.attitudeFilter) {
+  elements.attitudeFilter.addEventListener("change", (event) => {
+    const value = event.target.value;
+    if (value) {
+      postFilterSelection(value);
+    }
+  });
+}
 
 setInterval(updateClock, 500);
 

@@ -44,11 +44,257 @@ BAT_STATE_LABELS = {
     3: "CUTOFF",
 }
 
+ATTITUDE_FILTERS = ("madgwick", "mahony", "complementary")
+DEG_TO_RAD = math.pi / 180.0
+RAD_TO_DEG = 180.0 / math.pi
+
+
+def _clamp(value, low, high):
+    return max(low, min(high, value))
+
+
+def _quat_to_euler(q0, q1, q2, q3):
+    roll = math.atan2(2.0 * (q0 * q1 + q2 * q3), 1.0 - 2.0 * (q1 * q1 + q2 * q2))
+    pitch = math.asin(_clamp(2.0 * (q0 * q2 - q3 * q1), -1.0, 1.0))
+    yaw = math.atan2(2.0 * (q0 * q3 + q1 * q2), 1.0 - 2.0 * (q2 * q2 + q3 * q3))
+    return roll * RAD_TO_DEG, pitch * RAD_TO_DEG, yaw * RAD_TO_DEG
+
+
+class ComplementaryFilter:
+    def __init__(self, alpha=0.96):
+        self.alpha = alpha
+        self.roll = 0.0
+        self.pitch = 0.0
+        self.yaw = 0.0
+
+    def reset(self):
+        self.roll = 0.0
+        self.pitch = 0.0
+        self.yaw = 0.0
+
+    def update(self, gx_dps, gy_dps, gz_dps, ax_g, ay_g, az_g, dt):
+        self.roll += gx_dps * dt
+        self.pitch += gy_dps * dt
+        self.yaw += gz_dps * dt
+
+        if ax_g is not None and ay_g is not None and az_g is not None:
+            roll_acc = math.atan2(ay_g, az_g) * RAD_TO_DEG
+            pitch_acc = math.atan2(-ax_g, math.sqrt(ay_g * ay_g + az_g * az_g)) * RAD_TO_DEG
+            alpha = self.alpha
+            self.roll = alpha * self.roll + (1.0 - alpha) * roll_acc
+            self.pitch = alpha * self.pitch + (1.0 - alpha) * pitch_acc
+
+        return self.roll, self.pitch, self.yaw
+
+
+class MahonyFilter:
+    def __init__(self, kp=0.6, ki=0.0):
+        self.kp = kp
+        self.ki = ki
+        self.q0 = 1.0
+        self.q1 = 0.0
+        self.q2 = 0.0
+        self.q3 = 0.0
+        self.i_x = 0.0
+        self.i_y = 0.0
+        self.i_z = 0.0
+
+    def reset(self):
+        self.q0 = 1.0
+        self.q1 = 0.0
+        self.q2 = 0.0
+        self.q3 = 0.0
+        self.i_x = 0.0
+        self.i_y = 0.0
+        self.i_z = 0.0
+
+    def update(self, gx, gy, gz, ax, ay, az, dt):
+        if ax is not None and ay is not None and az is not None:
+            norm = math.sqrt(ax * ax + ay * ay + az * az)
+        else:
+            norm = 0.0
+
+        if norm > 0.0:
+            ax /= norm
+            ay /= norm
+            az /= norm
+
+            vx = 2.0 * (self.q1 * self.q3 - self.q0 * self.q2)
+            vy = 2.0 * (self.q0 * self.q1 + self.q2 * self.q3)
+            vz = self.q0 * self.q0 - self.q1 * self.q1 - self.q2 * self.q2 + self.q3 * self.q3
+
+            ex = (ay * vz - az * vy)
+            ey = (az * vx - ax * vz)
+            ez = (ax * vy - ay * vx)
+
+            if self.ki > 0.0:
+                self.i_x += self.ki * ex * dt
+                self.i_y += self.ki * ey * dt
+                self.i_z += self.ki * ez * dt
+                gx += self.i_x
+                gy += self.i_y
+                gz += self.i_z
+
+            gx += self.kp * ex
+            gy += self.kp * ey
+            gz += self.kp * ez
+
+        q0 = self.q0
+        q1 = self.q1
+        q2 = self.q2
+        q3 = self.q3
+
+        q_dot0 = 0.5 * (-q1 * gx - q2 * gy - q3 * gz)
+        q_dot1 = 0.5 * (q0 * gx + q2 * gz - q3 * gy)
+        q_dot2 = 0.5 * (q0 * gy - q1 * gz + q3 * gx)
+        q_dot3 = 0.5 * (q0 * gz + q1 * gy - q2 * gx)
+
+        q0 += q_dot0 * dt
+        q1 += q_dot1 * dt
+        q2 += q_dot2 * dt
+        q3 += q_dot3 * dt
+
+        norm = math.sqrt(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3)
+        if norm == 0.0:
+            return 0.0, 0.0, 0.0
+
+        self.q0 = q0 / norm
+        self.q1 = q1 / norm
+        self.q2 = q2 / norm
+        self.q3 = q3 / norm
+
+        return _quat_to_euler(self.q0, self.q1, self.q2, self.q3)
+
+
+class MadgwickFilter:
+    def __init__(self, beta=0.1):
+        self.beta = beta
+        self.q0 = 1.0
+        self.q1 = 0.0
+        self.q2 = 0.0
+        self.q3 = 0.0
+
+    def reset(self):
+        self.q0 = 1.0
+        self.q1 = 0.0
+        self.q2 = 0.0
+        self.q3 = 0.0
+
+    def update(self, gx, gy, gz, ax, ay, az, dt):
+        q0 = self.q0
+        q1 = self.q1
+        q2 = self.q2
+        q3 = self.q3
+
+        if ax is not None and ay is not None and az is not None:
+            norm = math.sqrt(ax * ax + ay * ay + az * az)
+        else:
+            norm = 0.0
+
+        if norm > 0.0:
+            ax /= norm
+            ay /= norm
+            az /= norm
+
+            _2q0 = 2.0 * q0
+            _2q1 = 2.0 * q1
+            _2q2 = 2.0 * q2
+            _2q3 = 2.0 * q3
+            _4q0 = 4.0 * q0
+            _4q1 = 4.0 * q1
+            _4q2 = 4.0 * q2
+            _8q1 = 8.0 * q1
+            _8q2 = 8.0 * q2
+            q0q0 = q0 * q0
+            q1q1 = q1 * q1
+            q2q2 = q2 * q2
+            q3q3 = q3 * q3
+
+            s0 = _4q0 * q2q2 + _2q2 * ax + _4q0 * q1q1 - _2q1 * ay
+            s1 = _4q1 * q3q3 - _2q3 * ax + 4.0 * q0q0 * q1 - _2q0 * ay - _4q1 + _8q1 * q1q1 + _8q1 * q2q2 + _4q1 * az
+            s2 = 4.0 * q0q0 * q2 + _2q0 * ax + _4q2 * q3q3 - _2q3 * ay - _4q2 + _8q2 * q1q1 + _8q2 * q2q2 + _4q2 * az
+            s3 = 4.0 * q1q1 * q3 - _2q1 * ax + 4.0 * q2q2 * q3 - _2q2 * ay
+
+            norm_s = math.sqrt(s0 * s0 + s1 * s1 + s2 * s2 + s3 * s3)
+            if norm_s > 0.0:
+                s0 /= norm_s
+                s1 /= norm_s
+                s2 /= norm_s
+                s3 /= norm_s
+        else:
+            s0 = s1 = s2 = s3 = 0.0
+
+        q_dot0 = 0.5 * (-q1 * gx - q2 * gy - q3 * gz) - self.beta * s0
+        q_dot1 = 0.5 * (q0 * gx + q2 * gz - q3 * gy) - self.beta * s1
+        q_dot2 = 0.5 * (q0 * gy - q1 * gz + q3 * gx) - self.beta * s2
+        q_dot3 = 0.5 * (q0 * gz + q1 * gy - q2 * gx) - self.beta * s3
+
+        q0 += q_dot0 * dt
+        q1 += q_dot1 * dt
+        q2 += q_dot2 * dt
+        q3 += q_dot3 * dt
+
+        norm = math.sqrt(q0 * q0 + q1 * q1 + q2 * q2 + q3 * q3)
+        if norm == 0.0:
+            return 0.0, 0.0, 0.0
+
+        self.q0 = q0 / norm
+        self.q1 = q1 / norm
+        self.q2 = q2 / norm
+        self.q3 = q3 / norm
+
+        return _quat_to_euler(self.q0, self.q1, self.q2, self.q3)
+
+
+class AttitudeEstimator:
+    def __init__(self, mode="madgwick"):
+        self.mode = None
+        self._filter = None
+        self._last_t_s = None
+        self.set_mode(mode)
+
+    def set_mode(self, mode):
+        mode = (mode or "").lower()
+        if mode not in ATTITUDE_FILTERS:
+            raise ValueError("Unknown attitude filter: %s" % mode)
+        if mode == self.mode:
+            return
+        if mode == "madgwick":
+            self._filter = MadgwickFilter()
+        elif mode == "mahony":
+            self._filter = MahonyFilter()
+        else:
+            self._filter = ComplementaryFilter()
+        self.mode = mode
+        self._last_t_s = None
+
+    def update(self, t_ms, gx_dps, gy_dps, gz_dps, ax_g, ay_g, az_g):
+        if t_ms is None or gx_dps is None or gy_dps is None or gz_dps is None:
+            return None
+
+        t_s = t_ms / 1000.0
+        dt = 0.02
+        if self._last_t_s is not None:
+            dt = t_s - self._last_t_s
+            if not (0.0 < dt <= 1.0):
+                dt = 0.02
+        self._last_t_s = t_s
+
+        if self.mode == "complementary":
+            return self._filter.update(gx_dps, gy_dps, gz_dps, ax_g, ay_g, az_g, dt)
+
+        gx = gx_dps * DEG_TO_RAD
+        gy = gy_dps * DEG_TO_RAD
+        gz = gz_dps * DEG_TO_RAD
+        return self._filter.update(gx, gy, gz, ax_g, ay_g, az_g, dt)
+
 
 class TelemetryStore:
     def __init__(self):
         self._lock = threading.Lock()
+        self._attitude = AttitudeEstimator()
         self._state = self._blank_state()
+        self._state["attitude"]["filter"] = self._attitude.mode
 
     def _blank_state(self):
         return {
@@ -102,7 +348,23 @@ class TelemetryStore:
                 "bat_state": None,
                 "bat_state_label": None,
             },
+            "attitude": {
+                "roll": None,
+                "pitch": None,
+                "yaw": None,
+                "filter": None,
+            },
         }
+
+    def set_attitude_filter(self, mode):
+        with self._lock:
+            self._attitude.set_mode(mode)
+            self._state["attitude"].update({
+                "roll": None,
+                "pitch": None,
+                "yaw": None,
+                "filter": self._attitude.mode,
+            })
 
     def update(self, parsed, radio_info, raw_info):
         with self._lock:
@@ -156,6 +418,21 @@ class TelemetryStore:
                     ax = parsed.get("ax")
                     ay = parsed.get("ay")
                     az = parsed.get("az")
+                    gx_dps = gx / 10.0 if gx is not None else None
+                    gy_dps = gy / 10.0 if gy is not None else None
+                    gz_dps = gz / 10.0 if gz is not None else None
+                    ax_g = ax / 1000.0 if ax is not None else None
+                    ay_g = ay / 1000.0 if ay is not None else None
+                    az_g = az / 1000.0 if az is not None else None
+                    attitude = self._attitude.update(
+                        parsed.get("t_ms"),
+                        gx_dps,
+                        gy_dps,
+                        gz_dps,
+                        ax_g,
+                        ay_g,
+                        az_g,
+                    )
                     self._state["imu"].update({
                         "t_ms": parsed.get("t_ms"),
                         "gx": gx,
@@ -164,13 +441,21 @@ class TelemetryStore:
                         "ax": ax,
                         "ay": ay,
                         "az": az,
-                        "gx_dps": gx / 10.0 if gx is not None else None,
-                        "gy_dps": gy / 10.0 if gy is not None else None,
-                        "gz_dps": gz / 10.0 if gz is not None else None,
-                        "ax_g": ax / 1000.0 if ax is not None else None,
-                        "ay_g": ay / 1000.0 if ay is not None else None,
-                        "az_g": az / 1000.0 if az is not None else None,
+                        "gx_dps": gx_dps,
+                        "gy_dps": gy_dps,
+                        "gz_dps": gz_dps,
+                        "ax_g": ax_g,
+                        "ay_g": ay_g,
+                        "az_g": az_g,
                     })
+                    if attitude is not None:
+                        roll, pitch, yaw = attitude
+                        self._state["attitude"].update({
+                            "roll": roll,
+                            "pitch": pitch,
+                            "yaw": yaw,
+                            "filter": self._attitude.mode,
+                        })
                 elif payload_type == "bat":
                     vbat_mv = parsed.get("vbat_mv")
                     bat_state = parsed.get("bat_state")
@@ -470,6 +755,11 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             return self._send_json({"state": TELEMETRY.snapshot()})
         if path == "/api/map/status":
             return self._send_json({"status": MAP_DOWNLOADS.snapshot()})
+        if path == "/api/attitude/filters":
+            return self._send_json({
+                "filters": list(ATTITUDE_FILTERS),
+                "active": TELEMETRY.snapshot().get("attitude", {}).get("filter"),
+            })
         if path == "/events":
             return self._serve_events()
         if path.startswith("/tiles/"):
@@ -494,6 +784,20 @@ class GroundStationHandler(BaseHTTPRequestHandler):
         if path == "/api/map/cancel":
             MAP_DOWNLOADS.cancel()
             return self._send_json({"ok": True})
+
+        if path == "/api/attitude/filter":
+            payload = self._read_json() or {}
+            mode = payload.get("filter")
+            try:
+                TELEMETRY.set_attitude_filter(mode)
+            except ValueError as exc:
+                return self._send_json({"ok": False, "error": str(exc)}, status=400)
+            snapshot = TELEMETRY.snapshot()
+            broadcast(snapshot)
+            return self._send_json({
+                "ok": True,
+                "filter": snapshot.get("attitude", {}).get("filter"),
+            })
 
         self.send_error(404, "Not Found")
 

@@ -44,18 +44,26 @@
               <h2>Attitude / Orientation</h2>
               <p class="muted">3D rocket view driven by IMU gyro + accelerometer</p>
             </div>
-            <div class="attitude-readout">
-              <div>
-                <span class="label">Roll</span>
-                <span id="att-roll">--</span>
+            <div class="attitude-meta">
+              <div class="attitude-readout">
+                <div>
+                  <span class="label">Roll</span>
+                  <span id="att-roll">--</span>
+                </div>
+                <div>
+                  <span class="label">Pitch</span>
+                  <span id="att-pitch">--</span>
+                </div>
+                <div>
+                  <span class="label">Yaw</span>
+                  <span id="att-yaw">--</span>
+                </div>
               </div>
-              <div>
-                <span class="label">Pitch</span>
-                <span id="att-pitch">--</span>
-              </div>
-              <div>
-                <span class="label">Yaw</span>
-                <span id="att-yaw">--</span>
+              <div class="attitude-filter">
+                <label for="attitude-filter">Filter</label>
+                <select id="attitude-filter">
+                  <option value="">Loading…</option>
+                </select>
               </div>
             </div>
           </div>

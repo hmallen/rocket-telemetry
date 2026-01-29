@@ -203,6 +203,42 @@ main {
   font-size: 0.9rem;
 }
 
+.attitude-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.attitude-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-end;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.attitude-filter select {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-family: "Space Grotesk", "Trebuchet MS", sans-serif;
+  font-size: 0.85rem;
+  color: var(--ink);
+  background: #fff;
+  text-transform: none;
+  letter-spacing: normal;
+  min-width: 180px;
+}
+
+.attitude-filter select:focus {
+  outline: 2px solid rgba(30, 111, 92, 0.25);
+  outline-offset: 1px;
+}
+
 .attitude-readout .label {
   display: block;
   color: var(--muted);
@@ -316,6 +352,14 @@ main {
 @media (max-width: 640px) {
   .attitude-readout {
     grid-template-columns: repeat(3, minmax(60px, 1fr));
+  }
+
+  .attitude-meta {
+    align-items: flex-start;
+  }
+
+  .attitude-filter {
+    align-items: flex-start;
   }
 
   .canvas-shell {
