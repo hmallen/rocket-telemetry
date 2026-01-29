@@ -496,17 +496,9 @@ void loop() {
   build_and_write_block_from_source(now_ms);
 
 #if ENABLE_LORA
-  // Part 97 telemetry downlink (cleartext callsign embedded by LoraLink).
-  uint32_t spool_drops = 0;
-#if ENABLE_PSRAM_SPOOL
-  spool_drops = spool.drops();
-#endif
   lora.poll_telem(now_ms,
                   last_press_pa_x10,
-                  last_temp_c_x100,
-                  ring.drops(),
-                  spool_drops,
-                  sdlog.write_errs());
+                  last_temp_c_x100);
 #endif
 
   // Controlled SD sync

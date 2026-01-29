@@ -277,6 +277,29 @@ class SX1278:
 def safe_ascii(b):
     return "".join(chr(x) if 32 <= x <= 126 else "." for x in b)
 
+def decode_payload(payload):
+    if len(payload) < 2:
+        return None
+    if payload[0] != 0xA1:
+        return None
+    typ = payload[1]
+    if typ == 0:
+        if len(payload) < 12:
+            return "PROTO A1 DATA (short)"
+        t_ms = int.from_bytes(payload[2:6], "little", signed=False)
+        press_pa_x10 = int.from_bytes(payload[6:10], "little", signed=True)
+        temp_c_x100 = int.from_bytes(payload[10:12], "little", signed=True)
+        return "DATA t_ms=%d press_pa_x10=%d temp_c_x100=%d" % (t_ms, press_pa_x10, temp_c_x100)
+    if typ == 1:
+        if len(payload) < 3:
+            return "PROTO A1 ID (short)"
+        n = payload[2]
+        if len(payload) < 3 + n:
+            return "PROTO A1 ID (short)"
+        callsign = payload[3:3 + n].decode("ascii", errors="replace")
+        return "ID callsign=%s" % callsign
+    return "PROTO A1 type=%d" % typ
+
 spi = SPI(
     0,
     baudrate=1_000_000,
@@ -307,6 +330,9 @@ try:
 
             print("RX %d bytes | CRC_OK=%s | RSSI=%d dBm | SNR=%.2f dB"
                   % (len(payload), "YES" if crc_ok else "NO", rssi, snr))
+            dec = decode_payload(payload)
+            if dec:
+                print("DECODE:", dec)
             print("ASCII:", safe_ascii(payload))
             print("HEX:  ", payload.hex())
             print("-" * 50)

@@ -21,10 +21,7 @@ public:
   // Callsign is always present as required station identification. No encryption or obfuscation.
   void poll_telem(uint32_t now_ms,
                   int32_t press_pa_x10,
-                  int16_t temp_c_x100,
-                  uint32_t ring_drops,
-                  uint32_t spool_drops,
-                  uint32_t sd_errs);
+                  int16_t temp_c_x100);
 
 private:
   bool validate_config_() const;
@@ -32,12 +29,10 @@ private:
   void log_params_() const;
   void enter_silence_();
   void on_tx_done_();
-  bool start_tx_(uint32_t now_ms,
-                 int32_t press_pa_x10,
-                 int16_t temp_c_x100,
-                 uint32_t ring_drops,
-                 uint32_t spool_drops,
-                 uint32_t sd_errs);
+  bool start_id_tx_(uint32_t now_ms);
+  bool start_data_tx_(uint32_t now_ms,
+                      int32_t press_pa_x10,
+                      int16_t temp_c_x100);
   void schedule_retry_(uint32_t now_ms);
 
   bool began_ = false;
@@ -54,20 +49,19 @@ private:
   uint32_t retry_after_ms_ = 0;
   uint8_t retries_left_ = 0;
   uint8_t consec_fail_ = 0;
+  bool tx_is_id_ = false;
 
-  uint32_t last_ring_drops_ = 0;
-  uint32_t last_spool_drops_ = 0;
-  uint32_t last_sd_errs_ = 0;
+  uint32_t last_id_tx_ms_ = 0;
+  uint32_t id_retry_after_ms_ = 0;
+  uint8_t id_retries_left_ = 0;
+
   int32_t  last_press_pa_x10_ = 0;
   int16_t  last_temp_c_x100_ = 0;
   bool have_last_ = false;
 
-  uint32_t pending_ring_drops_ = 0;
-  uint32_t pending_spool_drops_ = 0;
-  uint32_t pending_sd_errs_ = 0;
   int32_t  pending_press_pa_x10_ = 0;
   int16_t  pending_temp_c_x100_ = 0;
   bool pending_valid_ = false;
 
-  char tx_buf_[240] = {0};
+  uint8_t tx_buf_[32] = {0};
 };
