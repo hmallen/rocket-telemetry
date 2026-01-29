@@ -107,13 +107,14 @@ class SPI:
         baudrate=1_000_000,
         polarity=0,
         phase=0,
+        no_cs=False,
     ):
         self._spi = spidev.SpiDev()
         self._spi.open(0, int(spi_id))
         self._spi.max_speed_hz = int(baudrate)
         self._spi.mode = ((1 if polarity else 0) << 1) | (1 if phase else 0)
         try:
-            self._spi.no_cs = False
+            self._spi.no_cs = bool(no_cs)
         except Exception:
             pass
 
@@ -135,6 +136,7 @@ PIN_RST   = 25
 PIN_DIO0  = 22
 
 USE_HW_CS = True
+SPI_BAUDRATE = 100_000
 
 LED = Pin("LED", Pin.OUT)
 LED.off()
@@ -308,19 +310,48 @@ def decode_payload(payload):
         return "ID callsign=%s" % callsign
     return "PROTO A1 type=%d" % typ
 
-spi = SPI(
-    0,
-    baudrate=1_000_000,
-    polarity=0,
-    phase=0,
-)
+def init_radio(use_hw_cs):
+    # If hardware CS is unreliable, we can disable kernel-driven chip select and
+    # drive GPIO8 manually as a normal output (software CS on the same pin).
+    spi = SPI(
+        0,
+        baudrate=SPI_BAUDRATE,
+        polarity=0,
+        phase=0,
+        no_cs=(not use_hw_cs),
+    )
 
-radio = SX1278(
-    spi=spi,
-    nss=Pin(PIN_NSS) if USE_HW_CS else Pin(PIN_NSS, Pin.OUT),
-    rst=Pin(PIN_RST, Pin.OUT),
-    dio0=Pin(PIN_DIO0, Pin.IN),
-)
+    nss = Pin(PIN_NSS) if use_hw_cs else Pin(PIN_NSS, Pin.OUT, value=1)
+    radio = SX1278(
+        spi=spi,
+        nss=nss,
+        rst=Pin(PIN_RST, Pin.OUT),
+        dio0=Pin(PIN_DIO0, Pin.IN),
+    )
+    return spi, radio
+
+
+spi, radio = init_radio(USE_HW_CS)
+
+radio.reset()
+raw = radio.spi.xfer(bytearray([REG_VERSION & 0x7F, 0x00]))
+ver = raw[1]
+print("RegVersion raw:", raw.hex())
+print("RegVersion: 0x%02X" % ver)
+
+if USE_HW_CS and ver not in (0x12,):
+    print("RegVersion unexpected; retrying with software CS on GPIO%d" % PIN_NSS)
+    try:
+        spi.close()
+    except Exception:
+        pass
+    USE_HW_CS = False
+    spi, radio = init_radio(USE_HW_CS)
+    radio.reset()
+    raw = radio.spi.xfer(bytearray([REG_VERSION & 0x7F, 0x00]))
+    ver = raw[1]
+    print("RegVersion raw:", raw.hex())
+    print("RegVersion: 0x%02X" % ver)
 
 radio.init_rx_433()
 
