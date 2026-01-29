@@ -343,6 +343,81 @@ def decode_payload(payload):
         return "BAT t_ms=%d vbat_v=%.3f state=%d" % (t_ms, vbat_mv / 1000.0, bat_state)
     return "PROTO A1 type=%d" % typ
 
+
+def parse_payload(payload):
+    if len(payload) < 2:
+        return None
+    if payload[0] != 0xA1:
+        return None
+    typ = payload[1]
+    if typ == 0:
+        if len(payload) < 12:
+            return None
+        t_ms = int.from_bytes(payload[2:6], "little", signed=False)
+        press_pa_x10 = int.from_bytes(payload[6:10], "little", signed=True)
+        temp_c_x100 = int.from_bytes(payload[10:12], "little", signed=True)
+        return {
+            "type": "alt",
+            "t_ms": t_ms,
+            "press_pa_x10": press_pa_x10,
+            "temp_c_x100": temp_c_x100,
+        }
+    if typ == 1:
+        if len(payload) < 3:
+            return None
+        n = payload[2]
+        if len(payload) < 3 + n:
+            return None
+        callsign = payload[3:3 + n].decode("ascii", errors="replace")
+        return {"type": "id", "callsign": callsign}
+    if typ == 2:
+        if len(payload) < 18:
+            return None
+        t_ms = int.from_bytes(payload[2:6], "little", signed=False)
+        lat_e7 = int.from_bytes(payload[6:10], "little", signed=True)
+        lon_e7 = int.from_bytes(payload[10:14], "little", signed=True)
+        height_mm = int.from_bytes(payload[14:18], "little", signed=True)
+        return {
+            "type": "gps",
+            "t_ms": t_ms,
+            "lat_e7": lat_e7,
+            "lon_e7": lon_e7,
+            "height_mm": height_mm,
+        }
+    if typ == 3:
+        if len(payload) < 18:
+            return None
+        t_ms = int.from_bytes(payload[2:6], "little", signed=False)
+        gx = int.from_bytes(payload[6:8], "little", signed=True)
+        gy = int.from_bytes(payload[8:10], "little", signed=True)
+        gz = int.from_bytes(payload[10:12], "little", signed=True)
+        ax = int.from_bytes(payload[12:14], "little", signed=True)
+        ay = int.from_bytes(payload[14:16], "little", signed=True)
+        az = int.from_bytes(payload[16:18], "little", signed=True)
+        return {
+            "type": "imu",
+            "t_ms": t_ms,
+            "gx": gx,
+            "gy": gy,
+            "gz": gz,
+            "ax": ax,
+            "ay": ay,
+            "az": az,
+        }
+    if typ == 4:
+        if len(payload) < 9:
+            return None
+        t_ms = int.from_bytes(payload[2:6], "little", signed=False)
+        vbat_mv = int.from_bytes(payload[6:8], "little", signed=False)
+        bat_state = int(payload[8])
+        return {
+            "type": "bat",
+            "t_ms": t_ms,
+            "vbat_mv": vbat_mv,
+            "bat_state": bat_state,
+        }
+    return {"type": "unknown", "type_id": typ}
+
 def init_radio(use_hw_cs):
     # If hardware CS is unreliable, we can disable kernel-driven chip select and
     # drive GPIO8 manually as a normal output (software CS on the same pin).
@@ -364,76 +439,91 @@ def init_radio(use_hw_cs):
     return spi, radio
 
 
-spi, radio = init_radio(USE_HW_CS)
+def setup_radio():
+    use_hw_cs = USE_HW_CS
+    spi, radio = init_radio(use_hw_cs)
 
-radio.reset()
-raw = radio.spi.xfer(bytearray([REG_VERSION & 0x7F, 0x00]))
-ver = raw[1]
-print("RegVersion raw:", raw.hex())
-print("RegVersion: 0x%02X" % ver)
-
-if USE_HW_CS and ver not in (0x12,):
-    print("RegVersion unexpected; retrying with software CS on GPIO%d" % PIN_NSS)
-    try:
-        spi.close()
-    except Exception:
-        pass
-    USE_HW_CS = False
-    spi, radio = init_radio(USE_HW_CS)
     radio.reset()
     raw = radio.spi.xfer(bytearray([REG_VERSION & 0x7F, 0x00]))
     ver = raw[1]
     print("RegVersion raw:", raw.hex())
     print("RegVersion: 0x%02X" % ver)
 
-radio.init_rx_433()
+    if use_hw_cs and ver not in (0x12,):
+        print("RegVersion unexpected; retrying with software CS on GPIO%d" % PIN_NSS)
+        try:
+            spi.close()
+        except Exception:
+            pass
+        use_hw_cs = False
+        spi, radio = init_radio(use_hw_cs)
+        radio.reset()
+        raw = radio.spi.xfer(bytearray([REG_VERSION & 0x7F, 0x00]))
+        ver = raw[1]
+        print("RegVersion raw:", raw.hex())
+        print("RegVersion: 0x%02X" % ver)
 
-# -------- main loop --------
-try:
-    while True:
-        pkt = radio.poll_packet()
-        if pkt:
-            payload, crc_ok, rssi, snr = pkt
+    radio.init_rx_433()
+    return spi, radio
 
-            if crc_ok:
-                LED.on()
-            else:
-                LED.off()
 
-            print("RX %d bytes | CRC_OK=%s | RSSI=%d dBm | SNR=%.2f dB"
-                  % (len(payload), "YES" if crc_ok else "NO", rssi, snr))
-            dec = decode_payload(payload)
-            if dec:
-                print("DECODE:", dec)
-            print("ASCII:", safe_ascii(payload))
-            print("HEX:  ", payload.hex())
-            print("-" * 50)
-
-            # LED on briefly, then off
-            if crc_ok:
-                time.sleep_ms(100)
-                LED.off()
-
-        time.sleep_ms(10)
-except KeyboardInterrupt:
-    pass
-finally:
-    try:
-        LED.off()
-    except Exception:
-        pass
+def main():
+    spi = None
+    radio = None
 
     try:
-        radio.cs(1)
-    except Exception:
-        pass
+        spi, radio = setup_radio()
 
-    try:
-        spi.close()
-    except Exception:
-        pass
+        while True:
+            pkt = radio.poll_packet()
+            if pkt:
+                payload, crc_ok, rssi, snr = pkt
 
-    try:
-        GPIO.cleanup()
-    except Exception:
+                if crc_ok:
+                    LED.on()
+                else:
+                    LED.off()
+
+                print("RX %d bytes | CRC_OK=%s | RSSI=%d dBm | SNR=%.2f dB"
+                      % (len(payload), "YES" if crc_ok else "NO", rssi, snr))
+                dec = decode_payload(payload)
+                if dec:
+                    print("DECODE:", dec)
+                print("ASCII:", safe_ascii(payload))
+                print("HEX:  ", payload.hex())
+                print("-" * 50)
+
+                # LED on briefly, then off
+                if crc_ok:
+                    time.sleep_ms(100)
+                    LED.off()
+
+            time.sleep_ms(10)
+    except KeyboardInterrupt:
         pass
+    finally:
+        try:
+            LED.off()
+        except Exception:
+            pass
+
+        if radio is not None:
+            try:
+                radio.cs(1)
+            except Exception:
+                pass
+
+        if spi is not None:
+            try:
+                spi.close()
+            except Exception:
+                pass
+
+        try:
+            GPIO.cleanup()
+        except Exception:
+            pass
+
+
+if __name__ == "__main__":
+    main()

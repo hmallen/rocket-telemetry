@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Rocket Ground Station</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <header class="top-bar">
+      <div>
+        <p class="eyebrow">Ground Station</p>
+        <h1>Rocket Telemetry Console</h1>
+        <p class="subhead">LoRa downlink · real-time attitude, navigation, and system status</p>
+      </div>
+      <div class="status-panel">
+        <div class="status-pill">
+          <span id="conn-dot" class="status-dot"></span>
+          <span id="conn-status">Connecting</span>
+        </div>
+        <div class="status-grid">
+          <div>
+            <span class="label">Packets</span>
+            <span id="packet-count">0</span>
+          </div>
+          <div>
+            <span class="label">Last Update</span>
+            <span id="last-update">--</span>
+          </div>
+          <div>
+            <span class="label">Callsign</span>
+            <span id="callsign">--</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main>
+      <section class="visuals">
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Attitude / Orientation</h2>
+              <p class="muted">3D rocket view driven by IMU gyro + accelerometer</p>
+            </div>
+            <div class="attitude-readout">
+              <div>
+                <span class="label">Roll</span>
+                <span id="att-roll">--</span>
+              </div>
+              <div>
+                <span class="label">Pitch</span>
+                <span id="att-pitch">--</span>
+              </div>
+              <div>
+                <span class="label">Yaw</span>
+                <span id="att-yaw">--</span>
+              </div>
+            </div>
+          </div>
+          <div class="canvas-shell" id="rocket-shell">
+            <canvas id="rocket-canvas"></canvas>
+            <div class="canvas-overlay">
+              <span>IMU t=</span>
+              <span id="imu-time">--</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-header">
+            <div>
+              <h2>Flight Map</h2>
+              <p class="muted">Local grid projection from live GPS fix</p>
+            </div>
+            <div class="attitude-readout">
+              <div>
+                <span class="label">Lat</span>
+                <span id="gps-lat">--</span>
+              </div>
+              <div>
+                <span class="label">Lon</span>
+                <span id="gps-lon">--</span>
+              </div>
+              <div>
+                <span class="label">Alt</span>
+                <span id="gps-alt">--</span>
+              </div>
+            </div>
+          </div>
+          <div class="canvas-shell" id="map-shell">
+            <canvas id="map-canvas"></canvas>
+            <div class="canvas-overlay" id="map-overlay">Awaiting GPS fix</div>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel telemetry-panel">
+        <div class="panel-header">
+          <div>
+            <h2>Telemetry Readout</h2>
+            <p class="muted">All decoded values from the latest LoRa frames</p>
+          </div>
+          <div class="status-pill compact">
+            <span class="label">CRC</span>
+            <span id="crc-status">--</span>
+          </div>
+        </div>
+
+        <div class="telemetry-grid">
+          <div class="telemetry-block">
+            <h3>Radio Link</h3>
+            <dl>
+              <div><dt>RSSI</dt><dd id="radio-rssi">--</dd></div>
+              <div><dt>SNR</dt><dd id="radio-snr">--</dd></div>
+              <div><dt>Payload</dt><dd id="radio-payload">--</dd></div>
+              <div><dt>Raw ASCII</dt><dd class="mono" id="radio-ascii">--</dd></div>
+              <div><dt>Raw HEX</dt><dd class="mono" id="radio-hex">--</dd></div>
+            </dl>
+          </div>
+
+          <div class="telemetry-block">
+            <h3>GPS</h3>
+            <dl>
+              <div><dt>Fix Time</dt><dd id="gps-time">--</dd></div>
+              <div><dt>Lat (deg)</dt><dd id="gps-lat-deg">--</dd></div>
+              <div><dt>Lon (deg)</dt><dd id="gps-lon-deg">--</dd></div>
+              <div><dt>Lat (e7)</dt><dd id="gps-lat-e7">--</dd></div>
+              <div><dt>Lon (e7)</dt><dd id="gps-lon-e7">--</dd></div>
+              <div><dt>Alt (m)</dt><dd id="gps-alt-m">--</dd></div>
+              <div><dt>Alt (mm)</dt><dd id="gps-alt-mm">--</dd></div>
+            </dl>
+          </div>
+
+          <div class="telemetry-block">
+            <h3>Altimeter</h3>
+            <dl>
+              <div><dt>Sample Time</dt><dd id="alt-time">--</dd></div>
+              <div><dt>Pressure (Pa)</dt><dd id="alt-press-pa">--</dd></div>
+              <div><dt>Pressure (kPa)</dt><dd id="alt-press-kpa">--</dd></div>
+              <div><dt>Temp (°C)</dt><dd id="alt-temp-c">--</dd></div>
+              <div><dt>Press (x10)</dt><dd id="alt-press-x10">--</dd></div>
+              <div><dt>Temp (x100)</dt><dd id="alt-temp-x100">--</dd></div>
+            </dl>
+          </div>
+
+          <div class="telemetry-block">
+            <h3>IMU</h3>
+            <dl>
+              <div><dt>Sample Time</dt><dd id="imu-time-raw">--</dd></div>
+              <div><dt>Gyro (dps)</dt><dd id="imu-gyro">--</dd></div>
+              <div><dt>Accel (g)</dt><dd id="imu-accel">--</dd></div>
+              <div><dt>Gyro raw</dt><dd id="imu-gyro-raw">--</dd></div>
+              <div><dt>Accel raw</dt><dd id="imu-accel-raw">--</dd></div>
+            </dl>
+          </div>
+
+          <div class="telemetry-block">
+            <h3>Battery</h3>
+            <dl>
+              <div><dt>Sample Time</dt><dd id="bat-time">--</dd></div>
+              <div><dt>Voltage (V)</dt><dd id="bat-voltage">--</dd></div>
+              <div><dt>Voltage (mV)</dt><dd id="bat-voltage-mv">--</dd></div>
+              <div><dt>State</dt><dd id="bat-state">--</dd></div>
+            </dl>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>Rocket telemetry ground station · receiver-side display</span>
+    </footer>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
