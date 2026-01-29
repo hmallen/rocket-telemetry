@@ -302,6 +302,8 @@ void loop() {
   static int16_t last_temp_c_x100 = 0;
   static uint32_t last_stats_ms = 0;
   static bool primary_3d_beeped = false;
+  static ImuSample last_imu_sample{};
+  static bool have_imu_sample = false;
 
 #if DEBUG_MODE
   static uint32_t last_dbg_ms = 0;
@@ -431,6 +433,8 @@ void loop() {
       ImuSample s{};
       if (sensors.read_imu(s)) {
         ring_write_imu(last_imu_us, s);
+        last_imu_sample = s;
+        have_imu_sample = true;
 #if DEBUG_MODE
         last_imu = s;
         last_imu_dbg_us = last_imu_us;
@@ -483,6 +487,19 @@ void loop() {
   }
 #endif
 
+  const GnssTime* lora_gps = nullptr;
+#if ENABLE_GNSS
+  {
+    const bool primary_fresh = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const bool backup_fresh  = gnss_backup.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    if (!gnss_use_backup_as_primary) {
+      lora_gps = primary_fresh ? &gnss_primary.time() : (backup_fresh ? &gnss_backup.time() : nullptr);
+    } else {
+      lora_gps = backup_fresh ? &gnss_backup.time() : (primary_fresh ? &gnss_primary.time() : nullptr);
+    }
+  }
+#endif
+
   // Periodic stats record
   if ((uint32_t)(now_ms - last_stats_ms) >= 500) {
     ring_write_stats();
@@ -498,7 +515,9 @@ void loop() {
 #if ENABLE_LORA
   lora.poll_telem(now_ms,
                   last_press_pa_x10,
-                  last_temp_c_x100);
+                  last_temp_c_x100,
+                  lora_gps,
+                  have_imu_sample ? &last_imu_sample : nullptr);
 #endif
 
   // Controlled SD sync

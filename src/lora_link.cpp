@@ -44,6 +44,10 @@ static void write_u16_le(uint8_t* p, uint16_t v) {
   p[1] = (uint8_t)((v >> 8) & 0xFFu);
 }
 
+ static void write_i16_le(uint8_t* p, int16_t v) {
+   write_u16_le(p, (uint16_t)v);
+ }
+
 static void write_u32_le(uint8_t* p, uint32_t v) {
   p[0] = (uint8_t)(v & 0xFFu);
   p[1] = (uint8_t)((v >> 8) & 0xFFu);
@@ -130,7 +134,9 @@ bool LoraLink::tx_enabled() const {
 
 void LoraLink::poll_telem(uint32_t now_ms,
                           int32_t press_pa_x10,
-                          int16_t temp_c_x100) {
+                          int16_t temp_c_x100,
+                          const GnssTime* gps,
+                          const ImuSample* imu) {
   if (!began_) return;
 
   // Hard failsafe: maximum mission transmit duration.
@@ -201,56 +207,97 @@ void LoraLink::poll_telem(uint32_t now_ms,
 
   if (!tx_enabled_) return;
 
-  const bool changed = (!have_last_) ||
-    (abs_i32(press_pa_x10 - last_press_pa_x10_) >= LORA_MEANINGFUL_PRESS_DELTA_PA_X10) ||
-    (abs_i16((int16_t)(temp_c_x100 - last_temp_c_x100_)) >= LORA_MEANINGFUL_TEMP_DELTA_C_X100);
+   const bool id_due = (LORA_HEARTBEAT_MS != 0) &&
+     ((last_id_tx_ms_ == 0) || ((uint32_t)(now_ms - last_id_tx_ms_) >= LORA_HEARTBEAT_MS));
+   const bool id_retry_ready = (id_retry_after_ms_ != 0) && ((int32_t)(now_ms - id_retry_after_ms_) >= 0);
+   const bool want_id = id_due || id_retry_ready;
 
-  if (!changed) {
-    if (LORA_HEARTBEAT_MS == 0) return;
-    if ((uint32_t)(now_ms - last_tx_ms_) < LORA_HEARTBEAT_MS) return;
-  }
+   if ((uint32_t)(now_ms - last_tx_ms_) < LORA_MIN_TX_INTERVAL_MS) return;
+   if (next_tx_ms_ != 0 && (int32_t)(now_ms - next_tx_ms_) < 0) return;
 
-  if (changed || (LORA_HEARTBEAT_MS != 0 && (uint32_t)(now_ms - last_tx_ms_) >= LORA_HEARTBEAT_MS)) {
-    const bool pending_differs = (!pending_valid_) ||
-      (press_pa_x10 != pending_press_pa_x10_) ||
-      (temp_c_x100 != pending_temp_c_x100_);
-    if (pending_differs) {
-      pending_press_pa_x10_ = press_pa_x10;
-      pending_temp_c_x100_ = temp_c_x100;
-      pending_valid_ = true;
-      retries_left_ = LORA_RETRY_LIMIT;
-    }
-  }
+   if (want_id && !(id_retry_after_ms_ != 0 && (int32_t)(now_ms - id_retry_after_ms_) < 0)) {
+     if (!start_id_tx_(now_ms)) {
+       if (id_retries_left_ == 0) id_retries_left_ = LORA_RETRY_LIMIT;
+       if (id_retries_left_ != 0) {
+         const uint8_t attempt = (uint8_t)(LORA_RETRY_LIMIT - id_retries_left_ + 1);
+         const uint32_t backoff = LORA_RETRY_BASE_MS * (uint32_t)attempt;
+         id_retries_left_--;
+         id_retry_after_ms_ = now_ms + backoff;
+       }
+     }
+     return;
+   }
 
-  const bool id_due = (LORA_HEARTBEAT_MS != 0) &&
-    ((last_id_tx_ms_ == 0) || ((uint32_t)(now_ms - last_id_tx_ms_) >= LORA_HEARTBEAT_MS));
-  const bool id_retry_ready = (id_retry_after_ms_ != 0) && ((int32_t)(now_ms - id_retry_after_ms_) >= 0);
-  const bool want_id = id_due || id_retry_ready;
+   if (pending_valid_) {
+     if (retry_after_ms_ != 0 && (int32_t)(now_ms - retry_after_ms_) < 0) return;
 
-  if ((uint32_t)(now_ms - last_tx_ms_) < LORA_MIN_TX_INTERVAL_MS) return;
-  if (next_tx_ms_ != 0 && (int32_t)(now_ms - next_tx_ms_) < 0) return;
+     lora_tx_done_isr = false;
+     tx_start_ms_ = now_ms;
+     tx_active_ = true;
+     tx_is_id_ = false;
+     tx_type_ = pending_type_;
+     tx_len_ = pending_len_;
 
-  if (want_id && !(id_retry_after_ms_ != 0 && (int32_t)(now_ms - id_retry_after_ms_) < 0)) {
-    if (!start_id_tx_(now_ms)) {
-      if (id_retries_left_ == 0) id_retries_left_ = LORA_RETRY_LIMIT;
-      if (id_retries_left_ != 0) {
-        const uint8_t attempt = (uint8_t)(LORA_RETRY_LIMIT - id_retries_left_ + 1);
-        const uint32_t backoff = LORA_RETRY_BASE_MS * (uint32_t)attempt;
-        id_retries_left_--;
-        id_retry_after_ms_ = now_ms + backoff;
-      }
-    }
-    return;
-  }
+     const int state = radio.startTransmit(tx_buf_, pending_len_);
+     if (state != 0) {
+       tx_active_ = false;
+       DBG_PRINTF("lora: startTransmit err %d\n", state);
+       schedule_retry_(now_ms);
+     }
+     return;
+   }
 
-  if (!pending_valid_) return;
-  if (retry_after_ms_ != 0 && (int32_t)(now_ms - retry_after_ms_) < 0) return;
+   const uint32_t gps_int_ms = LORA_GPS_INTERVAL_MS;
+   const uint32_t alt_int_ms = LORA_ALT_INTERVAL_MS;
+   const uint32_t imu_int_ms = LORA_IMU_INTERVAL_MS;
 
-  if (!start_data_tx_(now_ms,
-                      pending_press_pa_x10_,
-                      pending_temp_c_x100_)) {
-    schedule_retry_(now_ms);
-  }
+   int32_t gps_late = -2147483647;
+   int32_t alt_late = -2147483647;
+   int32_t imu_late = -2147483647;
+
+   if (gps != nullptr && gps_int_ms != 0) {
+     if (last_gps_tx_ms_ == 0) gps_late = 0;
+     else gps_late = (int32_t)((uint32_t)(now_ms - last_gps_tx_ms_) - gps_int_ms);
+   }
+   if (alt_int_ms != 0) {
+     if (last_alt_tx_ms_ == 0) alt_late = 0;
+     else alt_late = (int32_t)((uint32_t)(now_ms - last_alt_tx_ms_) - alt_int_ms);
+   }
+   if (imu != nullptr && imu_int_ms != 0) {
+     if (last_imu_tx_ms_ == 0) imu_late = 0;
+     else imu_late = (int32_t)((uint32_t)(now_ms - last_imu_tx_ms_) - imu_int_ms);
+   }
+
+   const bool gps_due = (gps_late >= 0);
+   const bool alt_due = (alt_late >= 0);
+   const bool imu_due = (imu_late >= 0);
+
+   uint8_t pick = 0xFF;
+   int32_t best_late = -2147483647;
+   if (gps_due && gps_late >= best_late) { best_late = gps_late; pick = 2; }
+   if (alt_due && alt_late >= best_late) { best_late = alt_late; pick = 0; }
+   if (imu_due && imu_late >= best_late) { best_late = imu_late; pick = 3; }
+
+   if (pick == 0xFF) return;
+
+   pending_valid_ = true;
+   pending_type_ = pick;
+   retries_left_ = LORA_RETRY_LIMIT;
+   retry_after_ms_ = 0;
+
+   bool ok = false;
+   if (pick == 0) {
+     ok = start_alt_tx_(now_ms, press_pa_x10, temp_c_x100);
+   } else if (pick == 2) {
+     ok = start_gps_tx_(now_ms, *gps);
+   } else if (pick == 3) {
+     ok = start_imu_tx_(now_ms, *imu);
+   }
+
+   if (!ok) {
+     schedule_retry_(now_ms);
+   }
+   return;
 }
 
 bool LoraLink::validate_config_() const {
@@ -307,6 +354,8 @@ void LoraLink::enter_silence_() {
   retry_after_ms_ = 0;
   retries_left_ = 0;
   pending_valid_ = false;
+  pending_type_ = 0;
+  pending_len_ = 0;
   tx_is_id_ = false;
   id_retry_after_ms_ = 0;
   id_retries_left_ = 0;
@@ -326,10 +375,19 @@ void LoraLink::on_tx_done_() {
     id_retry_after_ms_ = 0;
     id_retries_left_ = 0;
   } else {
+    if (tx_type_ == 0) {
+      last_alt_tx_ms_ = last_tx_ms_;
+    } else if (tx_type_ == 2) {
+      last_gps_tx_ms_ = last_tx_ms_;
+    } else if (tx_type_ == 3) {
+      last_imu_tx_ms_ = last_tx_ms_;
+    }
     pending_valid_ = false;
   }
 
   tx_is_id_ = false;
+  tx_type_ = 0;
+  tx_len_ = 0;
 }
 
 bool LoraLink::start_id_tx_(uint32_t now_ms) {
@@ -361,7 +419,7 @@ bool LoraLink::start_id_tx_(uint32_t now_ms) {
   return true;
 }
 
-bool LoraLink::start_data_tx_(uint32_t now_ms,
+bool LoraLink::start_alt_tx_(uint32_t now_ms,
                              int32_t press_pa_x10,
                              int16_t temp_c_x100) {
   if (!tx_enabled_) return false;
@@ -373,10 +431,16 @@ bool LoraLink::start_data_tx_(uint32_t now_ms,
   write_u16_le(&tx_buf_[10], (uint16_t)temp_c_x100);
   const size_t n = 12;
 
+  pending_valid_ = true;
+  pending_type_ = 0;
+  pending_len_ = n;
+
   lora_tx_done_isr = false;
   tx_start_ms_ = now_ms;
   tx_active_ = true;
   tx_is_id_ = false;
+  tx_type_ = 0;
+  tx_len_ = n;
 
   int state = radio.startTransmit(tx_buf_, n);
   if (state != 0) {
@@ -387,8 +451,89 @@ bool LoraLink::start_data_tx_(uint32_t now_ms,
 
   last_press_pa_x10_ = press_pa_x10;
   last_temp_c_x100_ = temp_c_x100;
-  have_last_ = true;
+  have_last_alt_ = true;
   return true;
+}
+
+bool LoraLink::start_gps_tx_(uint32_t now_ms,
+                            const GnssTime& gps) {
+  if (!tx_enabled_) return false;
+
+  tx_buf_[0] = 0xA1;
+  tx_buf_[1] = 2;
+  write_u32_le(&tx_buf_[2], (uint32_t)now_ms);
+  write_u32_le(&tx_buf_[6], (uint32_t)gps.lat_e7);
+  write_u32_le(&tx_buf_[10], (uint32_t)gps.lon_e7);
+  write_u32_le(&tx_buf_[14], (uint32_t)gps.height_mm);
+  const size_t n = 18;
+
+  pending_valid_ = true;
+  pending_type_ = 2;
+  pending_len_ = n;
+
+  lora_tx_done_isr = false;
+  tx_start_ms_ = now_ms;
+  tx_active_ = true;
+  tx_is_id_ = false;
+  tx_type_ = 2;
+  tx_len_ = n;
+
+  int state = radio.startTransmit(tx_buf_, n);
+  if (state != 0) {
+    tx_active_ = false;
+    DBG_PRINTF("lora: startTransmit err %d\n", state);
+    return false;
+  }
+
+  return true;
+}
+
+bool LoraLink::start_imu_tx_(uint32_t now_ms,
+                            const ImuSample& imu) {
+  if (!tx_enabled_) return false;
+
+  tx_buf_[0] = 0xA1;
+  tx_buf_[1] = 3;
+  write_u32_le(&tx_buf_[2], (uint32_t)now_ms);
+  write_i16_le(&tx_buf_[6], imu.gx);
+  write_i16_le(&tx_buf_[8], imu.gy);
+  write_i16_le(&tx_buf_[10], imu.gz);
+  write_i16_le(&tx_buf_[12], imu.ax);
+  write_i16_le(&tx_buf_[14], imu.ay);
+  write_i16_le(&tx_buf_[16], imu.az);
+  const size_t n = 18;
+
+  pending_valid_ = true;
+  pending_type_ = 3;
+  pending_len_ = n;
+
+  lora_tx_done_isr = false;
+  tx_start_ms_ = now_ms;
+  tx_active_ = true;
+  tx_is_id_ = false;
+  tx_type_ = 3;
+  tx_len_ = n;
+
+  int state = radio.startTransmit(tx_buf_, n);
+  if (state != 0) {
+    tx_active_ = false;
+    DBG_PRINTF("lora: startTransmit err %d\n", state);
+    return false;
+  }
+
+  return true;
+}
+
+void LoraLink::consume_pending_(uint32_t now_ms) {
+  if (!pending_valid_) return;
+
+  if (pending_type_ == 0) {
+    last_alt_tx_ms_ = now_ms;
+  } else if (pending_type_ == 2) {
+    last_gps_tx_ms_ = now_ms;
+  } else if (pending_type_ == 3) {
+    last_imu_tx_ms_ = now_ms;
+  }
 }
 
 void LoraLink::schedule_retry_(uint32_t now_ms) {
@@ -400,12 +545,7 @@ void LoraLink::schedule_retry_(uint32_t now_ms) {
   }
 
   if (retries_left_ == 0) {
-    // Fail toward silence: do not persist on the same payload indefinitely.
-    // Treat the pending payload as "consumed" so we won't immediately re-arm retries
-    // until meaningful data changes again.
-    last_press_pa_x10_ = pending_press_pa_x10_;
-    last_temp_c_x100_ = pending_temp_c_x100_;
-    have_last_ = true;
+    consume_pending_(now_ms);
     last_tx_ms_ = now_ms;
     pending_valid_ = false;
     enter_silence_();
