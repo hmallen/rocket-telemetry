@@ -35,7 +35,11 @@ static LoraLink lora;
 static uint32_t block_seq = 0;
 
 static inline void buzzer_set(bool on) {
+ #if ENABLE_BUZZER
   digitalWrite(BUZZER_PIN, on ? HIGH : LOW);
+ #else
+  (void)on;
+ #endif
 }
 
 struct BuzzerSeq {
@@ -54,6 +58,13 @@ static inline bool buzzer_busy() {
 }
 
 static void buzzer_start_seq(uint16_t on_ms, uint16_t off_ms, uint8_t n, uint32_t now_ms) {
+ #if !ENABLE_BUZZER
+  (void)on_ms;
+  (void)off_ms;
+  (void)n;
+  (void)now_ms;
+  return;
+ #endif
   buzzer_seq.active = (n != 0);
   buzzer_seq.is_on = false;
   buzzer_seq.remaining = n;
@@ -63,6 +74,10 @@ static void buzzer_start_seq(uint16_t on_ms, uint16_t off_ms, uint8_t n, uint32_
 }
 
 static void buzzer_poll(uint32_t now_ms) {
+ #if !ENABLE_BUZZER
+  (void)now_ms;
+  return;
+ #endif
   if (!buzzer_seq.active) return;
   if ((int32_t)(now_ms - buzzer_seq.next_ms) < 0) return;
 
@@ -84,6 +99,12 @@ static void buzzer_poll(uint32_t now_ms) {
 }
 
 static void buzzer_pulse(uint16_t on_ms, uint16_t off_ms, uint8_t n) {
+ #if !ENABLE_BUZZER
+  (void)on_ms;
+  (void)off_ms;
+  (void)n;
+  return;
+ #endif
   for (uint8_t i = 0; i < n; ++i) {
     buzzer_set(true);
     delay(on_ms);
@@ -232,9 +253,11 @@ void setup() {
   DBG_INIT();
   DBG_PRINTLN("boot");
 
+ #if ENABLE_BUZZER
   pinMode(BUZZER_PIN, OUTPUT);
   buzzer_set(false);
   buzzer_ok();
+ #endif
 
   ring.init(ring_mem, RING_BYTES);
 
