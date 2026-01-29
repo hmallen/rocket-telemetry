@@ -335,16 +335,31 @@ void loop() {
                (unsigned long)spool.drops());
 #endif
 #if ENABLE_GNSS
-    const GnssUbx& g = gnss_use_backup_as_primary ? gnss_backup : gnss_primary;
-    const GnssTime& gt = g.time();
-    DBG_PRINTF(" gnss_fresh=%u fix_ok=%u fix=%u lat=%.7f lon=%.7f alt_m=%.3f tow_ms=%lu week=%u",
-               (unsigned)g.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US),
-               (unsigned)gt.fix_ok, (unsigned)gt.fix_type,
-               (double)gt.lat_e7 / 1e7,
-               (double)gt.lon_e7 / 1e7,
-               (double)gt.height_mm / 1000.0,
-               (unsigned long)gt.tow_ms, (unsigned)gt.week);
+    const bool primary_fresh_dbg = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const bool backup_fresh_dbg  = gnss_backup.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const GnssTime& pt = gnss_primary.time();
+    const GnssTime& bt = gnss_backup.time();
 
+    DBG_PRINTF(" gnss_sel=%c", gnss_use_backup_as_primary ? 'B' : 'P');
+    DBG_PRINTF(" gnss_p_fresh=%u fix_ok=%u fix=%u lat=%.7f lon=%.7f alt_m=%.3f tow_ms=%lu week=%u bytes=%lu",
+               (unsigned)primary_fresh_dbg,
+               (unsigned)pt.fix_ok, (unsigned)pt.fix_type,
+               (double)pt.lat_e7 / 1e7,
+               (double)pt.lon_e7 / 1e7,
+               (double)pt.height_mm / 1000.0,
+               (unsigned long)pt.tow_ms, (unsigned)pt.week,
+               (unsigned long)gnss_primary.bytes_rx());
+
+    DBG_PRINTF(" gnss_b_fresh=%u fix_ok=%u fix=%u lat=%.7f lon=%.7f alt_m=%.3f tow_ms=%lu week=%u bytes=%lu",
+               (unsigned)backup_fresh_dbg,
+               (unsigned)bt.fix_ok, (unsigned)bt.fix_type,
+               (double)bt.lat_e7 / 1e7,
+               (double)bt.lon_e7 / 1e7,
+               (double)bt.height_mm / 1000.0,
+               (unsigned long)bt.tow_ms, (unsigned)bt.week,
+               (unsigned long)gnss_backup.bytes_rx());
+
+    const GnssTime& gt = gnss_use_backup_as_primary ? bt : pt;
     if (gt.last_sat_ms != 0) {
       DBG_PRINTF(" sat=%u/%u", (unsigned)gt.navsat_n, (unsigned)gt.navsat_num_svs);
       const uint8_t show = (gt.navsat_n < 4) ? gt.navsat_n : 4;

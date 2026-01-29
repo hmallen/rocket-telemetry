@@ -60,6 +60,10 @@ bool LoraLink::begin() {
   (void)radio.setCodingRate(LORA_CR);
   (void)radio.setOutputPower(LORA_TX_POWER_DBM);
   (void)radio.setCRC(true);
+  // Match receiver scripts (Pi/Pico) which configure LoRa public sync word (0x34)
+  // and preamble length 8.
+  (void)radio.setSyncWord(0x34);
+  (void)radio.setPreambleLength(8);
 
   enter_silence_();
   log_params_();
@@ -135,6 +139,9 @@ void LoraLink::poll_telem(uint32_t now_ms,
     if (lora_tx_done_isr) {
       lora_tx_done_isr = false;
       (void)radio.finishTransmit();
+#if DEBUG_MODE
+      DBG_PRINTF("lora: tx done dt_ms=%lu\n", (unsigned long)(now_ms - tx_start_ms_));
+#endif
       on_tx_done_();
     } else if ((uint32_t)(now_ms - tx_start_ms_) >= LORA_TX_WATCHDOG_MS) {
       DBG_PRINTLN("lora: tx watchdog -> shutdown");
@@ -332,6 +339,11 @@ bool LoraLink::start_tx_(uint32_t now_ms,
 
   if (n <= 0) return false;
   if ((size_t)n >= sizeof(tx_buf_)) return false;
+
+#if DEBUG_MODE
+  DBG_PRINTF("lora: tx start len=%d\n", n);
+  DBG_PRINT(tx_buf_);
+#endif
 
   lora_tx_done_isr = false;
   tx_start_ms_ = now_ms;
