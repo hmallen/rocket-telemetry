@@ -107,18 +107,22 @@ class SPI:
         baudrate=1_000_000,
         polarity=0,
         phase=0,
+        no_cs=False,
     ):
         self._spi = spidev.SpiDev()
         self._spi.open(0, int(spi_id))
         self._spi.max_speed_hz = int(baudrate)
         self._spi.mode = ((1 if polarity else 0) << 1) | (1 if phase else 0)
         try:
-            self._spi.no_cs = False
+            self._spi.no_cs = bool(no_cs)
         except Exception:
             pass
 
     def write(self, buf):
         self._spi.writebytes(list(buf))
+
+    def xfer(self, buf):
+        return bytes(self._spi.xfer2(list(buf)))
 
     def read(self, n, write=0x00):
         return bytes(self._spi.xfer2([write] * int(n)))
@@ -132,6 +136,7 @@ PIN_RST   = 25
 PIN_DIO0  = 22
 
 USE_HW_CS = True
+SPI_BAUDRATE = 100_000
 
 LED = Pin("LED", Pin.OUT)
 LED.off()
@@ -195,21 +200,26 @@ class SX1278:
         time.sleep_ms(50)
 
     def read_reg(self, addr):
+        if USE_HW_CS:
+            return self.spi.xfer(bytearray([addr & 0x7F, 0x00]))[1]
         self.cs(0)
-        self.spi.write(bytearray([addr & 0x7F]))
-        val = self.spi.read(1, 0x00)[0]
+        val = self.spi.xfer(bytearray([addr & 0x7F, 0x00]))[1]
         self.cs(1)
         return val
 
     def write_reg(self, addr, val):
+        if USE_HW_CS:
+            self.spi.xfer(bytearray([addr | 0x80, val & 0xFF]))
+            return
         self.cs(0)
-        self.spi.write(bytearray([addr | 0x80, val & 0xFF]))
+        self.spi.xfer(bytearray([addr | 0x80, val & 0xFF]))
         self.cs(1)
 
     def read_fifo(self, n):
+        if USE_HW_CS:
+            return self.spi.xfer(bytearray([REG_FIFO & 0x7F] + ([0x00] * int(n))))[1:]
         self.cs(0)
-        self.spi.write(bytearray([REG_FIFO & 0x7F]))
-        data = self.spi.read(n, 0x00)
+        data = self.spi.xfer(bytearray([REG_FIFO & 0x7F] + ([0x00] * int(n))))[1:]
         self.cs(1)
         return data
 
@@ -277,19 +287,97 @@ class SX1278:
 def safe_ascii(b):
     return "".join(chr(x) if 32 <= x <= 126 else "." for x in b)
 
-spi = SPI(
-    0,
-    baudrate=1_000_000,
-    polarity=0,
-    phase=0,
-)
+def decode_payload(payload):
+    if len(payload) < 2:
+        return None
+    if payload[0] != 0xA1:
+        return None
+    typ = payload[1]
+    if typ == 0:
+        if len(payload) < 12:
+            return "PROTO A1 DATA (short)"
+        t_ms = int.from_bytes(payload[2:6], "little", signed=False)
+        press_pa_x10 = int.from_bytes(payload[6:10], "little", signed=True)
+        temp_c_x100 = int.from_bytes(payload[10:12], "little", signed=True)
+        return "DATA t_ms=%d press_pa_x10=%d temp_c_x100=%d" % (t_ms, press_pa_x10, temp_c_x100)
+    if typ == 1:
+        if len(payload) < 3:
+            return "PROTO A1 ID (short)"
+        n = payload[2]
+        if len(payload) < 3 + n:
+            return "PROTO A1 ID (short)"
+        callsign = payload[3:3 + n].decode("ascii", errors="replace")
+        return "ID callsign=%s" % callsign
+    if typ == 2:
+        if len(payload) < 18:
+            return "PROTO A1 GPS (short)"
+        t_ms = int.from_bytes(payload[2:6], "little", signed=False)
+        lat_e7 = int.from_bytes(payload[6:10], "little", signed=True)
+        lon_e7 = int.from_bytes(payload[10:14], "little", signed=True)
+        height_mm = int.from_bytes(payload[14:18], "little", signed=True)
+        return "GPS t_ms=%d lat=%.7f lon=%.7f alt_m=%.3f" % (
+            t_ms,
+            lat_e7 / 1e7,
+            lon_e7 / 1e7,
+            height_mm / 1000.0,
+        )
+    if typ == 3:
+        if len(payload) < 18:
+            return "PROTO A1 IMU (short)"
+        t_ms = int.from_bytes(payload[2:6], "little", signed=False)
+        gx = int.from_bytes(payload[6:8], "little", signed=True)
+        gy = int.from_bytes(payload[8:10], "little", signed=True)
+        gz = int.from_bytes(payload[10:12], "little", signed=True)
+        ax = int.from_bytes(payload[12:14], "little", signed=True)
+        ay = int.from_bytes(payload[14:16], "little", signed=True)
+        az = int.from_bytes(payload[16:18], "little", signed=True)
+        return "IMU t_ms=%d gx=%d gy=%d gz=%d ax=%d ay=%d az=%d" % (
+            t_ms, gx, gy, gz, ax, ay, az
+        )
+    return "PROTO A1 type=%d" % typ
 
-radio = SX1278(
-    spi=spi,
-    nss=Pin(PIN_NSS, Pin.OUT),
-    rst=Pin(PIN_RST, Pin.OUT),
-    dio0=Pin(PIN_DIO0, Pin.IN),
-)
+def init_radio(use_hw_cs):
+    # If hardware CS is unreliable, we can disable kernel-driven chip select and
+    # drive GPIO8 manually as a normal output (software CS on the same pin).
+    spi = SPI(
+        0,
+        baudrate=SPI_BAUDRATE,
+        polarity=0,
+        phase=0,
+        no_cs=(not use_hw_cs),
+    )
+
+    nss = Pin(PIN_NSS) if use_hw_cs else Pin(PIN_NSS, Pin.OUT, value=1)
+    radio = SX1278(
+        spi=spi,
+        nss=nss,
+        rst=Pin(PIN_RST, Pin.OUT),
+        dio0=Pin(PIN_DIO0, Pin.IN),
+    )
+    return spi, radio
+
+
+spi, radio = init_radio(USE_HW_CS)
+
+radio.reset()
+raw = radio.spi.xfer(bytearray([REG_VERSION & 0x7F, 0x00]))
+ver = raw[1]
+print("RegVersion raw:", raw.hex())
+print("RegVersion: 0x%02X" % ver)
+
+if USE_HW_CS and ver not in (0x12,):
+    print("RegVersion unexpected; retrying with software CS on GPIO%d" % PIN_NSS)
+    try:
+        spi.close()
+    except Exception:
+        pass
+    USE_HW_CS = False
+    spi, radio = init_radio(USE_HW_CS)
+    radio.reset()
+    raw = radio.spi.xfer(bytearray([REG_VERSION & 0x7F, 0x00]))
+    ver = raw[1]
+    print("RegVersion raw:", raw.hex())
+    print("RegVersion: 0x%02X" % ver)
 
 radio.init_rx_433()
 
@@ -307,6 +395,9 @@ try:
 
             print("RX %d bytes | CRC_OK=%s | RSSI=%d dBm | SNR=%.2f dB"
                   % (len(payload), "YES" if crc_ok else "NO", rssi, snr))
+            dec = decode_payload(payload)
+            if dec:
+                print("DECODE:", dec)
             print("ASCII:", safe_ascii(payload))
             print("HEX:  ", payload.hex())
             print("-" * 50)
