@@ -255,7 +255,7 @@ void LoraLink::poll_telem(uint32_t now_ms,
    int32_t alt_late = -2147483647;
    int32_t imu_late = -2147483647;
 
-   if (gps != nullptr && gps_int_ms != 0) {
+   if (gps != nullptr && gps_int_ms != 0 && gps->fix_ok) {
      if (last_gps_tx_ms_ == 0) gps_late = 0;
      else gps_late = (int32_t)((uint32_t)(now_ms - last_gps_tx_ms_) - gps_int_ms);
    }
@@ -273,10 +273,9 @@ void LoraLink::poll_telem(uint32_t now_ms,
    const bool imu_due = (imu_late >= 0);
 
    uint8_t pick = 0xFF;
-   int32_t best_late = -2147483647;
-   if (gps_due && gps_late >= best_late) { best_late = gps_late; pick = 2; }
-   if (alt_due && alt_late >= best_late) { best_late = alt_late; pick = 0; }
-   if (imu_due && imu_late >= best_late) { best_late = imu_late; pick = 3; }
+   if (gps_due) pick = 2;
+   else if (alt_due) pick = 0;
+   else if (imu_due) pick = 3;
 
    if (pick == 0xFF) return;
 

@@ -438,12 +438,8 @@ void loop() {
   ByteRing* ring_out_primary = gnss_use_backup_as_primary ? nullptr : &ring;
   ByteRing* ring_out_backup  = gnss_use_backup_as_primary ? &ring : nullptr;
 
-  if (GNSS_SERIAL_PRIMARY.available() > 0) {
-    gnss_primary.poll(ring_out_primary, now_us);
-  }
-  if (GNSS_SERIAL_BACKUP.available() > 0) {
-    gnss_backup.poll(ring_out_backup, now_us);
-  }
+  gnss_primary.poll(ring_out_primary, now_us);
+  gnss_backup.poll(ring_out_backup, now_us);
 #endif
 
 #if ENABLE_SENSORS
