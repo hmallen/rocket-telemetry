@@ -135,6 +135,8 @@ bool LoraLink::tx_enabled() const {
 void LoraLink::poll_telem(uint32_t now_ms,
                           int32_t press_pa_x10,
                           int16_t temp_c_x100,
+                          uint16_t vbat_mv,
+                          uint8_t bat_state,
                           const GnssTime* gps,
                           const ImuSample* imu) {
   if (!began_) return;
@@ -250,10 +252,12 @@ void LoraLink::poll_telem(uint32_t now_ms,
    const uint32_t gps_int_ms = LORA_GPS_INTERVAL_MS;
    const uint32_t alt_int_ms = LORA_ALT_INTERVAL_MS;
    const uint32_t imu_int_ms = LORA_IMU_INTERVAL_MS;
+   const uint32_t bat_int_ms = LORA_BAT_INTERVAL_MS;
 
    int32_t gps_late = -2147483647;
    int32_t alt_late = -2147483647;
    int32_t imu_late = -2147483647;
+   int32_t bat_late = -2147483647;
 
    if (gps != nullptr && gps_int_ms != 0 && gps->last_pvt_ms != 0) {
      if (last_gps_tx_ms_ == 0) gps_late = 0;
@@ -267,15 +271,21 @@ void LoraLink::poll_telem(uint32_t now_ms,
      if (last_imu_tx_ms_ == 0) imu_late = 0;
      else imu_late = (int32_t)((uint32_t)(now_ms - last_imu_tx_ms_) - imu_int_ms);
    }
+   if (bat_int_ms != 0) {
+     if (last_bat_tx_ms_ == 0) bat_late = 0;
+     else bat_late = (int32_t)((uint32_t)(now_ms - last_bat_tx_ms_) - bat_int_ms);
+   }
 
    const bool gps_due = (gps_late >= 0);
    const bool alt_due = (alt_late >= 0);
    const bool imu_due = (imu_late >= 0);
+   const bool bat_due = (bat_late >= 0);
 
    uint8_t pick = 0xFF;
    if (gps_due) pick = 2;
    else if (alt_due) pick = 0;
    else if (imu_due) pick = 3;
+   else if (bat_due) pick = 4;
 
    if (pick == 0xFF) return;
 
@@ -291,6 +301,33 @@ void LoraLink::poll_telem(uint32_t now_ms,
      ok = start_gps_tx_(now_ms, *gps);
    } else if (pick == 3) {
      ok = start_imu_tx_(now_ms, *imu);
+   } else if (pick == 4) {
+     tx_buf_[0] = 0xA1;
+     tx_buf_[1] = 4;
+     write_u32_le(&tx_buf_[2], (uint32_t)now_ms);
+     write_u16_le(&tx_buf_[6], vbat_mv);
+     tx_buf_[8] = bat_state;
+     const size_t n = 9;
+
+     pending_valid_ = true;
+     pending_type_ = 4;
+     pending_len_ = n;
+
+     lora_tx_done_isr = false;
+     tx_start_ms_ = now_ms;
+     tx_active_ = true;
+     tx_is_id_ = false;
+     tx_type_ = 4;
+     tx_len_ = n;
+
+     int state = radio.startTransmit(tx_buf_, n);
+     if (state != 0) {
+       tx_active_ = false;
+       DBG_PRINTF("lora: startTransmit err %d\n", state);
+       ok = false;
+     } else {
+       ok = true;
+     }
    }
 
    if (!ok) {
@@ -380,6 +417,8 @@ void LoraLink::on_tx_done_() {
       last_gps_tx_ms_ = last_tx_ms_;
     } else if (tx_type_ == 3) {
       last_imu_tx_ms_ = last_tx_ms_;
+    } else if (tx_type_ == 4) {
+      last_bat_tx_ms_ = last_tx_ms_;
     }
     pending_valid_ = false;
   }
@@ -532,6 +571,8 @@ void LoraLink::consume_pending_(uint32_t now_ms) {
     last_gps_tx_ms_ = now_ms;
   } else if (pending_type_ == 3) {
     last_imu_tx_ms_ = now_ms;
+  } else if (pending_type_ == 4) {
+    last_bat_tx_ms_ = now_ms;
   }
 }
 
