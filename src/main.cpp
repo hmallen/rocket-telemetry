@@ -35,7 +35,11 @@ static LoraLink lora;
 static uint32_t block_seq = 0;
 
 static inline void buzzer_set(bool on) {
+ #if ENABLE_BUZZER
   digitalWrite(BUZZER_PIN, on ? HIGH : LOW);
+ #else
+  (void)on;
+ #endif
 }
 
 struct BuzzerSeq {
@@ -54,6 +58,13 @@ static inline bool buzzer_busy() {
 }
 
 static void buzzer_start_seq(uint16_t on_ms, uint16_t off_ms, uint8_t n, uint32_t now_ms) {
+ #if !ENABLE_BUZZER
+  (void)on_ms;
+  (void)off_ms;
+  (void)n;
+  (void)now_ms;
+  return;
+ #endif
   buzzer_seq.active = (n != 0);
   buzzer_seq.is_on = false;
   buzzer_seq.remaining = n;
@@ -63,6 +74,10 @@ static void buzzer_start_seq(uint16_t on_ms, uint16_t off_ms, uint8_t n, uint32_
 }
 
 static void buzzer_poll(uint32_t now_ms) {
+ #if !ENABLE_BUZZER
+  (void)now_ms;
+  return;
+ #endif
   if (!buzzer_seq.active) return;
   if ((int32_t)(now_ms - buzzer_seq.next_ms) < 0) return;
 
@@ -84,6 +99,12 @@ static void buzzer_poll(uint32_t now_ms) {
 }
 
 static void buzzer_pulse(uint16_t on_ms, uint16_t off_ms, uint8_t n) {
+ #if !ENABLE_BUZZER
+  (void)on_ms;
+  (void)off_ms;
+  (void)n;
+  return;
+ #endif
   for (uint8_t i = 0; i < n; ++i) {
     buzzer_set(true);
     delay(on_ms);
@@ -232,9 +253,11 @@ void setup() {
   DBG_INIT();
   DBG_PRINTLN("boot");
 
+ #if ENABLE_BUZZER
   pinMode(BUZZER_PIN, OUTPUT);
   buzzer_set(false);
   buzzer_ok();
+ #endif
 
   ring.init(ring_mem, RING_BYTES);
 
@@ -302,6 +325,8 @@ void loop() {
   static int16_t last_temp_c_x100 = 0;
   static uint32_t last_stats_ms = 0;
   static bool primary_3d_beeped = false;
+  static ImuSample last_imu_sample{};
+  static bool have_imu_sample = false;
 
 #if DEBUG_MODE
   static uint32_t last_dbg_ms = 0;
@@ -413,12 +438,8 @@ void loop() {
   ByteRing* ring_out_primary = gnss_use_backup_as_primary ? nullptr : &ring;
   ByteRing* ring_out_backup  = gnss_use_backup_as_primary ? &ring : nullptr;
 
-  if (GNSS_SERIAL_PRIMARY.available() > 0) {
-    gnss_primary.poll(ring_out_primary, now_us);
-  }
-  if (GNSS_SERIAL_BACKUP.available() > 0) {
-    gnss_backup.poll(ring_out_backup, now_us);
-  }
+  gnss_primary.poll(ring_out_primary, now_us);
+  gnss_backup.poll(ring_out_backup, now_us);
 #endif
 
 #if ENABLE_SENSORS
@@ -431,6 +452,8 @@ void loop() {
       ImuSample s{};
       if (sensors.read_imu(s)) {
         ring_write_imu(last_imu_us, s);
+        last_imu_sample = s;
+        have_imu_sample = true;
 #if DEBUG_MODE
         last_imu = s;
         last_imu_dbg_us = last_imu_us;
@@ -483,6 +506,19 @@ void loop() {
   }
 #endif
 
+  const GnssTime* lora_gps = nullptr;
+#if ENABLE_GNSS
+  {
+    const bool primary_fresh = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const bool backup_fresh  = gnss_backup.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    if (!gnss_use_backup_as_primary) {
+      lora_gps = primary_fresh ? &gnss_primary.time() : (backup_fresh ? &gnss_backup.time() : nullptr);
+    } else {
+      lora_gps = backup_fresh ? &gnss_backup.time() : (primary_fresh ? &gnss_primary.time() : nullptr);
+    }
+  }
+#endif
+
   // Periodic stats record
   if ((uint32_t)(now_ms - last_stats_ms) >= 500) {
     ring_write_stats();
@@ -496,17 +532,11 @@ void loop() {
   build_and_write_block_from_source(now_ms);
 
 #if ENABLE_LORA
-  // Part 97 telemetry downlink (cleartext callsign embedded by LoraLink).
-  uint32_t spool_drops = 0;
-#if ENABLE_PSRAM_SPOOL
-  spool_drops = spool.drops();
-#endif
   lora.poll_telem(now_ms,
                   last_press_pa_x10,
                   last_temp_c_x100,
-                  ring.drops(),
-                  spool_drops,
-                  sdlog.write_errs());
+                  lora_gps,
+                  have_imu_sample ? &last_imu_sample : nullptr);
 #endif
 
   // Controlled SD sync

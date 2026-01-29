@@ -39,6 +39,22 @@ static int16_t abs_i16(int16_t x) {
   return (x < 0) ? (int16_t)-x : x;
 }
 
+static void write_u16_le(uint8_t* p, uint16_t v) {
+  p[0] = (uint8_t)(v & 0xFFu);
+  p[1] = (uint8_t)((v >> 8) & 0xFFu);
+}
+
+ static void write_i16_le(uint8_t* p, int16_t v) {
+   write_u16_le(p, (uint16_t)v);
+ }
+
+static void write_u32_le(uint8_t* p, uint32_t v) {
+  p[0] = (uint8_t)(v & 0xFFu);
+  p[1] = (uint8_t)((v >> 8) & 0xFFu);
+  p[2] = (uint8_t)((v >> 16) & 0xFFu);
+  p[3] = (uint8_t)((v >> 24) & 0xFFu);
+}
+
 bool LoraLink::begin() {
   began_ = true;
   mission_start_ms_ = millis();
@@ -119,9 +135,8 @@ bool LoraLink::tx_enabled() const {
 void LoraLink::poll_telem(uint32_t now_ms,
                           int32_t press_pa_x10,
                           int16_t temp_c_x100,
-                          uint32_t ring_drops,
-                          uint32_t spool_drops,
-                          uint32_t sd_errs) {
+                          const GnssTime* gps,
+                          const ImuSample* imu) {
   if (!began_) return;
 
   // Hard failsafe: maximum mission transmit duration.
@@ -190,56 +205,98 @@ void LoraLink::poll_telem(uint32_t now_ms,
     }
   }
 
-  // Duty-cycle restraint: transmit only when data is new/meaningful.
-  const bool changed = (!have_last_) ||
-    (ring_drops != last_ring_drops_) ||
-    (spool_drops != last_spool_drops_) ||
-    (sd_errs != last_sd_errs_) ||
-    (abs_i32(press_pa_x10 - last_press_pa_x10_) >= LORA_MEANINGFUL_PRESS_DELTA_PA_X10) ||
-    (abs_i16((int16_t)(temp_c_x100 - last_temp_c_x100_)) >= LORA_MEANINGFUL_TEMP_DELTA_C_X100);
-
-  if (!changed) {
-    if (LORA_HEARTBEAT_MS == 0) return;
-    if ((uint32_t)(now_ms - last_tx_ms_) < LORA_HEARTBEAT_MS) return;
-  }
-
-  // Deterministic/bounded scheduling.
-  if ((uint32_t)(now_ms - last_tx_ms_) < LORA_MIN_TX_INTERVAL_MS) return;
-  if (retry_after_ms_ != 0 && (int32_t)(now_ms - retry_after_ms_) < 0) return;
-  if (next_tx_ms_ != 0 && (int32_t)(now_ms - next_tx_ms_) < 0) return;
-
   if (!tx_enabled_) return;
 
-  // Capture a pending payload for bounded retransmission.
-  if (changed) {
-    const bool pending_differs = (!pending_valid_) ||
-      (ring_drops != pending_ring_drops_) ||
-      (spool_drops != pending_spool_drops_) ||
-      (sd_errs != pending_sd_errs_) ||
-      (press_pa_x10 != pending_press_pa_x10_) ||
-      (temp_c_x100 != pending_temp_c_x100_);
+   const bool id_due = (LORA_HEARTBEAT_MS != 0) &&
+     ((last_id_tx_ms_ == 0) || ((uint32_t)(now_ms - last_id_tx_ms_) >= LORA_HEARTBEAT_MS));
+   const bool id_retry_ready = (id_retry_after_ms_ != 0) && ((int32_t)(now_ms - id_retry_after_ms_) >= 0);
+   const bool want_id = id_due || id_retry_ready;
 
-    if (pending_differs) {
-      pending_press_pa_x10_ = press_pa_x10;
-      pending_temp_c_x100_ = temp_c_x100;
-      pending_ring_drops_ = ring_drops;
-      pending_spool_drops_ = spool_drops;
-      pending_sd_errs_ = sd_errs;
-      pending_valid_ = true;
-      retries_left_ = LORA_RETRY_LIMIT;
-    }
-  }
+   if ((uint32_t)(now_ms - last_tx_ms_) < LORA_MIN_TX_INTERVAL_MS) return;
+   if (next_tx_ms_ != 0 && (int32_t)(now_ms - next_tx_ms_) < 0) return;
 
-  if (!pending_valid_) return;
+   if (want_id && !(id_retry_after_ms_ != 0 && (int32_t)(now_ms - id_retry_after_ms_) < 0)) {
+     if (!start_id_tx_(now_ms)) {
+       if (id_retries_left_ == 0) id_retries_left_ = LORA_RETRY_LIMIT;
+       if (id_retries_left_ != 0) {
+         const uint8_t attempt = (uint8_t)(LORA_RETRY_LIMIT - id_retries_left_ + 1);
+         const uint32_t backoff = LORA_RETRY_BASE_MS * (uint32_t)attempt;
+         id_retries_left_--;
+         id_retry_after_ms_ = now_ms + backoff;
+       }
+     }
+     return;
+   }
 
-  if (!start_tx_(now_ms,
-                 pending_press_pa_x10_,
-                 pending_temp_c_x100_,
-                 pending_ring_drops_,
-                 pending_spool_drops_,
-                 pending_sd_errs_)) {
-    schedule_retry_(now_ms);
-  }
+   if (pending_valid_) {
+     if (retry_after_ms_ != 0 && (int32_t)(now_ms - retry_after_ms_) < 0) return;
+
+     lora_tx_done_isr = false;
+     tx_start_ms_ = now_ms;
+     tx_active_ = true;
+     tx_is_id_ = false;
+     tx_type_ = pending_type_;
+     tx_len_ = pending_len_;
+
+     const int state = radio.startTransmit(tx_buf_, pending_len_);
+     if (state != 0) {
+       tx_active_ = false;
+       DBG_PRINTF("lora: startTransmit err %d\n", state);
+       schedule_retry_(now_ms);
+     }
+     return;
+   }
+
+   const uint32_t gps_int_ms = LORA_GPS_INTERVAL_MS;
+   const uint32_t alt_int_ms = LORA_ALT_INTERVAL_MS;
+   const uint32_t imu_int_ms = LORA_IMU_INTERVAL_MS;
+
+   int32_t gps_late = -2147483647;
+   int32_t alt_late = -2147483647;
+   int32_t imu_late = -2147483647;
+
+   if (gps != nullptr && gps_int_ms != 0 && gps->last_pvt_ms != 0) {
+     if (last_gps_tx_ms_ == 0) gps_late = 0;
+     else gps_late = (int32_t)((uint32_t)(now_ms - last_gps_tx_ms_) - gps_int_ms);
+   }
+   if (alt_int_ms != 0) {
+     if (last_alt_tx_ms_ == 0) alt_late = 0;
+     else alt_late = (int32_t)((uint32_t)(now_ms - last_alt_tx_ms_) - alt_int_ms);
+   }
+   if (imu != nullptr && imu_int_ms != 0) {
+     if (last_imu_tx_ms_ == 0) imu_late = 0;
+     else imu_late = (int32_t)((uint32_t)(now_ms - last_imu_tx_ms_) - imu_int_ms);
+   }
+
+   const bool gps_due = (gps_late >= 0);
+   const bool alt_due = (alt_late >= 0);
+   const bool imu_due = (imu_late >= 0);
+
+   uint8_t pick = 0xFF;
+   if (gps_due) pick = 2;
+   else if (alt_due) pick = 0;
+   else if (imu_due) pick = 3;
+
+   if (pick == 0xFF) return;
+
+   pending_valid_ = true;
+   pending_type_ = pick;
+   retries_left_ = LORA_RETRY_LIMIT;
+   retry_after_ms_ = 0;
+
+   bool ok = false;
+   if (pick == 0) {
+     ok = start_alt_tx_(now_ms, press_pa_x10, temp_c_x100);
+   } else if (pick == 2) {
+     ok = start_gps_tx_(now_ms, *gps);
+   } else if (pick == 3) {
+     ok = start_imu_tx_(now_ms, *imu);
+   }
+
+   if (!ok) {
+     schedule_retry_(now_ms);
+   }
+   return;
 }
 
 bool LoraLink::validate_config_() const {
@@ -296,6 +353,11 @@ void LoraLink::enter_silence_() {
   retry_after_ms_ = 0;
   retries_left_ = 0;
   pending_valid_ = false;
+  pending_type_ = 0;
+  pending_len_ = 0;
+  tx_is_id_ = false;
+  id_retry_after_ms_ = 0;
+  id_retries_left_ = 0;
   (void)radio.sleep();
 }
 
@@ -306,64 +368,171 @@ void LoraLink::on_tx_done_() {
   retry_after_ms_ = 0;
   retries_left_ = 0;
   consec_fail_ = 0;
-  pending_valid_ = false;
+
+  if (tx_is_id_) {
+    last_id_tx_ms_ = last_tx_ms_;
+    id_retry_after_ms_ = 0;
+    id_retries_left_ = 0;
+  } else {
+    if (tx_type_ == 0) {
+      last_alt_tx_ms_ = last_tx_ms_;
+    } else if (tx_type_ == 2) {
+      last_gps_tx_ms_ = last_tx_ms_;
+    } else if (tx_type_ == 3) {
+      last_imu_tx_ms_ = last_tx_ms_;
+    }
+    pending_valid_ = false;
+  }
+
+  tx_is_id_ = false;
+  tx_type_ = 0;
+  tx_len_ = 0;
 }
 
-bool LoraLink::start_tx_(uint32_t now_ms,
-                         int32_t press_pa_x10,
-                         int16_t temp_c_x100,
-                         uint32_t ring_drops,
-                         uint32_t spool_drops,
-                         uint32_t sd_errs) {
+bool LoraLink::start_id_tx_(uint32_t now_ms) {
   if (!tx_enabled_) return false;
 
-  // Part 97 station identification is embedded in clear, human-decodable ASCII.
-  int n = snprintf(
-    tx_buf_,
-    sizeof(tx_buf_),
-    "ID=%s;t_ms=%lu;press_pa_x10=%ld;temp_c_x100=%d;ring_drops=%lu;spool_drops=%lu;sd_errs=%lu;freq_mhz=%.3f;sf=%u;bw_khz=%.1f;cr=%u;pwr_dbm=%d;id_int_ms=%lu\n",
-    LORA_CALLSIGN,
-    (unsigned long)now_ms,
-    (long)press_pa_x10,
-    (int)temp_c_x100,
-    (unsigned long)ring_drops,
-    (unsigned long)spool_drops,
-    (unsigned long)sd_errs,
-    (double)LORA_FREQ_MHZ,
-    (unsigned)LORA_SF,
-    (double)LORA_BW_KHZ,
-    (unsigned)LORA_CR,
-    (int)LORA_TX_POWER_DBM,
-    (unsigned long)LORA_HEARTBEAT_MS
-  );
+  const size_t cs_len = strlen(LORA_CALLSIGN);
+  if (cs_len == 0) return false;
+  if (cs_len > (sizeof(tx_buf_) - 3)) return false;
 
-  if (n <= 0) return false;
-  if ((size_t)n >= sizeof(tx_buf_)) return false;
-
-#if DEBUG_MODE
-  DBG_PRINTF("lora: tx start len=%d\n", n);
-  DBG_PRINT(tx_buf_);
-#endif
+  tx_buf_[0] = 0xA1;
+  tx_buf_[1] = 1;
+  tx_buf_[2] = (uint8_t)cs_len;
+  memcpy(&tx_buf_[3], LORA_CALLSIGN, cs_len);
+  const size_t n = 3 + cs_len;
 
   lora_tx_done_isr = false;
   tx_start_ms_ = now_ms;
   tx_active_ = true;
+  tx_is_id_ = true;
 
-  int state = radio.startTransmit((uint8_t*)tx_buf_, (size_t)n);
+  int state = radio.startTransmit(tx_buf_, n);
+  if (state != 0) {
+    tx_active_ = false;
+    tx_is_id_ = false;
+    DBG_PRINTF("lora: startTransmit err %d\n", state);
+    return false;
+  }
+
+  return true;
+}
+
+bool LoraLink::start_alt_tx_(uint32_t now_ms,
+                             int32_t press_pa_x10,
+                             int16_t temp_c_x100) {
+  if (!tx_enabled_) return false;
+
+  tx_buf_[0] = 0xA1;
+  tx_buf_[1] = 0;
+  write_u32_le(&tx_buf_[2], (uint32_t)now_ms);
+  write_u32_le(&tx_buf_[6], (uint32_t)press_pa_x10);
+  write_u16_le(&tx_buf_[10], (uint16_t)temp_c_x100);
+  const size_t n = 12;
+
+  pending_valid_ = true;
+  pending_type_ = 0;
+  pending_len_ = n;
+
+  lora_tx_done_isr = false;
+  tx_start_ms_ = now_ms;
+  tx_active_ = true;
+  tx_is_id_ = false;
+  tx_type_ = 0;
+  tx_len_ = n;
+
+  int state = radio.startTransmit(tx_buf_, n);
   if (state != 0) {
     tx_active_ = false;
     DBG_PRINTF("lora: startTransmit err %d\n", state);
     return false;
   }
 
-  // Mark values as last-sent so we only transmit when meaningful data changes.
-  last_ring_drops_ = ring_drops;
-  last_spool_drops_ = spool_drops;
-  last_sd_errs_ = sd_errs;
   last_press_pa_x10_ = press_pa_x10;
   last_temp_c_x100_ = temp_c_x100;
-  have_last_ = true;
+  have_last_alt_ = true;
   return true;
+}
+
+bool LoraLink::start_gps_tx_(uint32_t now_ms,
+                            const GnssTime& gps) {
+  if (!tx_enabled_) return false;
+
+  tx_buf_[0] = 0xA1;
+  tx_buf_[1] = 2;
+  write_u32_le(&tx_buf_[2], (uint32_t)now_ms);
+  write_u32_le(&tx_buf_[6], (uint32_t)gps.lat_e7);
+  write_u32_le(&tx_buf_[10], (uint32_t)gps.lon_e7);
+  write_u32_le(&tx_buf_[14], (uint32_t)gps.height_mm);
+  const size_t n = 18;
+
+  pending_valid_ = true;
+  pending_type_ = 2;
+  pending_len_ = n;
+
+  lora_tx_done_isr = false;
+  tx_start_ms_ = now_ms;
+  tx_active_ = true;
+  tx_is_id_ = false;
+  tx_type_ = 2;
+  tx_len_ = n;
+
+  int state = radio.startTransmit(tx_buf_, n);
+  if (state != 0) {
+    tx_active_ = false;
+    DBG_PRINTF("lora: startTransmit err %d\n", state);
+    return false;
+  }
+
+  return true;
+}
+
+bool LoraLink::start_imu_tx_(uint32_t now_ms,
+                            const ImuSample& imu) {
+  if (!tx_enabled_) return false;
+
+  tx_buf_[0] = 0xA1;
+  tx_buf_[1] = 3;
+  write_u32_le(&tx_buf_[2], (uint32_t)now_ms);
+  write_i16_le(&tx_buf_[6], imu.gx);
+  write_i16_le(&tx_buf_[8], imu.gy);
+  write_i16_le(&tx_buf_[10], imu.gz);
+  write_i16_le(&tx_buf_[12], imu.ax);
+  write_i16_le(&tx_buf_[14], imu.ay);
+  write_i16_le(&tx_buf_[16], imu.az);
+  const size_t n = 18;
+
+  pending_valid_ = true;
+  pending_type_ = 3;
+  pending_len_ = n;
+
+  lora_tx_done_isr = false;
+  tx_start_ms_ = now_ms;
+  tx_active_ = true;
+  tx_is_id_ = false;
+  tx_type_ = 3;
+  tx_len_ = n;
+
+  int state = radio.startTransmit(tx_buf_, n);
+  if (state != 0) {
+    tx_active_ = false;
+    DBG_PRINTF("lora: startTransmit err %d\n", state);
+    return false;
+  }
+
+  return true;
+}
+
+void LoraLink::consume_pending_(uint32_t now_ms) {
+  if (!pending_valid_) return;
+
+  if (pending_type_ == 0) {
+    last_alt_tx_ms_ = now_ms;
+  } else if (pending_type_ == 2) {
+    last_gps_tx_ms_ = now_ms;
+  } else if (pending_type_ == 3) {
+    last_imu_tx_ms_ = now_ms;
+  }
 }
 
 void LoraLink::schedule_retry_(uint32_t now_ms) {
@@ -375,15 +544,7 @@ void LoraLink::schedule_retry_(uint32_t now_ms) {
   }
 
   if (retries_left_ == 0) {
-    // Fail toward silence: do not persist on the same payload indefinitely.
-    // Treat the pending payload as "consumed" so we won't immediately re-arm retries
-    // until meaningful data changes again.
-    last_ring_drops_ = pending_ring_drops_;
-    last_spool_drops_ = pending_spool_drops_;
-    last_sd_errs_ = pending_sd_errs_;
-    last_press_pa_x10_ = pending_press_pa_x10_;
-    last_temp_c_x100_ = pending_temp_c_x100_;
-    have_last_ = true;
+    consume_pending_(now_ms);
     last_tx_ms_ = now_ms;
     pending_valid_ = false;
     enter_silence_();
