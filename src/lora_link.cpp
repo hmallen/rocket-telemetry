@@ -205,7 +205,12 @@ void LoraLink::poll_telem(uint32_t now_ms,
     (abs_i32(press_pa_x10 - last_press_pa_x10_) >= LORA_MEANINGFUL_PRESS_DELTA_PA_X10) ||
     (abs_i16((int16_t)(temp_c_x100 - last_temp_c_x100_)) >= LORA_MEANINGFUL_TEMP_DELTA_C_X100);
 
-  if (changed) {
+  if (!changed) {
+    if (LORA_HEARTBEAT_MS == 0) return;
+    if ((uint32_t)(now_ms - last_tx_ms_) < LORA_HEARTBEAT_MS) return;
+  }
+
+  if (changed || (LORA_HEARTBEAT_MS != 0 && (uint32_t)(now_ms - last_tx_ms_) >= LORA_HEARTBEAT_MS)) {
     const bool pending_differs = (!pending_valid_) ||
       (press_pa_x10 != pending_press_pa_x10_) ||
       (temp_c_x100 != pending_temp_c_x100_);
