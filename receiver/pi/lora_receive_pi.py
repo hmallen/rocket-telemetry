@@ -113,7 +113,7 @@ class SPI:
         self._spi.max_speed_hz = int(baudrate)
         self._spi.mode = ((1 if polarity else 0) << 1) | (1 if phase else 0)
         try:
-            self._spi.no_cs = True
+            self._spi.no_cs = False
         except Exception:
             pass
 
@@ -127,9 +127,11 @@ class SPI:
         self._spi.close()
 
  
-PIN_NSS   = 17
-PIN_RST   = 20
-PIN_DIO0  = 21
+PIN_NSS   = 8
+PIN_RST   = 25
+PIN_DIO0  = 22
+
+USE_HW_CS = True
 
 LED = Pin("LED", Pin.OUT)
 LED.off()
@@ -176,11 +178,14 @@ class SX1278:
         self.rst = rst
         self.dio0 = dio0
 
-        self.nss.init(Pin.OUT, value=1)
+        if not USE_HW_CS:
+            self.nss.init(Pin.OUT, value=1)
         self.rst.init(Pin.OUT, value=1)
         self.dio0.init(Pin.IN)
 
     def cs(self, level):
+        if USE_HW_CS:
+            return
         self.nss.value(level)
 
     def reset(self):
