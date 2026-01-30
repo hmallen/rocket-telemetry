@@ -45,9 +45,8 @@ const elements = {
 };
 
 const rocketCanvas = document.getElementById("rocket-canvas");
-const mapCanvas = document.getElementById("map-canvas");
+const mapContainer = document.getElementById("map");
 const rocketCtx = rocketCanvas.getContext("2d");
-const mapCtx = mapCanvas.getContext("2d");
 
 const state = {
   lastUpdateMs: 0,
@@ -56,8 +55,11 @@ const state = {
   lastImuTime: null,
   attitudeFilter: null,
   attitudeThreshold: null,
-  mapOrigin: null,
+  map: null,
+  mapMarker: null,
+  mapPathLine: null,
   mapPath: [],
+  mapAutoFollow: true,
 };
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -68,6 +70,7 @@ const FILTER_LABELS = {
   complementary: "Complementary",
   "accel-threshold": "Accel Threshold",
 };
+const MAP_PATH_LIMIT = 200;
 
 const rocketModel = (() => {
   const points = [];
@@ -438,98 +441,56 @@ function updateMap(gps) {
 
   elements.mapOverlay.textContent = "";
 
-  if (!state.mapOrigin) {
-    state.mapOrigin = { lat: gps.lat_deg, lon: gps.lon_deg };
+  const lat = gps.lat_deg;
+  const lon = gps.lon_deg;
+
+  if (!state.map && mapContainer && window.L) {
+    state.map = L.map(mapContainer, { zoomControl: true });
+    L.tileLayer("/tiles/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(state.map);
+    state.map.setView([lat, lon], 13);
+    state.mapMarker = L.circleMarker([lat, lon], {
+      radius: 6,
+      color: "#2ed2a5",
+      fillColor: "#2ed2a5",
+      fillOpacity: 0.9,
+    }).addTo(state.map);
+    state.mapPathLine = L.polyline([[lat, lon]], {
+      color: "#2ed2a5",
+      weight: 3,
+      opacity: 0.85,
+    }).addTo(state.map);
+    state.mapPath = [[lat, lon]];
+    state.mapAutoFollow = true;
+    state.map.on("dragstart", () => {
+      state.mapAutoFollow = false;
+    });
+    state.map.on("zoomstart", () => {
+      state.mapAutoFollow = false;
+    });
   }
 
-  const originLat = state.mapOrigin.lat;
-  const originLon = state.mapOrigin.lon;
-  const dLat = (gps.lat_deg - originLat) * DEG_TO_RAD;
-  const dLon = (gps.lon_deg - originLon) * DEG_TO_RAD;
-  const earthRadius = 6371000;
-  const x = dLon * Math.cos(originLat * DEG_TO_RAD) * earthRadius;
-  const y = dLat * earthRadius;
-
-  state.mapPath.push({ x, y });
-  if (state.mapPath.length > 200) {
-    state.mapPath.shift();
-  }
-
-  renderMap();
-}
-
-function renderMap() {
-  resizeCanvas(mapCanvas, mapCtx);
-  const { width, height } = mapCanvas.getBoundingClientRect();
-  mapCtx.clearRect(0, 0, width, height);
-
-  mapCtx.fillStyle = "rgba(255, 255, 255, 0.04)";
-  mapCtx.fillRect(0, 0, width, height);
-
-  if (state.mapPath.length === 0) {
+  if (!state.map) {
+    elements.mapOverlay.textContent = "Map unavailable";
     return;
   }
 
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-  state.mapPath.forEach((pt) => {
-    minX = Math.min(minX, pt.x);
-    maxX = Math.max(maxX, pt.x);
-    minY = Math.min(minY, pt.y);
-    maxY = Math.max(maxY, pt.y);
-  });
-
-  const padding = 40;
-  const spanX = Math.max(10, maxX - minX);
-  const spanY = Math.max(10, maxY - minY);
-  const scale = Math.min((width - padding * 2) / spanX, (height - padding * 2) / spanY);
-
-  const centerX = width / 2;
-  const centerY = height / 2;
-
-  mapCtx.strokeStyle = "rgba(255, 255, 255, 0.15)";
-  mapCtx.lineWidth = 1;
-  const gridStep = 50;
-  for (let dx = -500; dx <= 500; dx += gridStep) {
-    mapCtx.beginPath();
-    mapCtx.moveTo(centerX + dx * scale, 0);
-    mapCtx.lineTo(centerX + dx * scale, height);
-    mapCtx.stroke();
-  }
-  for (let dy = -500; dy <= 500; dy += gridStep) {
-    mapCtx.beginPath();
-    mapCtx.moveTo(0, centerY + dy * scale);
-    mapCtx.lineTo(width, centerY + dy * scale);
-    mapCtx.stroke();
+  state.mapPath.push([lat, lon]);
+  if (state.mapPath.length > MAP_PATH_LIMIT) {
+    state.mapPath.shift();
   }
 
-  mapCtx.strokeStyle = "rgba(46, 210, 165, 0.9)";
-  mapCtx.lineWidth = 2;
-  mapCtx.beginPath();
-  state.mapPath.forEach((pt, index) => {
-    const x = centerX + (pt.x - (minX + maxX) / 2) * scale;
-    const y = centerY - (pt.y - (minY + maxY) / 2) * scale;
-    if (index === 0) {
-      mapCtx.moveTo(x, y);
-    } else {
-      mapCtx.lineTo(x, y);
-    }
-  });
-  mapCtx.stroke();
-
-  const latest = state.mapPath[state.mapPath.length - 1];
-  const markerX = centerX + (latest.x - (minX + maxX) / 2) * scale;
-  const markerY = centerY - (latest.y - (minY + maxY) / 2) * scale;
-  mapCtx.fillStyle = "#2ed2a5";
-  mapCtx.beginPath();
-  mapCtx.arc(markerX, markerY, 6, 0, Math.PI * 2);
-  mapCtx.fill();
-
-  mapCtx.fillStyle = "rgba(255, 255, 255, 0.8)";
-  mapCtx.font = "12px 'Space Mono', monospace";
-  mapCtx.fillText("N", centerX + 8, centerY - 8);
+  if (state.mapMarker) {
+    state.mapMarker.setLatLng([lat, lon]);
+  }
+  if (state.mapPathLine) {
+    state.mapPathLine.setLatLngs(state.mapPath);
+  }
+  if (state.mapAutoFollow) {
+    state.map.panTo([lat, lon], { animate: false });
+  }
 }
 
 function updateClock() {
@@ -580,7 +541,9 @@ function initEventSource() {
 }
 
 window.addEventListener("resize", () => {
-  renderMap();
+  if (state.map) {
+    state.map.invalidateSize();
+  }
 });
 
 if (elements.attitudeFilter) {
