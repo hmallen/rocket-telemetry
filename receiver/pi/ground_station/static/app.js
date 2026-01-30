@@ -40,6 +40,7 @@ const elements = {
   attPitch: document.getElementById("att-pitch"),
   attYaw: document.getElementById("att-yaw"),
   attitudeFilter: document.getElementById("attitude-filter"),
+  attitudeThreshold: document.getElementById("attitude-threshold"),
   mapOverlay: document.getElementById("map-overlay"),
 };
 
@@ -54,6 +55,7 @@ const state = {
   orientation: { roll: 0, pitch: 0, yaw: 0 },
   lastImuTime: null,
   attitudeFilter: null,
+  attitudeThreshold: null,
   mapOrigin: null,
   mapPath: [],
 };
@@ -64,6 +66,7 @@ const FILTER_LABELS = {
   madgwick: "Madgwick AHRS",
   mahony: "Mahony AHRS",
   complementary: "Complementary",
+  "accel-threshold": "Accel Threshold",
 };
 
 const rocketModel = (() => {
@@ -140,6 +143,23 @@ function setFilterOptions(filters, active) {
   }
 }
 
+function setThresholdValue(value) {
+  if (!elements.attitudeThreshold) {
+    return;
+  }
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return;
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return;
+  }
+  if (document.activeElement !== elements.attitudeThreshold) {
+    elements.attitudeThreshold.value = numeric.toFixed(2);
+  }
+  state.attitudeThreshold = numeric;
+}
+
 function syncFilterSelection(attitude) {
   if (!elements.attitudeFilter || !attitude) {
     return;
@@ -152,6 +172,13 @@ function syncFilterSelection(attitude) {
     elements.attitudeFilter.value = active;
   }
   state.attitudeFilter = active;
+}
+
+function syncThreshold(attitude) {
+  if (!elements.attitudeThreshold || !attitude) {
+    return;
+  }
+  setThresholdValue(attitude.threshold_g);
 }
 
 function postFilterSelection(value) {
@@ -174,6 +201,27 @@ function postFilterSelection(value) {
     .catch(() => {
       if (elements.attitudeFilter && previous) {
         elements.attitudeFilter.value = previous;
+      }
+    });
+}
+
+function postThresholdUpdate(value) {
+  const previous = state.attitudeThreshold;
+  fetch("/api/attitude/threshold", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ threshold_g: value }),
+  })
+    .then((res) => res.json())
+    .then((payload) => {
+      if (!payload.ok) {
+        throw new Error(payload.error || "Threshold update failed");
+      }
+      setThresholdValue(payload.threshold_g);
+    })
+    .catch(() => {
+      if (elements.attitudeThreshold && previous !== null) {
+        elements.attitudeThreshold.value = Number(previous).toFixed(2);
       }
     });
 }
@@ -247,6 +295,7 @@ function updateFromTelemetry(snapshot) {
   const attitude = snapshot.attitude || {};
   updateOrientation(attitude, imu);
   syncFilterSelection(attitude);
+  syncThreshold(attitude);
   updateMap(gps);
 }
 
@@ -509,6 +558,9 @@ function initEventSource() {
       if (payload && Array.isArray(payload.filters)) {
         setFilterOptions(payload.filters, payload.active);
       }
+      if (payload && payload.threshold_g !== undefined) {
+        setThresholdValue(payload.threshold_g);
+      }
     })
     .catch(() => {});
 
@@ -536,6 +588,15 @@ if (elements.attitudeFilter) {
     const value = event.target.value;
     if (value) {
       postFilterSelection(value);
+    }
+  });
+}
+
+if (elements.attitudeThreshold) {
+  elements.attitudeThreshold.addEventListener("change", (event) => {
+    const value = Number(event.target.value);
+    if (Number.isFinite(value) && value > 0) {
+      postThresholdUpdate(value);
     }
   });
 }
