@@ -8,33 +8,24 @@ const elements = {
   radioRssi: document.getElementById("radio-rssi"),
   radioSnr: document.getElementById("radio-snr"),
   radioPayload: document.getElementById("radio-payload"),
-  radioAscii: document.getElementById("radio-ascii"),
-  radioHex: document.getElementById("radio-hex"),
+  radioLastPacket: document.getElementById("radio-last-packet"),
   gpsLat: document.getElementById("gps-lat"),
   gpsLon: document.getElementById("gps-lon"),
   gpsAlt: document.getElementById("gps-alt"),
   gpsTime: document.getElementById("gps-time"),
   gpsLatDeg: document.getElementById("gps-lat-deg"),
   gpsLonDeg: document.getElementById("gps-lon-deg"),
-  gpsLatE7: document.getElementById("gps-lat-e7"),
-  gpsLonE7: document.getElementById("gps-lon-e7"),
   gpsAltM: document.getElementById("gps-alt-m"),
-  gpsAltMm: document.getElementById("gps-alt-mm"),
   altTime: document.getElementById("alt-time"),
   altPressPa: document.getElementById("alt-press-pa"),
   altPressKpa: document.getElementById("alt-press-kpa"),
   altTempC: document.getElementById("alt-temp-c"),
-  altPressX10: document.getElementById("alt-press-x10"),
-  altTempX100: document.getElementById("alt-temp-x100"),
   imuTime: document.getElementById("imu-time"),
   imuTimeRaw: document.getElementById("imu-time-raw"),
   imuGyro: document.getElementById("imu-gyro"),
   imuAccel: document.getElementById("imu-accel"),
-  imuGyroRaw: document.getElementById("imu-gyro-raw"),
-  imuAccelRaw: document.getElementById("imu-accel-raw"),
   batTime: document.getElementById("bat-time"),
   batVoltage: document.getElementById("bat-voltage"),
-  batVoltageMv: document.getElementById("bat-voltage-mv"),
   batState: document.getElementById("bat-state"),
   attRoll: document.getElementById("att-roll"),
   attPitch: document.getElementById("att-pitch"),
@@ -113,6 +104,17 @@ function formatNumber(value, digits = 2) {
     return "--";
   }
   return Number(value).toFixed(digits);
+}
+
+function formatTimestamp(timestampSec) {
+  if (timestampSec === null || timestampSec === undefined || Number.isNaN(timestampSec)) {
+    return "--";
+  }
+  const date = new Date(timestampSec * 1000);
+  if (Number.isNaN(date.getTime())) {
+    return "--";
+  }
+  return date.toLocaleString();
 }
 
 function formatInt(value) {
@@ -248,8 +250,7 @@ function updateFromTelemetry(snapshot) {
   elements.radioRssi.textContent = radio.rssi_dbm !== null ? `${radio.rssi_dbm} dBm` : "--";
   elements.radioSnr.textContent = radio.snr_db !== null ? `${formatNumber(radio.snr_db, 1)} dB` : "--";
   elements.radioPayload.textContent = radio.payload_len !== null ? `${radio.payload_len} bytes` : "--";
-  elements.radioAscii.textContent = radio.raw_ascii || "--";
-  elements.radioHex.textContent = radio.raw_hex || "--";
+  elements.radioLastPacket.textContent = formatTimestamp(snapshot.timestamp);
 
   const gps = snapshot.gps || {};
   elements.gpsTime.textContent = gps.t_ms !== null && gps.t_ms !== undefined ? `${gps.t_ms} ms` : "--";
@@ -258,18 +259,13 @@ function updateFromTelemetry(snapshot) {
   elements.gpsAlt.textContent = gps.alt_m !== null && gps.alt_m !== undefined ? `${formatNumber(gps.alt_m, 1)} m` : "--";
   elements.gpsLatDeg.textContent = elements.gpsLat.textContent;
   elements.gpsLonDeg.textContent = elements.gpsLon.textContent;
-  elements.gpsLatE7.textContent = gps.lat_e7 ?? "--";
-  elements.gpsLonE7.textContent = gps.lon_e7 ?? "--";
   elements.gpsAltM.textContent = gps.alt_m !== null && gps.alt_m !== undefined ? formatNumber(gps.alt_m, 2) : "--";
-  elements.gpsAltMm.textContent = gps.height_mm ?? "--";
 
   const alt = snapshot.alt || {};
   elements.altTime.textContent = alt.t_ms !== null && alt.t_ms !== undefined ? `${alt.t_ms} ms` : "--";
   elements.altPressPa.textContent = alt.press_pa !== null && alt.press_pa !== undefined ? formatNumber(alt.press_pa, 1) : "--";
   elements.altPressKpa.textContent = alt.press_kpa !== null && alt.press_kpa !== undefined ? formatNumber(alt.press_kpa, 3) : "--";
   elements.altTempC.textContent = alt.temp_c !== null && alt.temp_c !== undefined ? formatNumber(alt.temp_c, 2) : "--";
-  elements.altPressX10.textContent = alt.press_pa_x10 ?? "--";
-  elements.altTempX100.textContent = alt.temp_c_x100 ?? "--";
 
   const imu = snapshot.imu || {};
   elements.imuTime.textContent = imu.t_ms !== null && imu.t_ms !== undefined ? `${imu.t_ms} ms` : "--";
@@ -280,19 +276,12 @@ function updateFromTelemetry(snapshot) {
   elements.imuAccel.textContent = imu.ax_g !== null && imu.ax_g !== undefined
     ? `${formatNumber(imu.ax_g, 2)}, ${formatNumber(imu.ay_g, 2)}, ${formatNumber(imu.az_g, 2)}`
     : "--";
-  elements.imuGyroRaw.textContent = imu.gx !== null && imu.gx !== undefined
-    ? `${imu.gx}, ${imu.gy}, ${imu.gz}`
-    : "--";
-  elements.imuAccelRaw.textContent = imu.ax !== null && imu.ax !== undefined
-    ? `${imu.ax}, ${imu.ay}, ${imu.az}`
-    : "--";
 
   const battery = snapshot.battery || {};
   elements.batTime.textContent = battery.t_ms !== null && battery.t_ms !== undefined ? `${battery.t_ms} ms` : "--";
   elements.batVoltage.textContent = battery.vbat_v !== null && battery.vbat_v !== undefined
     ? formatNumber(battery.vbat_v, 2)
     : "--";
-  elements.batVoltageMv.textContent = battery.vbat_mv ?? "--";
   elements.batState.textContent = battery.bat_state_label || "--";
 
   const attitude = snapshot.attitude || {};
