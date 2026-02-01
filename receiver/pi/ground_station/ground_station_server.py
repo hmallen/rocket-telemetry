@@ -44,7 +44,8 @@ BAT_STATE_LABELS = {
     3: "CUTOFF",
 }
 
-ATTITUDE_FILTERS = ("madgwick", "mahony", "complementary")
+ATTITUDE_FILTERS = ("madgwick", "mahony", "complementary", "accel-threshold")
+DEFAULT_Z_THRESHOLD_G = 1.2
 DEG_TO_RAD = math.pi / 180.0
 RAD_TO_DEG = 180.0 / math.pi
 
@@ -84,6 +85,46 @@ class ComplementaryFilter:
             self.roll = alpha * self.roll + (1.0 - alpha) * roll_acc
             self.pitch = alpha * self.pitch + (1.0 - alpha) * pitch_acc
 
+        return self.roll, self.pitch, self.yaw
+
+
+class AccelThresholdFilter:
+    def __init__(self, z_threshold_g=DEFAULT_Z_THRESHOLD_G):
+        self.z_threshold_g = z_threshold_g
+        self.roll = 0.0
+        self.pitch = 0.0
+        self.yaw = 0.0
+
+    def reset(self):
+        self.roll = 0.0
+        self.pitch = 0.0
+        self.yaw = 0.0
+
+    def set_threshold(self, z_threshold_g):
+        if z_threshold_g is None:
+            return
+        self.z_threshold_g = z_threshold_g
+
+    def update(self, gx_dps, gy_dps, gz_dps, ax_g, ay_g, az_g, dt):
+        if ax_g is None or ay_g is None or az_g is None:
+            if gx_dps is None or gy_dps is None or gz_dps is None:
+                return None
+            self.roll += gx_dps * dt
+            self.pitch += gy_dps * dt
+            self.yaw += gz_dps * dt
+            return self.roll, self.pitch, self.yaw
+
+        if abs(az_g) < self.z_threshold_g:
+            self.roll = math.atan2(ay_g, az_g) * RAD_TO_DEG
+            self.pitch = math.atan2(-ax_g, math.sqrt(ay_g * ay_g + az_g * az_g)) * RAD_TO_DEG
+            return self.roll, self.pitch, self.yaw
+
+        if gx_dps is None or gy_dps is None or gz_dps is None:
+            return None
+
+        self.roll += gx_dps * dt
+        self.pitch += gy_dps * dt
+        self.yaw += gz_dps * dt
         return self.roll, self.pitch, self.yaw
 
 
@@ -247,10 +288,11 @@ class MadgwickFilter:
 
 
 class AttitudeEstimator:
-    def __init__(self, mode="madgwick"):
+    def __init__(self, mode="madgwick", threshold_g=DEFAULT_Z_THRESHOLD_G):
         self.mode = None
         self._filter = None
         self._last_t_s = None
+        self.threshold_g = threshold_g
         self.set_mode(mode)
 
     def set_mode(self, mode):
@@ -263,13 +305,26 @@ class AttitudeEstimator:
             self._filter = MadgwickFilter()
         elif mode == "mahony":
             self._filter = MahonyFilter()
+        elif mode == "accel-threshold":
+            self._filter = AccelThresholdFilter(self.threshold_g)
         else:
             self._filter = ComplementaryFilter()
         self.mode = mode
         self._last_t_s = None
 
+    def set_threshold_g(self, threshold_g):
+        try:
+            value = float(threshold_g)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Threshold must be a number.") from exc
+        if value <= 0.0:
+            raise ValueError("Threshold must be positive.")
+        self.threshold_g = value
+        if isinstance(self._filter, AccelThresholdFilter):
+            self._filter.set_threshold(value)
+
     def update(self, t_ms, gx_dps, gy_dps, gz_dps, ax_g, ay_g, az_g):
-        if t_ms is None or gx_dps is None or gy_dps is None or gz_dps is None:
+        if t_ms is None:
             return None
 
         t_s = t_ms / 1000.0
@@ -281,7 +336,15 @@ class AttitudeEstimator:
         self._last_t_s = t_s
 
         if self.mode == "complementary":
+            if gx_dps is None or gy_dps is None or gz_dps is None:
+                return None
             return self._filter.update(gx_dps, gy_dps, gz_dps, ax_g, ay_g, az_g, dt)
+
+        if self.mode == "accel-threshold":
+            return self._filter.update(gx_dps, gy_dps, gz_dps, ax_g, ay_g, az_g, dt)
+
+        if gx_dps is None or gy_dps is None or gz_dps is None:
+            return None
 
         gx = gx_dps * DEG_TO_RAD
         gy = gy_dps * DEG_TO_RAD
@@ -295,6 +358,7 @@ class TelemetryStore:
         self._attitude = AttitudeEstimator()
         self._state = self._blank_state()
         self._state["attitude"]["filter"] = self._attitude.mode
+        self._state["attitude"]["threshold_g"] = self._attitude.threshold_g
 
     def _blank_state(self):
         return {
@@ -353,6 +417,7 @@ class TelemetryStore:
                 "pitch": None,
                 "yaw": None,
                 "filter": None,
+                "threshold_g": self._attitude.threshold_g,
             },
         }
 
@@ -365,6 +430,11 @@ class TelemetryStore:
                 "yaw": None,
                 "filter": self._attitude.mode,
             })
+
+    def set_attitude_threshold(self, threshold_g):
+        with self._lock:
+            self._attitude.set_threshold_g(threshold_g)
+            self._state["attitude"]["threshold_g"] = self._attitude.threshold_g
 
     def update(self, parsed, radio_info, raw_info):
         with self._lock:
@@ -759,6 +829,11 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             return self._send_json({
                 "filters": list(ATTITUDE_FILTERS),
                 "active": TELEMETRY.snapshot().get("attitude", {}).get("filter"),
+                "threshold_g": TELEMETRY.snapshot().get("attitude", {}).get("threshold_g"),
+            })
+        if path == "/api/attitude/threshold":
+            return self._send_json({
+                "threshold_g": TELEMETRY.snapshot().get("attitude", {}).get("threshold_g"),
             })
         if path == "/events":
             return self._serve_events()
@@ -797,6 +872,19 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             return self._send_json({
                 "ok": True,
                 "filter": snapshot.get("attitude", {}).get("filter"),
+            })
+
+        if path == "/api/attitude/threshold":
+            payload = self._read_json() or {}
+            try:
+                TELEMETRY.set_attitude_threshold(payload.get("threshold_g"))
+            except ValueError as exc:
+                return self._send_json({"ok": False, "error": str(exc)}, status=400)
+            snapshot = TELEMETRY.snapshot()
+            broadcast(snapshot)
+            return self._send_json({
+                "ok": True,
+                "threshold_g": snapshot.get("attitude", {}).get("threshold_g"),
             })
 
         self.send_error(404, "Not Found")

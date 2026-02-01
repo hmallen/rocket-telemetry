@@ -73,7 +73,7 @@ constexpr float   LORA_FREQ_MHZ = 433.0f; // 70 cm amateur band (420-450 MHz in 
 
 // Operator identification: embed callsign in clear, human-decodable ASCII in every telemetry frame.
 // Set these before enabling TX.
-constexpr const char LORA_CALLSIGN[] = "CALLSIGN";
+constexpr const char LORA_CALLSIGN[] = "KG5CKI";
 #define LORA_CONTROL_OPERATOR_OK 1
 
 // RF parameter discipline: choose minimum BW/SF/power that meets link budget.
@@ -110,7 +110,7 @@ constexpr int32_t  LORA_LANDING_PRESS_STABLE_DELTA_PA_X10 = 50;
 constexpr int32_t  LORA_FLIGHT_PRESS_DELTA_PA_X10 = 5000;
 
 // TX is disabled by default on boot. Set to 1 only when intentional and supervised.
-#define LORA_TX_ENABLE_AT_BOOT 0
+#define LORA_TX_ENABLE_AT_BOOT 1
 
 // ---------- Build toggles ----------
 #define ENABLE_SD_LOGGER 0

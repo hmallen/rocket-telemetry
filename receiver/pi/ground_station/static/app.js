@@ -8,45 +8,36 @@ const elements = {
   radioRssi: document.getElementById("radio-rssi"),
   radioSnr: document.getElementById("radio-snr"),
   radioPayload: document.getElementById("radio-payload"),
-  radioAscii: document.getElementById("radio-ascii"),
-  radioHex: document.getElementById("radio-hex"),
+  radioLastPacket: document.getElementById("radio-last-packet"),
   gpsLat: document.getElementById("gps-lat"),
   gpsLon: document.getElementById("gps-lon"),
   gpsAlt: document.getElementById("gps-alt"),
   gpsTime: document.getElementById("gps-time"),
   gpsLatDeg: document.getElementById("gps-lat-deg"),
   gpsLonDeg: document.getElementById("gps-lon-deg"),
-  gpsLatE7: document.getElementById("gps-lat-e7"),
-  gpsLonE7: document.getElementById("gps-lon-e7"),
   gpsAltM: document.getElementById("gps-alt-m"),
-  gpsAltMm: document.getElementById("gps-alt-mm"),
   altTime: document.getElementById("alt-time"),
   altPressPa: document.getElementById("alt-press-pa"),
   altPressKpa: document.getElementById("alt-press-kpa"),
   altTempC: document.getElementById("alt-temp-c"),
-  altPressX10: document.getElementById("alt-press-x10"),
-  altTempX100: document.getElementById("alt-temp-x100"),
   imuTime: document.getElementById("imu-time"),
   imuTimeRaw: document.getElementById("imu-time-raw"),
   imuGyro: document.getElementById("imu-gyro"),
   imuAccel: document.getElementById("imu-accel"),
-  imuGyroRaw: document.getElementById("imu-gyro-raw"),
-  imuAccelRaw: document.getElementById("imu-accel-raw"),
   batTime: document.getElementById("bat-time"),
   batVoltage: document.getElementById("bat-voltage"),
-  batVoltageMv: document.getElementById("bat-voltage-mv"),
   batState: document.getElementById("bat-state"),
   attRoll: document.getElementById("att-roll"),
   attPitch: document.getElementById("att-pitch"),
   attYaw: document.getElementById("att-yaw"),
   attitudeFilter: document.getElementById("attitude-filter"),
+  attitudeThreshold: document.getElementById("attitude-threshold"),
   mapOverlay: document.getElementById("map-overlay"),
 };
 
 const rocketCanvas = document.getElementById("rocket-canvas");
-const mapCanvas = document.getElementById("map-canvas");
+const mapContainer = document.getElementById("map");
 const rocketCtx = rocketCanvas.getContext("2d");
-const mapCtx = mapCanvas.getContext("2d");
 
 const state = {
   lastUpdateMs: 0,
@@ -54,8 +45,12 @@ const state = {
   orientation: { roll: 0, pitch: 0, yaw: 0 },
   lastImuTime: null,
   attitudeFilter: null,
-  mapOrigin: null,
+  attitudeThreshold: null,
+  map: null,
+  mapMarker: null,
+  mapPathLine: null,
   mapPath: [],
+  mapAutoFollow: true,
 };
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -64,7 +59,9 @@ const FILTER_LABELS = {
   madgwick: "Madgwick AHRS",
   mahony: "Mahony AHRS",
   complementary: "Complementary",
+  "accel-threshold": "Accel Threshold",
 };
+const MAP_PATH_LIMIT = 200;
 
 const rocketModel = (() => {
   const points = [];
@@ -109,6 +106,17 @@ function formatNumber(value, digits = 2) {
   return Number(value).toFixed(digits);
 }
 
+function formatTimestamp(timestampSec) {
+  if (timestampSec === null || timestampSec === undefined || Number.isNaN(timestampSec)) {
+    return "--";
+  }
+  const date = new Date(timestampSec * 1000);
+  if (Number.isNaN(date.getTime())) {
+    return "--";
+  }
+  return date.toLocaleString();
+}
+
 function formatInt(value) {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return "--";
@@ -140,6 +148,23 @@ function setFilterOptions(filters, active) {
   }
 }
 
+function setThresholdValue(value) {
+  if (!elements.attitudeThreshold) {
+    return;
+  }
+  if (value === null || value === undefined || Number.isNaN(value)) {
+    return;
+  }
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return;
+  }
+  if (document.activeElement !== elements.attitudeThreshold) {
+    elements.attitudeThreshold.value = numeric.toFixed(2);
+  }
+  state.attitudeThreshold = numeric;
+}
+
 function syncFilterSelection(attitude) {
   if (!elements.attitudeFilter || !attitude) {
     return;
@@ -152,6 +177,13 @@ function syncFilterSelection(attitude) {
     elements.attitudeFilter.value = active;
   }
   state.attitudeFilter = active;
+}
+
+function syncThreshold(attitude) {
+  if (!elements.attitudeThreshold || !attitude) {
+    return;
+  }
+  setThresholdValue(attitude.threshold_g);
 }
 
 function postFilterSelection(value) {
@@ -178,6 +210,27 @@ function postFilterSelection(value) {
     });
 }
 
+function postThresholdUpdate(value) {
+  const previous = state.attitudeThreshold;
+  fetch("/api/attitude/threshold", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ threshold_g: value }),
+  })
+    .then((res) => res.json())
+    .then((payload) => {
+      if (!payload.ok) {
+        throw new Error(payload.error || "Threshold update failed");
+      }
+      setThresholdValue(payload.threshold_g);
+    })
+    .catch(() => {
+      if (elements.attitudeThreshold && previous !== null) {
+        elements.attitudeThreshold.value = Number(previous).toFixed(2);
+      }
+    });
+}
+
 function updateConnection(connected) {
   state.connected = connected;
   elements.connDot.classList.toggle("connected", connected);
@@ -197,8 +250,7 @@ function updateFromTelemetry(snapshot) {
   elements.radioRssi.textContent = radio.rssi_dbm !== null ? `${radio.rssi_dbm} dBm` : "--";
   elements.radioSnr.textContent = radio.snr_db !== null ? `${formatNumber(radio.snr_db, 1)} dB` : "--";
   elements.radioPayload.textContent = radio.payload_len !== null ? `${radio.payload_len} bytes` : "--";
-  elements.radioAscii.textContent = radio.raw_ascii || "--";
-  elements.radioHex.textContent = radio.raw_hex || "--";
+  elements.radioLastPacket.textContent = formatTimestamp(snapshot.timestamp);
 
   const gps = snapshot.gps || {};
   elements.gpsTime.textContent = gps.t_ms !== null && gps.t_ms !== undefined ? `${gps.t_ms} ms` : "--";
@@ -207,18 +259,13 @@ function updateFromTelemetry(snapshot) {
   elements.gpsAlt.textContent = gps.alt_m !== null && gps.alt_m !== undefined ? `${formatNumber(gps.alt_m, 1)} m` : "--";
   elements.gpsLatDeg.textContent = elements.gpsLat.textContent;
   elements.gpsLonDeg.textContent = elements.gpsLon.textContent;
-  elements.gpsLatE7.textContent = gps.lat_e7 ?? "--";
-  elements.gpsLonE7.textContent = gps.lon_e7 ?? "--";
   elements.gpsAltM.textContent = gps.alt_m !== null && gps.alt_m !== undefined ? formatNumber(gps.alt_m, 2) : "--";
-  elements.gpsAltMm.textContent = gps.height_mm ?? "--";
 
   const alt = snapshot.alt || {};
   elements.altTime.textContent = alt.t_ms !== null && alt.t_ms !== undefined ? `${alt.t_ms} ms` : "--";
   elements.altPressPa.textContent = alt.press_pa !== null && alt.press_pa !== undefined ? formatNumber(alt.press_pa, 1) : "--";
   elements.altPressKpa.textContent = alt.press_kpa !== null && alt.press_kpa !== undefined ? formatNumber(alt.press_kpa, 3) : "--";
   elements.altTempC.textContent = alt.temp_c !== null && alt.temp_c !== undefined ? formatNumber(alt.temp_c, 2) : "--";
-  elements.altPressX10.textContent = alt.press_pa_x10 ?? "--";
-  elements.altTempX100.textContent = alt.temp_c_x100 ?? "--";
 
   const imu = snapshot.imu || {};
   elements.imuTime.textContent = imu.t_ms !== null && imu.t_ms !== undefined ? `${imu.t_ms} ms` : "--";
@@ -229,24 +276,18 @@ function updateFromTelemetry(snapshot) {
   elements.imuAccel.textContent = imu.ax_g !== null && imu.ax_g !== undefined
     ? `${formatNumber(imu.ax_g, 2)}, ${formatNumber(imu.ay_g, 2)}, ${formatNumber(imu.az_g, 2)}`
     : "--";
-  elements.imuGyroRaw.textContent = imu.gx !== null && imu.gx !== undefined
-    ? `${imu.gx}, ${imu.gy}, ${imu.gz}`
-    : "--";
-  elements.imuAccelRaw.textContent = imu.ax !== null && imu.ax !== undefined
-    ? `${imu.ax}, ${imu.ay}, ${imu.az}`
-    : "--";
 
   const battery = snapshot.battery || {};
   elements.batTime.textContent = battery.t_ms !== null && battery.t_ms !== undefined ? `${battery.t_ms} ms` : "--";
   elements.batVoltage.textContent = battery.vbat_v !== null && battery.vbat_v !== undefined
     ? formatNumber(battery.vbat_v, 2)
     : "--";
-  elements.batVoltageMv.textContent = battery.vbat_mv ?? "--";
   elements.batState.textContent = battery.bat_state_label || "--";
 
   const attitude = snapshot.attitude || {};
   updateOrientation(attitude, imu);
   syncFilterSelection(attitude);
+  syncThreshold(attitude);
   updateMap(gps);
 }
 
@@ -389,98 +430,56 @@ function updateMap(gps) {
 
   elements.mapOverlay.textContent = "";
 
-  if (!state.mapOrigin) {
-    state.mapOrigin = { lat: gps.lat_deg, lon: gps.lon_deg };
+  const lat = gps.lat_deg;
+  const lon = gps.lon_deg;
+
+  if (!state.map && mapContainer && window.L) {
+    state.map = L.map(mapContainer, { zoomControl: true });
+    L.tileLayer("/tiles/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap contributors",
+    }).addTo(state.map);
+    state.map.setView([lat, lon], 13);
+    state.mapMarker = L.circleMarker([lat, lon], {
+      radius: 6,
+      color: "#2ed2a5",
+      fillColor: "#2ed2a5",
+      fillOpacity: 0.9,
+    }).addTo(state.map);
+    state.mapPathLine = L.polyline([[lat, lon]], {
+      color: "#2ed2a5",
+      weight: 3,
+      opacity: 0.85,
+    }).addTo(state.map);
+    state.mapPath = [[lat, lon]];
+    state.mapAutoFollow = true;
+    state.map.on("dragstart", () => {
+      state.mapAutoFollow = false;
+    });
+    state.map.on("zoomstart", () => {
+      state.mapAutoFollow = false;
+    });
   }
 
-  const originLat = state.mapOrigin.lat;
-  const originLon = state.mapOrigin.lon;
-  const dLat = (gps.lat_deg - originLat) * DEG_TO_RAD;
-  const dLon = (gps.lon_deg - originLon) * DEG_TO_RAD;
-  const earthRadius = 6371000;
-  const x = dLon * Math.cos(originLat * DEG_TO_RAD) * earthRadius;
-  const y = dLat * earthRadius;
-
-  state.mapPath.push({ x, y });
-  if (state.mapPath.length > 200) {
-    state.mapPath.shift();
-  }
-
-  renderMap();
-}
-
-function renderMap() {
-  resizeCanvas(mapCanvas, mapCtx);
-  const { width, height } = mapCanvas.getBoundingClientRect();
-  mapCtx.clearRect(0, 0, width, height);
-
-  mapCtx.fillStyle = "rgba(255, 255, 255, 0.04)";
-  mapCtx.fillRect(0, 0, width, height);
-
-  if (state.mapPath.length === 0) {
+  if (!state.map) {
+    elements.mapOverlay.textContent = "Map unavailable";
     return;
   }
 
-  let minX = Infinity;
-  let maxX = -Infinity;
-  let minY = Infinity;
-  let maxY = -Infinity;
-  state.mapPath.forEach((pt) => {
-    minX = Math.min(minX, pt.x);
-    maxX = Math.max(maxX, pt.x);
-    minY = Math.min(minY, pt.y);
-    maxY = Math.max(maxY, pt.y);
-  });
-
-  const padding = 40;
-  const spanX = Math.max(10, maxX - minX);
-  const spanY = Math.max(10, maxY - minY);
-  const scale = Math.min((width - padding * 2) / spanX, (height - padding * 2) / spanY);
-
-  const centerX = width / 2;
-  const centerY = height / 2;
-
-  mapCtx.strokeStyle = "rgba(255, 255, 255, 0.15)";
-  mapCtx.lineWidth = 1;
-  const gridStep = 50;
-  for (let dx = -500; dx <= 500; dx += gridStep) {
-    mapCtx.beginPath();
-    mapCtx.moveTo(centerX + dx * scale, 0);
-    mapCtx.lineTo(centerX + dx * scale, height);
-    mapCtx.stroke();
-  }
-  for (let dy = -500; dy <= 500; dy += gridStep) {
-    mapCtx.beginPath();
-    mapCtx.moveTo(0, centerY + dy * scale);
-    mapCtx.lineTo(width, centerY + dy * scale);
-    mapCtx.stroke();
+  state.mapPath.push([lat, lon]);
+  if (state.mapPath.length > MAP_PATH_LIMIT) {
+    state.mapPath.shift();
   }
 
-  mapCtx.strokeStyle = "rgba(46, 210, 165, 0.9)";
-  mapCtx.lineWidth = 2;
-  mapCtx.beginPath();
-  state.mapPath.forEach((pt, index) => {
-    const x = centerX + (pt.x - (minX + maxX) / 2) * scale;
-    const y = centerY - (pt.y - (minY + maxY) / 2) * scale;
-    if (index === 0) {
-      mapCtx.moveTo(x, y);
-    } else {
-      mapCtx.lineTo(x, y);
-    }
-  });
-  mapCtx.stroke();
-
-  const latest = state.mapPath[state.mapPath.length - 1];
-  const markerX = centerX + (latest.x - (minX + maxX) / 2) * scale;
-  const markerY = centerY - (latest.y - (minY + maxY) / 2) * scale;
-  mapCtx.fillStyle = "#2ed2a5";
-  mapCtx.beginPath();
-  mapCtx.arc(markerX, markerY, 6, 0, Math.PI * 2);
-  mapCtx.fill();
-
-  mapCtx.fillStyle = "rgba(255, 255, 255, 0.8)";
-  mapCtx.font = "12px 'Space Mono', monospace";
-  mapCtx.fillText("N", centerX + 8, centerY - 8);
+  if (state.mapMarker) {
+    state.mapMarker.setLatLng([lat, lon]);
+  }
+  if (state.mapPathLine) {
+    state.mapPathLine.setLatLngs(state.mapPath);
+  }
+  if (state.mapAutoFollow) {
+    state.map.panTo([lat, lon], { animate: false });
+  }
 }
 
 function updateClock() {
@@ -509,6 +508,9 @@ function initEventSource() {
       if (payload && Array.isArray(payload.filters)) {
         setFilterOptions(payload.filters, payload.active);
       }
+      if (payload && payload.threshold_g !== undefined) {
+        setThresholdValue(payload.threshold_g);
+      }
     })
     .catch(() => {});
 
@@ -528,7 +530,9 @@ function initEventSource() {
 }
 
 window.addEventListener("resize", () => {
-  renderMap();
+  if (state.map) {
+    state.map.invalidateSize();
+  }
 });
 
 if (elements.attitudeFilter) {
@@ -536,6 +540,15 @@ if (elements.attitudeFilter) {
     const value = event.target.value;
     if (value) {
       postFilterSelection(value);
+    }
+  });
+}
+
+if (elements.attitudeThreshold) {
+  elements.attitudeThreshold.addEventListener("change", (event) => {
+    const value = Number(event.target.value);
+    if (Number.isFinite(value) && value > 0) {
+      postThresholdUpdate(value);
     }
   });
 }
