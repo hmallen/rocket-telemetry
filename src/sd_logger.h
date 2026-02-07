@@ -14,7 +14,7 @@ public:
   void force_sync();
 
   const char* log_name() const { return log_name_[0] ? log_name_ : nullptr; }
-  FsFile open_log_read() const;
+  FsFile open_log_read();
 
   uint32_t write_errs() const { return write_errs_; }
 

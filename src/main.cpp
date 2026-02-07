@@ -79,7 +79,7 @@ static void sd_dump_print_record(uint32_t idx,
   const char* name = sd_dump_record_name(type);
   Serial.printf("  [%lu] %s ver=%u len=%u\n",
                 (unsigned long)idx, name, (unsigned)ver, (unsigned)len);
-  const uint16_t preview = min<uint16_t>(payload_len, 64);
+  const uint16_t preview = min(payload_len, (uint16_t)64);
 
   if (type == REC_IMU_FAST && payload_len >= (sizeof(RecImuFast) - sizeof(RecHdr))) {
     RecImuFast r{};
@@ -103,12 +103,12 @@ static void sd_dump_print_record(uint32_t idx,
     memcpy(&t_us, payload, sizeof(t_us));
     memcpy(&n, payload + sizeof(t_us), sizeof(n));
     uint16_t avail = payload_len > 6 ? (payload_len - 6) : 0;
-    uint16_t n_use = min<uint16_t>(n, avail);
+    uint16_t n_use = min(n, avail);
     Serial.printf("    t_us=%lu n=%u\n", (unsigned long)t_us, (unsigned)n);
     if (n_use) {
       const uint8_t* data = payload + 6;
-      sd_dump_print_ascii(data, n_use, min<uint16_t>(n_use, preview));
-      sd_dump_print_hex(data, n_use, min<uint16_t>(n_use, preview));
+      sd_dump_print_ascii(data, n_use, min(n_use, preview));
+      sd_dump_print_hex(data, n_use, min(n_use, preview));
     }
     return;
   }
@@ -142,12 +142,15 @@ static void sd_dump_print_record(uint32_t idx,
   }
 }
 
-static bool sd_dump_skip_bytes(FsFile& file, uint32_t n) {
+static bool sd_dump_skip_bytes(FsFile& file, uint32_t n, uint32_t* crc) {
   uint8_t scratch[64];
   while (n) {
-    uint32_t chunk = min<uint32_t>(n, sizeof(scratch));
+    uint32_t chunk = min(n, (uint32_t)sizeof(scratch));
     int32_t r = file.read(scratch, chunk);
     if (r <= 0) return false;
+    if (crc) {
+      *crc = crc32_update(*crc, scratch, (size_t)r);
+    }
     n -= (uint32_t)r;
   }
   return true;
@@ -195,7 +198,7 @@ static void sd_dump_log() {
       break;
     }
     if (hdr.hdr_len > sizeof(hdr)) {
-      if (!sd_dump_skip_bytes(file, hdr.hdr_len - sizeof(hdr))) {
+      if (!sd_dump_skip_bytes(file, hdr.hdr_len - sizeof(hdr), nullptr)) {
         Serial.println("sd: truncated block header padding");
         break;
       }
@@ -235,7 +238,7 @@ static void sd_dump_log() {
       const uint16_t rec_len = (uint16_t)rec_hdr[2] | ((uint16_t)rec_hdr[3] << 8);
       if (rec_len < sizeof(RecHdr) || rec_len - sizeof(RecHdr) > remaining) {
         Serial.println("sd: invalid record length");
-        if (!sd_dump_skip_bytes(file, remaining)) {
+        if (!sd_dump_skip_bytes(file, remaining, &crc)) {
           remaining = 0;
         }
         break;
@@ -259,21 +262,20 @@ static void sd_dump_log() {
 
       if (payload_len > to_read) {
         uint32_t leftover = payload_len - to_read;
-        if (!sd_dump_skip_bytes(file, leftover)) {
+        if (!sd_dump_skip_bytes(file, leftover, &crc)) {
           Serial.println("sd: truncated record payload");
           remaining = 0;
           break;
         }
-        crc = crc32_update(crc, nullptr, 0);
       }
 
       remaining -= payload_len;
-      sd_dump_print_record(rec_idx, rec_type, rec_ver, rec_len, rec_buf, min<uint16_t>(payload_len, to_read));
+      sd_dump_print_record(rec_idx, rec_type, rec_ver, rec_len, rec_buf, min(payload_len, to_read));
       rec_idx++;
     }
 
     if (remaining) {
-      sd_dump_skip_bytes(file, remaining);
+      sd_dump_skip_bytes(file, remaining, &crc);
     }
 
     const bool crc_ok = (crc == hdr.crc32);

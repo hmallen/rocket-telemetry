@@ -72,7 +72,7 @@ void SdLogger::force_sync() {
   if (f_) f_.sync();
 }
 
-FsFile SdLogger::open_log_read() const {
+FsFile SdLogger::open_log_read() {
   if (!log_name_[0]) return FsFile();
   return sd_.open(log_name_, O_RDONLY);
 }
