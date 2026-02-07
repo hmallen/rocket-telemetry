@@ -24,6 +24,7 @@ static PsramSpool spool;
 
 static BlockBuilder block;
 static SdLogger sdlog;
+static uint32_t block_seq = 0;
 
 #if ENABLE_SD_DUMP
 static const char* sd_dump_record_name(uint8_t type) {
@@ -287,8 +288,41 @@ static void sd_dump_log() {
   Serial.println("sd: dump complete");
 }
 
+static void sd_clear_logs() {
+  Serial.println("\nsd: clear requested");
+#if !ENABLE_SD_LOGGER
+  Serial.println("sd: logging disabled");
+  return;
+#endif
+  if (!sdlog.clear_logs()) {
+    Serial.println("sd: clear failed");
+    return;
+  }
+
+  block_seq = 0;
+  block.reset(block_seq, micros());
+  ring.init(ring_mem, RING_BYTES);
+#if ENABLE_PSRAM_SPOOL
+  spool.init(spool_mem, SPOOL_BYTES);
+#endif
+
+  if (!sdlog.open_new_log(PREALLOC_BYTES)) {
+    Serial.println("sd: open new log failed");
+    return;
+  }
+
+  const char* log_name = sdlog.log_name();
+  if (log_name) {
+    Serial.print("sd: new log ");
+    Serial.println(log_name);
+  } else {
+    Serial.println("sd: new log started");
+  }
+}
+
 static void sd_dump_print_help() {
   Serial.println("sd dump commands:");
+  Serial.println("  c: clear SD logs + start new log");
   Serial.println("  d: dump SD log to serial");
   Serial.println("  h/? : help");
 }
@@ -301,8 +335,6 @@ static bool gnss_use_backup_as_primary = false;
 #endif
 static Sensors sensors;
 static LoraLink lora;
-
-static uint32_t block_seq = 0;
 
 enum BatState : uint8_t {
   BAT_OK = 0,
@@ -646,7 +678,9 @@ void loop() {
   while (Serial.available()) {
     const int c = Serial.read();
     if (c < 0) break;
-    if (c == 'd' || c == 'D') {
+    if (c == 'c' || c == 'C') {
+      sd_clear_logs();
+    } else if (c == 'd' || c == 'D') {
       sd_dump_log();
     } else if (c == 'h' || c == '?') {
       sd_dump_print_help();
@@ -814,26 +848,40 @@ void loop() {
 #endif
 
 #if ENABLE_SENSORS
-  // IMU target scheduler (framework stub read)
-  const uint32_t imu_period_us = (IMU_HZ == 0) ? 0 : (1000000UL / IMU_HZ);
-  if (imu_period_us) {
-    if (last_imu_us == 0) last_imu_us = now_us;
-    uint8_t imu_iters = 0;
-    while ((uint32_t)(now_us - last_imu_us) >= imu_period_us) {
-      ImuSample s{};
-      if (sensors.read_imu(s)) {
-        ring_write_imu(last_imu_us, s);
-        last_imu_sample = s;
-        have_imu_sample = true;
+  const bool use_imu_ready_pins = (GRDY_PIN != 255) || (LRDY_PIN != 255);
+  if (use_imu_ready_pins) {
+    ImuSample s{};
+    if (sensors.read_imu(s)) {
+      ring_write_imu(now_us, s);
+      last_imu_sample = s;
+      have_imu_sample = true;
 #if DEBUG_MODE
-        last_imu = s;
-        last_imu_dbg_us = last_imu_us;
+      last_imu = s;
+      last_imu_dbg_us = now_us;
 #endif
-      }
-      last_imu_us += imu_period_us;
-      if (++imu_iters >= 4) {
-        last_imu_us = now_us;
-        break;
+    }
+  } else {
+    // IMU target scheduler (framework stub read)
+    const uint32_t imu_period_us = (IMU_HZ == 0) ? 0 : (1000000UL / IMU_HZ);
+    if (imu_period_us) {
+      if (last_imu_us == 0) last_imu_us = now_us;
+      uint8_t imu_iters = 0;
+      while ((uint32_t)(now_us - last_imu_us) >= imu_period_us) {
+        ImuSample s{};
+        if (sensors.read_imu(s)) {
+          ring_write_imu(last_imu_us, s);
+          last_imu_sample = s;
+          have_imu_sample = true;
+#if DEBUG_MODE
+          last_imu = s;
+          last_imu_dbg_us = last_imu_us;
+#endif
+        }
+        last_imu_us += imu_period_us;
+        if (++imu_iters >= 4) {
+          last_imu_us = now_us;
+          break;
+        }
       }
     }
   }

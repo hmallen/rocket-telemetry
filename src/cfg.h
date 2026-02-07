@@ -47,10 +47,14 @@ constexpr uint32_t VBAT_DWELL_MS = 2000;
 constexpr uint8_t SENSOR_RAIL_EN_PIN = 255;
 
 constexpr uint8_t GINT_PIN = 33;
-constexpr uint8_t GRDY_PIN = 255;
+constexpr uint8_t GRDY_PIN = 34;
 constexpr uint8_t LIN1_PIN = 35;
 constexpr uint8_t LIN2_PIN = 36;
-constexpr uint8_t LRDY_PIN = 255;
+constexpr uint8_t LRDY_PIN = 37;
+constexpr bool GYRO_RDY_ACTIVE_LOW = true; // set true if gyro DRDY is active-low
+constexpr bool GYRO_RDY_PULLUP = true;     // set true if gyro DRDY is open-drain/floating
+constexpr bool ACCEL_RDY_ACTIVE_LOW = false; // set true if accel DRDY is active-low
+constexpr bool ACCEL_RDY_PULLUP = false;     // set true if accel DRDY is open-drain/floating
 
 // ---------- I2C ----------
 #define I2C_BUS Wire
@@ -73,7 +77,7 @@ constexpr float   LORA_FREQ_MHZ = 433.0f; // 70 cm amateur band (420-450 MHz in 
 
 // Operator identification: embed callsign in clear, human-decodable ASCII in every telemetry frame.
 // Set these before enabling TX.
-constexpr const char LORA_CALLSIGN[] = "KG5CKI";
+constexpr const char LORA_CALLSIGN[] = "CALLSIGN";
 #define LORA_CONTROL_OPERATOR_OK 1
 
 // RF parameter discipline: choose minimum BW/SF/power that meets link budget.
