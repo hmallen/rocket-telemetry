@@ -382,6 +382,13 @@ class TelemetryStore:
                 "lon_deg": None,
                 "alt_m": None,
             },
+            "navsat": {
+                "t_ms": None,
+                "svs_total": None,
+                "svs_used": None,
+                "cno_max": None,
+                "cno_avg": None,
+            },
             "alt": {
                 "t_ms": None,
                 "press_pa_x10": None,
@@ -466,6 +473,14 @@ class TelemetryStore:
                         "lat_deg": lat_deg,
                         "lon_deg": lon_deg,
                         "alt_m": alt_m,
+                    })
+                elif payload_type == "navsat":
+                    self._state["navsat"].update({
+                        "t_ms": parsed.get("t_ms"),
+                        "svs_total": parsed.get("svs_total"),
+                        "svs_used": parsed.get("svs_used"),
+                        "cno_max": parsed.get("cno_max"),
+                        "cno_avg": parsed.get("cno_avg"),
                     })
                 elif payload_type == "alt":
                     press_pa_x10 = parsed.get("press_pa_x10")
