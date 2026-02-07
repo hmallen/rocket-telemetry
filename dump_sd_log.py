@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Dump Rocket Telemetry SD log blocks and records to the terminal.
+"""Dump Rocket Telemetry SD log blocks and records to a text file.
 
 Usage examples:
   python dump_sd_log.py --file E:\\LOG00012.BIN
-  python dump_sd_log.py --file E:\\    # picks latest LOG*.BIN in the directory
+  python dump_sd_log.py --file E:\\ --output flight.txt
+  python dump_sd_log.py --file E:\\ --stdout    # also echo to terminal
 """
 
 from __future__ import annotations
@@ -172,7 +173,18 @@ def _decode_record(rec_type, rec_ver, rec_len, rec_payload):
     return base
 
 
-def _dump_log(path: Path, max_blocks: int | None, show_unknown: bool) -> None:
+def _dump_log(
+    path: Path,
+    output_handle,
+    max_blocks: int | None,
+    show_unknown: bool,
+    also_stdout: bool,
+) -> None:
+    def emit(line: str = "") -> None:
+        output_handle.write(f"{line}\n")
+        if also_stdout:
+            print(line)
+
     with path.open("rb") as handle:
         block_index = 0
         while True:
@@ -182,7 +194,7 @@ def _dump_log(path: Path, max_blocks: int | None, show_unknown: bool) -> None:
 
             if header["magic"] != BLOCK_MAGIC:
                 if header["magic"] == 0:
-                    print("Reached empty preallocated region; stopping.")
+                    emit("Reached empty preallocated region; stopping.")
                     break
                 raise ValueError(
                     f"Invalid block magic 0x{header['magic']:08X} at block {block_index}"
@@ -195,7 +207,7 @@ def _dump_log(path: Path, max_blocks: int | None, show_unknown: bool) -> None:
             computed_crc = binascii.crc32(payload) & 0xFFFFFFFF
             crc_ok = computed_crc == header["crc32"]
 
-            print(
+            emit(
                 "Block seq={seq} t_start_us={t_start_us} payload_len={payload_len} crc_ok={crc_ok}".format(
                     seq=header["seq"],
                     t_start_us=header["t_start_us"],
@@ -209,35 +221,41 @@ def _dump_log(path: Path, max_blocks: int | None, show_unknown: bool) -> None:
             while offset + 4 <= len(payload):
                 rec_type, rec_ver, rec_len = struct.unpack_from("<BBH", payload, offset)
                 if rec_len < 4 or offset + rec_len > len(payload):
-                    print(f"  Invalid record length at offset {offset}; stopping block")
+                    emit(f"  Invalid record length at offset {offset}; stopping block")
                     break
 
                 rec_payload = payload[offset + 4 : offset + rec_len]
                 record = _decode_record(rec_type, rec_ver, rec_len, rec_payload)
                 name = record.get("type", "UNKNOWN")
 
-                print(f"  [{rec_index:04d}] {name} ver={rec_ver} len={rec_len}")
+                emit(f"  [{rec_index:04d}] {name} ver={rec_ver} len={rec_len}")
                 for key, value in record.items():
                     if key in {"type", "ver", "len"}:
                         continue
-                    print(f"        {key}: {value}")
+                    emit(f"        {key}: {value}")
 
                 if name.startswith("UNKNOWN") and show_unknown:
                     preview = rec_payload[:32]
-                    print(f"        raw_hex: {preview.hex()}")
+                    emit(f"        raw_hex: {preview.hex()}")
 
                 offset += rec_len
                 rec_index += 1
 
             block_index += 1
             if max_blocks is not None and block_index >= max_blocks:
-                print("Max block limit reached; stopping.")
+                emit("Max block limit reached; stopping.")
                 break
+
+
+def _output_path_for(log_path: Path, output_arg: str | None) -> Path:
+    if output_arg:
+        return Path(output_arg)
+    return log_path.with_suffix(".txt")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Wait for keyboard input, then dump SD telemetry log records."
+        description="Parse SD telemetry log records and write a human-readable dump."
     )
     parser.add_argument(
         "--file",
@@ -252,6 +270,27 @@ def main() -> int:
         help="Stop after dumping this many blocks.",
     )
     parser.add_argument(
+        "--output",
+        "-o",
+        default=None,
+        help="Output text file path (default: same name as log with .txt extension).",
+    )
+    parser.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Overwrite output file if it already exists.",
+    )
+    parser.add_argument(
+        "--stdout",
+        action="store_true",
+        help="Also echo the dump to stdout while writing the file.",
+    )
+    parser.add_argument(
+        "--no-wait",
+        action="store_true",
+        help="Do not wait for Enter before starting.",
+    )
+    parser.add_argument(
         "--show-unknown",
         action="store_true",
         help="Include a raw hex preview for unknown record types.",
@@ -264,18 +303,28 @@ def main() -> int:
         print(exc, file=sys.stderr)
         return 2
 
-    try:
-        input("Insert SD card and press Enter to dump telemetry log... ")
-    except KeyboardInterrupt:
-        print("\nCanceled.")
-        return 1
+    output_path = _output_path_for(target, args.output)
+    if output_path.exists() and not args.overwrite:
+        print(f"Output file already exists: {output_path}", file=sys.stderr)
+        print("Use --overwrite to replace it.", file=sys.stderr)
+        return 2
+
+    if not args.no_wait:
+        try:
+            input("Insert SD card and press Enter to dump telemetry log... ")
+        except KeyboardInterrupt:
+            print("\nCanceled.")
+            return 1
 
     print(f"Dumping: {target}")
     try:
-        _dump_log(target, args.max_blocks, args.show_unknown)
+        with output_path.open("w", encoding="utf-8") as output_handle:
+            _dump_log(target, output_handle, args.max_blocks, args.show_unknown, args.stdout)
     except (EOFError, ValueError, struct.error) as exc:
         print(f"Error while parsing log: {exc}", file=sys.stderr)
         return 2
+
+    print(f"Wrote dump to: {output_path}")
 
     return 0
 
