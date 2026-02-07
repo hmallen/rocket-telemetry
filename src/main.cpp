@@ -5,6 +5,7 @@
 #include "byte_ring.h"
 #include "psram_spool.h"
 #include "block_builder.h"
+#include "crc32.h"
 #include "sd_logger.h"
 #include "timebase.h"
 #include "gnss_ubx.h"
@@ -23,6 +24,273 @@ static PsramSpool spool;
 
 static BlockBuilder block;
 static SdLogger sdlog;
+
+#if ENABLE_SD_DUMP
+static const char* sd_dump_record_name(uint8_t type) {
+  switch (type) {
+    case REC_IMU_FAST: return "REC_IMU_FAST";
+    case REC_BARO: return "REC_BARO";
+    case REC_GNSS_CHUNK: return "REC_GNSS_CHUNK";
+    case REC_TIME_ANCHOR: return "REC_TIME_ANCHOR";
+    case REC_EVENT: return "REC_EVENT";
+    case REC_STATS: return "REC_STATS";
+    case REC_BARO2: return "REC_BARO2";
+    default: return "REC_UNKNOWN";
+  }
+}
+
+static void sd_dump_print_ascii(const uint8_t* data, uint16_t n, uint16_t preview) {
+  Serial.print("    ascii: ");
+  for (uint16_t i = 0; i < preview; ++i) {
+    char c = (data[i] >= 32 && data[i] <= 126) ? (char)data[i] : '.';
+    Serial.write(c);
+  }
+  if (n > preview) {
+    Serial.print(" ...");
+  }
+  Serial.println();
+}
+
+static void sd_dump_print_hex(const uint8_t* data, uint16_t n, uint16_t preview) {
+  Serial.print("    hex:   ");
+  for (uint16_t i = 0; i < preview; ++i) {
+    if (i && (i % 16 == 0)) {
+      Serial.print("\n          ");
+    }
+    if (data[i] < 0x10) Serial.print('0');
+    Serial.print(data[i], HEX);
+    Serial.print(' ');
+  }
+  if (n > preview) {
+    Serial.print("... (");
+    Serial.print(n);
+    Serial.println(" bytes)");
+  } else {
+    Serial.println();
+  }
+}
+
+static void sd_dump_print_record(uint32_t idx,
+                                 uint8_t type,
+                                 uint8_t ver,
+                                 uint16_t len,
+                                 const uint8_t* payload,
+                                 uint16_t payload_len) {
+  const char* name = sd_dump_record_name(type);
+  Serial.printf("  [%lu] %s ver=%u len=%u\n",
+                (unsigned long)idx, name, (unsigned)ver, (unsigned)len);
+  const uint16_t preview = min<uint16_t>(payload_len, 64);
+
+  if (type == REC_IMU_FAST && payload_len >= (sizeof(RecImuFast) - sizeof(RecHdr))) {
+    RecImuFast r{};
+    memcpy(&r.t_us, payload, sizeof(RecImuFast) - sizeof(RecHdr));
+    Serial.printf("    t_us=%lu ax=%d ay=%d az=%d gx=%d gy=%d gz=%d temp=%d status=0x%04x\n",
+                  (unsigned long)r.t_us, (int)r.ax, (int)r.ay, (int)r.az,
+                  (int)r.gx, (int)r.gy, (int)r.gz, (int)r.temp, (unsigned)r.status);
+    return;
+  }
+  if ((type == REC_BARO || type == REC_BARO2) && payload_len >= (sizeof(RecBaro) - sizeof(RecHdr))) {
+    RecBaro r{};
+    memcpy(&r.t_us, payload, sizeof(RecBaro) - sizeof(RecHdr));
+    Serial.printf("    t_us=%lu press_pa_x10=%ld temp_c_x100=%d status=0x%04x\n",
+                  (unsigned long)r.t_us, (long)r.press_pa_x10, (int)r.temp_c_x100,
+                  (unsigned)r.status);
+    return;
+  }
+  if (type == REC_GNSS_CHUNK && payload_len >= 6) {
+    uint32_t t_us = 0;
+    uint16_t n = 0;
+    memcpy(&t_us, payload, sizeof(t_us));
+    memcpy(&n, payload + sizeof(t_us), sizeof(n));
+    uint16_t avail = payload_len > 6 ? (payload_len - 6) : 0;
+    uint16_t n_use = min<uint16_t>(n, avail);
+    Serial.printf("    t_us=%lu n=%u\n", (unsigned long)t_us, (unsigned)n);
+    if (n_use) {
+      const uint8_t* data = payload + 6;
+      sd_dump_print_ascii(data, n_use, min<uint16_t>(n_use, preview));
+      sd_dump_print_hex(data, n_use, min<uint16_t>(n_use, preview));
+    }
+    return;
+  }
+  if (type == REC_TIME_ANCHOR && payload_len >= (sizeof(RecTimeAnchor) - sizeof(RecHdr))) {
+    RecTimeAnchor r{};
+    memcpy(&r.t_us_at_pps, payload, sizeof(RecTimeAnchor) - sizeof(RecHdr));
+    Serial.printf("    t_us_at_pps=%lu gps_week=%u tow_ms=%lu fix_ok=%u\n",
+                  (unsigned long)r.t_us_at_pps, (unsigned)r.gps_week,
+                  (unsigned long)r.tow_ms, (unsigned)r.fix_ok);
+    return;
+  }
+  if (type == REC_EVENT && payload_len >= (sizeof(RecEvent) - sizeof(RecHdr))) {
+    RecEvent r{};
+    memcpy(&r.t_us, payload, sizeof(RecEvent) - sizeof(RecHdr));
+    Serial.printf("    t_us=%lu event_id=%u value=%d\n",
+                  (unsigned long)r.t_us, (unsigned)r.event_id, (int)r.value);
+    return;
+  }
+  if (type == REC_STATS && payload_len >= (sizeof(RecStats) - sizeof(RecHdr))) {
+    RecStats r{};
+    memcpy(&r.t_us, payload, sizeof(RecStats) - sizeof(RecHdr));
+    Serial.printf("    t_us=%lu ring_drops=%lu spool_drops=%lu sd_write_errs=%lu vbat_mv=%u bat_state=%u\n",
+                  (unsigned long)r.t_us, (unsigned long)r.ring_drops,
+                  (unsigned long)r.spool_drops, (unsigned long)r.sd_write_errs,
+                  (unsigned)r.vbat_mv, (unsigned)r.bat_state);
+    return;
+  }
+
+  if (payload_len) {
+    sd_dump_print_hex(payload, payload_len, preview);
+  }
+}
+
+static bool sd_dump_skip_bytes(FsFile& file, uint32_t n) {
+  uint8_t scratch[64];
+  while (n) {
+    uint32_t chunk = min<uint32_t>(n, sizeof(scratch));
+    int32_t r = file.read(scratch, chunk);
+    if (r <= 0) return false;
+    n -= (uint32_t)r;
+  }
+  return true;
+}
+
+static void sd_dump_log() {
+  Serial.println("\nsd: dump requested");
+#if !ENABLE_SD_LOGGER
+  Serial.println("sd: logging disabled");
+  return;
+#endif
+  sdlog.force_sync();
+  const char* log_name = sdlog.log_name();
+  if (!log_name) {
+    Serial.println("sd: no log file name");
+    return;
+  }
+
+  FsFile file = sdlog.open_log_read();
+  if (!file) {
+    Serial.println("sd: open log for read failed");
+    return;
+  }
+
+  if (!file.seekSet(0)) {
+    Serial.println("sd: seek failed");
+    file.close();
+    return;
+  }
+
+  Serial.print("sd: dumping ");
+  Serial.println(log_name);
+
+  uint32_t block_idx = 0;
+  while (true) {
+    BlockHdr hdr{};
+    int32_t r = file.read((uint8_t*)&hdr, sizeof(hdr));
+    if (r == 0) break;
+    if (r < (int32_t)sizeof(hdr)) {
+      Serial.println("sd: truncated block header");
+      break;
+    }
+    if (hdr.hdr_len < sizeof(hdr)) {
+      Serial.println("sd: invalid block header length");
+      break;
+    }
+    if (hdr.hdr_len > sizeof(hdr)) {
+      if (!sd_dump_skip_bytes(file, hdr.hdr_len - sizeof(hdr))) {
+        Serial.println("sd: truncated block header padding");
+        break;
+      }
+    }
+
+    if (hdr.magic != BLOCK_MAGIC) {
+      if (hdr.magic == 0) {
+        Serial.println("sd: reached preallocated empty region");
+      } else {
+        Serial.printf("sd: invalid block magic 0x%08lx\n", (unsigned long)hdr.magic);
+      }
+      break;
+    }
+
+    Serial.printf("BLOCK seq=%lu t_start_us=%lu payload_len=%lu\n",
+                  (unsigned long)hdr.seq,
+                  (unsigned long)hdr.t_start_us,
+                  (unsigned long)hdr.payload_len);
+
+    uint32_t remaining = hdr.payload_len;
+    uint32_t crc = 0u;
+    uint32_t rec_idx = 0;
+
+    while (remaining >= sizeof(RecHdr)) {
+      uint8_t rec_hdr[sizeof(RecHdr)];
+      int32_t rh = file.read(rec_hdr, sizeof(rec_hdr));
+      if (rh < (int32_t)sizeof(rec_hdr)) {
+        Serial.println("sd: truncated record header");
+        remaining = 0;
+        break;
+      }
+      remaining -= sizeof(rec_hdr);
+      crc = crc32_update(crc, rec_hdr, sizeof(rec_hdr));
+
+      const uint8_t rec_type = rec_hdr[0];
+      const uint8_t rec_ver = rec_hdr[1];
+      const uint16_t rec_len = (uint16_t)rec_hdr[2] | ((uint16_t)rec_hdr[3] << 8);
+      if (rec_len < sizeof(RecHdr) || rec_len - sizeof(RecHdr) > remaining) {
+        Serial.println("sd: invalid record length");
+        if (!sd_dump_skip_bytes(file, remaining)) {
+          remaining = 0;
+        }
+        break;
+      }
+
+      const uint16_t payload_len = rec_len - sizeof(RecHdr);
+      uint8_t rec_buf[GNSS_CHUNK_MAX + 16];
+      uint16_t to_read = payload_len;
+      if (to_read > sizeof(rec_buf)) {
+        to_read = sizeof(rec_buf);
+      }
+      if (to_read) {
+        int32_t rp = file.read(rec_buf, to_read);
+        if (rp < (int32_t)to_read) {
+          Serial.println("sd: truncated record payload");
+          remaining = 0;
+          break;
+        }
+        crc = crc32_update(crc, rec_buf, to_read);
+      }
+
+      if (payload_len > to_read) {
+        uint32_t leftover = payload_len - to_read;
+        if (!sd_dump_skip_bytes(file, leftover)) {
+          Serial.println("sd: truncated record payload");
+          remaining = 0;
+          break;
+        }
+        crc = crc32_update(crc, nullptr, 0);
+      }
+
+      remaining -= payload_len;
+      sd_dump_print_record(rec_idx, rec_type, rec_ver, rec_len, rec_buf, min<uint16_t>(payload_len, to_read));
+      rec_idx++;
+    }
+
+    if (remaining) {
+      sd_dump_skip_bytes(file, remaining);
+    }
+
+    const bool crc_ok = (crc == hdr.crc32);
+    Serial.printf("BLOCK CRC32 %s (0x%08lx)\n", crc_ok ? "OK" : "BAD", (unsigned long)crc);
+    block_idx++;
+  }
+
+  file.close();
+  Serial.println("sd: dump complete");
+}
+
+static void sd_dump_print_help() {
+  Serial.println("sd dump commands:");
+  Serial.println("  d: dump SD log to serial");
+  Serial.println("  h/? : help");
+}
+#endif
 
 #if ENABLE_GNSS
 static GnssUbx gnss_primary(GNSS_SERIAL_PRIMARY);
@@ -265,6 +533,16 @@ void setup() {
   DBG_INIT();
   DBG_PRINTLN("boot");
 
+#if ENABLE_SD_DUMP && !DEBUG_MODE
+  Serial.begin(115200);
+  delay(10);
+  uint32_t t0 = millis();
+  while (!Serial && (uint32_t)(millis() - t0) < 2000) { }
+#endif
+#if ENABLE_SD_DUMP
+  sd_dump_print_help();
+#endif
+
   analogReadResolution(12);
   pinMode(VBAT_PIN, INPUT);
 
@@ -361,6 +639,18 @@ void loop() {
 
   const uint32_t now_us = micros();
   const uint32_t now_ms = millis();
+
+#if ENABLE_SD_DUMP
+  while (Serial.available()) {
+    const int c = Serial.read();
+    if (c < 0) break;
+    if (c == 'd' || c == 'D') {
+      sd_dump_log();
+    } else if (c == 'h' || c == '?') {
+      sd_dump_print_help();
+    }
+  }
+#endif
 
   if (vbat_last_sample_ms == 0 || (uint32_t)(now_ms - vbat_last_sample_ms) >= 50) {
     vbat_last_sample_ms = now_ms;

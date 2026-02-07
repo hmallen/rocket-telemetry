@@ -13,6 +13,9 @@ public:
   void poll_sync(uint32_t now_ms);
   void force_sync();
 
+  const char* log_name() const { return log_name_[0] ? log_name_ : nullptr; }
+  FsFile open_log_read() const;
+
   uint32_t write_errs() const { return write_errs_; }
 
 private:
@@ -20,4 +23,5 @@ private:
   FsFile f_;
   uint32_t last_sync_ms_;
   uint32_t write_errs_;
+  char log_name_[32];
 };

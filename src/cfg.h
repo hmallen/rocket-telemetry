@@ -92,6 +92,7 @@ constexpr uint32_t LORA_GPS_INTERVAL_MS = 1000;
 constexpr uint32_t LORA_ALT_INTERVAL_MS = 200;
 constexpr uint32_t LORA_IMU_INTERVAL_MS = 200;
 constexpr uint32_t LORA_BAT_INTERVAL_MS = 1000;
+constexpr uint32_t LORA_NAVSAT_INTERVAL_MS = 2000;
 
 // Retries: bounded, with backoff; fail toward silence.
 constexpr uint8_t  LORA_RETRY_LIMIT = 2;
@@ -113,7 +114,8 @@ constexpr int32_t  LORA_FLIGHT_PRESS_DELTA_PA_X10 = 5000;
 #define LORA_TX_ENABLE_AT_BOOT 1
 
 // ---------- Build toggles ----------
-#define ENABLE_SD_LOGGER 0
+#define ENABLE_SD_LOGGER 1
+#define ENABLE_SD_DUMP 1
 #define ENABLE_PSRAM_SPOOL 1
 #define ENABLE_GNSS 1
 #define ENABLE_SENSORS 1

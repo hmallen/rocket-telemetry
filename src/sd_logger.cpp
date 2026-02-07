@@ -1,7 +1,9 @@
 #include "sd_logger.h"
 #include "cfg.h"
 
-SdLogger::SdLogger() : last_sync_ms_(0), write_errs_(0) {}
+SdLogger::SdLogger() : last_sync_ms_(0), write_errs_(0) {
+  log_name_[0] = '\0';
+}
 
 bool SdLogger::begin() {
   // SDIO on Teensy 4.1
@@ -33,6 +35,7 @@ bool SdLogger::open_new_log(uint32_t prealloc_bytes) {
         return false;
       }
       last_sync_ms_ = millis();
+      snprintf(log_name_, sizeof(log_name_), "%s", name);
       DBG_PRINTF("sd: log %s\n", name);
       return true;
     }
@@ -67,4 +70,9 @@ void SdLogger::poll_sync(uint32_t now_ms) {
 
 void SdLogger::force_sync() {
   if (f_) f_.sync();
+}
+
+FsFile SdLogger::open_log_read() const {
+  if (!log_name_[0]) return FsFile();
+  return sd_.open(log_name_, O_RDONLY);
 }
