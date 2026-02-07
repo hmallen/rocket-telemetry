@@ -41,6 +41,8 @@ private:
                      int16_t temp_c_x100);
   bool start_gps_tx_(uint32_t now_ms,
                      const GnssTime& gps);
+  bool start_navsat_tx_(uint32_t now_ms,
+                        const GnssTime& gps);
   bool start_imu_tx_(uint32_t now_ms,
                      const ImuSample& imu);
   void schedule_retry_(uint32_t now_ms);
@@ -70,6 +72,7 @@ private:
   uint32_t last_alt_tx_ms_ = 0;
   uint32_t last_imu_tx_ms_ = 0;
   uint32_t last_bat_tx_ms_ = 0;
+  uint32_t last_navsat_tx_ms_ = 0;
 
   int32_t  last_press_pa_x10_ = 0;
   int16_t  last_temp_c_x100_ = 0;

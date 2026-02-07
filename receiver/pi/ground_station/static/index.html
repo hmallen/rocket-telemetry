@@ -116,6 +116,10 @@
           <div class="canvas-shell" id="map-shell">
             <div id="map"></div>
             <div class="canvas-overlay" id="map-overlay">Awaiting GPS fix</div>
+            <div class="map-controls">
+              <button class="map-button" id="map-jump" type="button">Jump to current</button>
+              <button class="map-button secondary" id="map-set-home" type="button">Set home</button>
+            </div>
           </div>
         </article>
       </section>
@@ -150,6 +154,17 @@
               <div><dt>Lat (deg)</dt><dd id="gps-lat-deg">--</dd></div>
               <div><dt>Lon (deg)</dt><dd id="gps-lon-deg">--</dd></div>
               <div><dt>Alt (m)</dt><dd id="gps-alt-m">--</dd></div>
+            </dl>
+          </div>
+
+          <div class="telemetry-block">
+            <h3>NAV-SAT</h3>
+            <dl>
+              <div><dt>Sample Time</dt><dd id="navsat-time">--</dd></div>
+              <div><dt>SVs Used</dt><dd id="navsat-svs-used">--</dd></div>
+              <div><dt>SVs Total</dt><dd id="navsat-svs-total">--</dd></div>
+              <div><dt>C/N0 Max</dt><dd id="navsat-cno-max">--</dd></div>
+              <div><dt>C/N0 Avg</dt><dd id="navsat-cno-avg">--</dd></div>
             </dl>
           </div>
 

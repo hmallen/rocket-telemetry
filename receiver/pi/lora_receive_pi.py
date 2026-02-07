@@ -341,6 +341,21 @@ def decode_payload(payload):
         vbat_mv = int.from_bytes(payload[6:8], "little", signed=False)
         bat_state = int(payload[8])
         return "BAT t_ms=%d vbat_v=%.3f state=%d" % (t_ms, vbat_mv / 1000.0, bat_state)
+    if typ == 5:
+        if len(payload) < 10:
+            return "PROTO A1 NAVSAT (short)"
+        t_ms = int.from_bytes(payload[2:6], "little", signed=False)
+        svs_total = int(payload[6])
+        svs_used = int(payload[7])
+        cno_max = int(payload[8])
+        cno_avg = int(payload[9])
+        return "NAVSAT t_ms=%d svs=%d/%d cno_max=%d cno_avg=%d" % (
+            t_ms,
+            svs_used,
+            svs_total,
+            cno_max,
+            cno_avg,
+        )
     return "PROTO A1 type=%d" % typ
 
 
@@ -415,6 +430,18 @@ def parse_payload(payload):
             "t_ms": t_ms,
             "vbat_mv": vbat_mv,
             "bat_state": bat_state,
+        }
+    if typ == 5:
+        if len(payload) < 10:
+            return None
+        t_ms = int.from_bytes(payload[2:6], "little", signed=False)
+        return {
+            "type": "navsat",
+            "t_ms": t_ms,
+            "svs_total": int(payload[6]),
+            "svs_used": int(payload[7]),
+            "cno_max": int(payload[8]),
+            "cno_avg": int(payload[9]),
         }
     return {"type": "unknown", "type_id": typ}
 

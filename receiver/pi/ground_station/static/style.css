@@ -295,6 +295,46 @@ main {
   bottom: 14px;
 }
 
+.map-controls {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  z-index: 2;
+}
+
+.map-button {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-family: "Space Grotesk", "Trebuchet MS", sans-serif;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  cursor: pointer;
+  box-shadow: 0 10px 20px rgba(20, 20, 20, 0.2);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.map-button.secondary {
+  background: rgba(255, 255, 255, 0.9);
+  color: var(--accent-strong);
+  border: 1px solid var(--line);
+  box-shadow: none;
+}
+
+.map-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(20, 20, 20, 0.24);
+}
+
+.map-button.secondary:hover {
+  box-shadow: 0 8px 16px rgba(20, 20, 20, 0.12);
+}
+
 .telemetry-panel {
   gap: 12px;
 }

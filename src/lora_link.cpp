@@ -253,11 +253,13 @@ void LoraLink::poll_telem(uint32_t now_ms,
   const uint32_t alt_int_ms = LORA_ALT_INTERVAL_MS;
   const uint32_t imu_int_ms = LORA_IMU_INTERVAL_MS;
   const uint32_t bat_int_ms = LORA_BAT_INTERVAL_MS;
+  const uint32_t navsat_int_ms = LORA_NAVSAT_INTERVAL_MS;
 
   int32_t gps_late = -2147483647;
   int32_t alt_late = -2147483647;
   int32_t imu_late = -2147483647;
   int32_t bat_late = -2147483647;
+  int32_t navsat_late = -2147483647;
 
   if (gps != nullptr && gps_int_ms != 0 && gps->last_pvt_ms != 0) {
     if (last_gps_tx_ms_ == 0) gps_late = (int32_t)now_ms;
@@ -275,6 +277,10 @@ void LoraLink::poll_telem(uint32_t now_ms,
     if (last_bat_tx_ms_ == 0) bat_late = (int32_t)now_ms;
     else bat_late = (int32_t)((uint32_t)(now_ms - last_bat_tx_ms_) - bat_int_ms);
   }
+  if (gps != nullptr && navsat_int_ms != 0 && gps->last_sat_ms != 0) {
+    if (last_navsat_tx_ms_ == 0) navsat_late = (int32_t)now_ms;
+    else navsat_late = (int32_t)((uint32_t)(now_ms - last_navsat_tx_ms_) - navsat_int_ms);
+  }
 
   auto pick_most_overdue = [](int32_t best_late, int32_t candidate_late) {
     if (candidate_late < 0) return false;
@@ -288,6 +294,10 @@ void LoraLink::poll_telem(uint32_t now_ms,
   if (pick_most_overdue(best_late, gps_late)) {
     pick = 2;
     best_late = gps_late;
+  }
+  if (pick_most_overdue(best_late, navsat_late)) {
+    pick = 5;
+    best_late = navsat_late;
   }
   if (pick_most_overdue(best_late, alt_late)) {
     pick = 0;
@@ -314,6 +324,8 @@ void LoraLink::poll_telem(uint32_t now_ms,
     ok = start_alt_tx_(now_ms, press_pa_x10, temp_c_x100);
   } else if (pick == 2) {
     ok = start_gps_tx_(now_ms, *gps);
+  } else if (pick == 5) {
+    ok = start_navsat_tx_(now_ms, *gps);
   } else if (pick == 3) {
     ok = start_imu_tx_(now_ms, *imu);
   } else if (pick == 4) {
@@ -369,6 +381,50 @@ bool LoraLink::validate_config_() const {
   if (!(LORA_HEARTBEAT_MS == 0 || LORA_HEARTBEAT_MS <= 30000)) return false;
   if (LORA_HEARTBEAT_MS != 0 && LORA_HEARTBEAT_MS < LORA_MIN_TX_INTERVAL_MS) return false;
   if (LORA_RETRY_LIMIT > 5) return false;
+  return true;
+}
+
+bool LoraLink::start_navsat_tx_(uint32_t now_ms,
+                               const GnssTime& gps) {
+  if (!tx_enabled_) return false;
+
+  uint8_t cno_max = 0;
+  uint32_t cno_sum = 0;
+  const uint8_t count = gps.navsat_n;
+  for (uint8_t i = 0; i < count; ++i) {
+    const uint8_t cno = gps.navsat[i].cno;
+    cno_sum += cno;
+    if (cno > cno_max) cno_max = cno;
+  }
+  const uint8_t cno_avg = count ? (uint8_t)((cno_sum + (count / 2)) / count) : 0;
+
+  tx_buf_[0] = 0xA1;
+  tx_buf_[1] = 5;
+  write_u32_le(&tx_buf_[2], (uint32_t)now_ms);
+  tx_buf_[6] = gps.navsat_num_svs;
+  tx_buf_[7] = gps.navsat_n;
+  tx_buf_[8] = cno_max;
+  tx_buf_[9] = cno_avg;
+  const size_t n = 10;
+
+  pending_valid_ = true;
+  pending_type_ = 5;
+  pending_len_ = n;
+
+  lora_tx_done_isr = false;
+  tx_start_ms_ = now_ms;
+  tx_active_ = true;
+  tx_is_id_ = false;
+  tx_type_ = 5;
+  tx_len_ = n;
+
+  int state = radio.startTransmit(tx_buf_, n);
+  if (state != 0) {
+    tx_active_ = false;
+    DBG_PRINTF("lora: startTransmit err %d\n", state);
+    return false;
+  }
+
   return true;
 }
 
@@ -434,6 +490,8 @@ void LoraLink::on_tx_done_() {
       last_imu_tx_ms_ = last_tx_ms_;
     } else if (tx_type_ == 4) {
       last_bat_tx_ms_ = last_tx_ms_;
+    } else if (tx_type_ == 5) {
+      last_navsat_tx_ms_ = last_tx_ms_;
     }
     pending_valid_ = false;
   }
@@ -584,6 +642,8 @@ void LoraLink::consume_pending_(uint32_t now_ms) {
     last_alt_tx_ms_ = now_ms;
   } else if (pending_type_ == 2) {
     last_gps_tx_ms_ = now_ms;
+  } else if (pending_type_ == 5) {
+    last_navsat_tx_ms_ = now_ms;
   } else if (pending_type_ == 3) {
     last_imu_tx_ms_ = now_ms;
   } else if (pending_type_ == 4) {

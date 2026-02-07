@@ -16,6 +16,11 @@ const elements = {
   gpsLatDeg: document.getElementById("gps-lat-deg"),
   gpsLonDeg: document.getElementById("gps-lon-deg"),
   gpsAltM: document.getElementById("gps-alt-m"),
+  navsatTime: document.getElementById("navsat-time"),
+  navsatSvsUsed: document.getElementById("navsat-svs-used"),
+  navsatSvsTotal: document.getElementById("navsat-svs-total"),
+  navsatCnoMax: document.getElementById("navsat-cno-max"),
+  navsatCnoAvg: document.getElementById("navsat-cno-avg"),
   altTime: document.getElementById("alt-time"),
   altPressPa: document.getElementById("alt-press-pa"),
   altPressKpa: document.getElementById("alt-press-kpa"),
@@ -33,6 +38,8 @@ const elements = {
   attitudeFilter: document.getElementById("attitude-filter"),
   attitudeThreshold: document.getElementById("attitude-threshold"),
   mapOverlay: document.getElementById("map-overlay"),
+  mapJump: document.getElementById("map-jump"),
+  mapSetHome: document.getElementById("map-set-home"),
 };
 
 const rocketCanvas = document.getElementById("rocket-canvas");
@@ -51,6 +58,10 @@ const state = {
   mapPathLine: null,
   mapPath: [],
   mapAutoFollow: true,
+  mapHomeMarker: null,
+  mapHomePending: false,
+  mapHome: null,
+  mapLastFix: null,
 };
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -261,6 +272,23 @@ function updateFromTelemetry(snapshot) {
   elements.gpsLonDeg.textContent = elements.gpsLon.textContent;
   elements.gpsAltM.textContent = gps.alt_m !== null && gps.alt_m !== undefined ? formatNumber(gps.alt_m, 2) : "--";
 
+  const navsat = snapshot.navsat || {};
+  elements.navsatTime.textContent = navsat.t_ms !== null && navsat.t_ms !== undefined
+    ? `${navsat.t_ms} ms`
+    : "--";
+  elements.navsatSvsUsed.textContent = navsat.svs_used !== null && navsat.svs_used !== undefined
+    ? navsat.svs_used
+    : "--";
+  elements.navsatSvsTotal.textContent = navsat.svs_total !== null && navsat.svs_total !== undefined
+    ? navsat.svs_total
+    : "--";
+  elements.navsatCnoMax.textContent = navsat.cno_max !== null && navsat.cno_max !== undefined
+    ? `${navsat.cno_max} dB-Hz`
+    : "--";
+  elements.navsatCnoAvg.textContent = navsat.cno_avg !== null && navsat.cno_avg !== undefined
+    ? `${navsat.cno_avg} dB-Hz`
+    : "--";
+
   const alt = snapshot.alt || {};
   elements.altTime.textContent = alt.t_ms !== null && alt.t_ms !== undefined ? `${alt.t_ms} ms` : "--";
   elements.altPressPa.textContent = alt.press_pa !== null && alt.press_pa !== undefined ? formatNumber(alt.press_pa, 1) : "--";
@@ -422,6 +450,40 @@ function renderRocket() {
   requestAnimationFrame(renderRocket);
 }
 
+function clearMapTrack() {
+  state.mapPath = [];
+  if (state.mapPathLine) {
+    state.mapPathLine.setLatLngs([]);
+  }
+}
+
+function setHomeMarker(lat, lon) {
+  if (!state.map || !window.L) {
+    return;
+  }
+  const homeLatLng = [lat, lon];
+  state.mapHome = homeLatLng;
+  if (state.mapHomeMarker) {
+    state.mapHomeMarker.setLatLng(homeLatLng);
+    return;
+  }
+  state.mapHomeMarker = L.circleMarker(homeLatLng, {
+    radius: 7,
+    color: "#b98118",
+    fillColor: "#b98118",
+    fillOpacity: 0.9,
+    weight: 2,
+  }).addTo(state.map);
+}
+
+function jumpToCurrentFix() {
+  if (!state.map || !state.mapLastFix) {
+    return;
+  }
+  state.mapAutoFollow = true;
+  state.map.panTo(state.mapLastFix, { animate: true });
+}
+
 function updateMap(gps) {
   if (!gps || gps.lat_deg === null || gps.lon_deg === null) {
     elements.mapOverlay.textContent = "Awaiting GPS fix";
@@ -432,6 +494,7 @@ function updateMap(gps) {
 
   const lat = gps.lat_deg;
   const lon = gps.lon_deg;
+  state.mapLastFix = [lat, lon];
 
   if (!state.map && mapContainer && window.L) {
     state.map = L.map(mapContainer, { zoomControl: true });
@@ -464,6 +527,11 @@ function updateMap(gps) {
   if (!state.map) {
     elements.mapOverlay.textContent = "Map unavailable";
     return;
+  }
+
+  if (state.mapHomePending) {
+    setHomeMarker(lat, lon);
+    state.mapHomePending = false;
   }
 
   state.mapPath.push([lat, lon]);
@@ -549,6 +617,31 @@ if (elements.attitudeThreshold) {
     const value = Number(event.target.value);
     if (Number.isFinite(value) && value > 0) {
       postThresholdUpdate(value);
+    }
+  });
+}
+
+if (elements.mapJump) {
+  elements.mapJump.addEventListener("click", () => {
+    jumpToCurrentFix();
+  });
+}
+
+if (elements.mapSetHome) {
+  elements.mapSetHome.addEventListener("click", () => {
+    const shouldReset = window.confirm(
+      "Set a new home position? This will clear the current GPS track."
+    );
+    if (!shouldReset) {
+      return;
+    }
+    clearMapTrack();
+    state.mapHomePending = true;
+    state.mapAutoFollow = true;
+    state.mapHome = null;
+    if (state.mapHomeMarker) {
+      state.mapHomeMarker.remove();
+      state.mapHomeMarker = null;
     }
   });
 }
