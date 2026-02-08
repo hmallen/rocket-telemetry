@@ -147,6 +147,9 @@ REG_OP_MODE                 = 0x01
 REG_FRF_MSB                 = 0x06
 REG_FRF_MID                 = 0x07
 REG_FRF_LSB                 = 0x08
+REG_PA_CONFIG               = 0x09
+REG_PA_RAMP                 = 0x0A
+REG_OCP                     = 0x0B
 REG_LNA                     = 0x0C
 REG_FIFO_ADDR_PTR           = 0x0D
 REG_FIFO_TX_BASE_ADDR       = 0x0E
@@ -165,6 +168,7 @@ REG_SYNC_WORD               = 0x39
 REG_DIO_MAPPING_1           = 0x40
 REG_VERSION                 = 0x42
 REG_PAYLOAD_LENGTH          = 0x22
+REG_PA_DAC                  = 0x4D
 
 # -------- Modes / bits --------
 LONG_RANGE_MODE = 0x80
@@ -172,6 +176,8 @@ MODE_SLEEP      = 0x00
 MODE_STDBY      = 0x01
 MODE_RX_CONT    = 0x05
 MODE_TX         = 0x03
+
+PA_BOOST        = 0x80
 
 IRQ_RX_DONE     = 0x40
 IRQ_CRC_ERR     = 0x20
@@ -281,6 +287,11 @@ class SX1278:
         self.write_reg(REG_SYNC_WORD, SYNCWORD_LORA_PUBLIC)
         self.write_reg(REG_DIO_MAPPING_1, 0x00)
 
+        # Ensure PA_BOOST is enabled for TX on common RFM9x modules.
+        self.write_reg(REG_PA_CONFIG, PA_BOOST | 0x0F)
+        self.write_reg(REG_PA_DAC, 0x84)
+        self.write_reg(REG_OCP, 0x20 | 0x0B)
+
         self.clear_irqs()
         self.set_mode(MODE_RX_CONT)
 
@@ -310,6 +321,8 @@ class SX1278:
         if not payload:
             return False
         data = bytes(payload)
+
+        print("LoRa TX start len=%d hex=%s" % (len(data), data.hex()))
 
         self.set_mode(MODE_STDBY)
         self.clear_irqs()

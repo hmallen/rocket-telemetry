@@ -17,6 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 try:
+    import lora_receive_pi as lora_driver
     from lora_receive_pi import LED, parse_payload, safe_ascii, setup_radio
 except ImportError as exc:  # pylint: disable=import-error
     raise SystemExit(
@@ -857,6 +858,12 @@ def send_lora_command(action):
         radio = LORA_RADIO.get("radio")
         if radio is None:
             return False, "LoRa radio unavailable"
+        try:
+            radio.write_reg(lora_driver.REG_PA_CONFIG, lora_driver.PA_BOOST | 0x0F)
+            radio.write_reg(lora_driver.REG_PA_DAC, 0x84)
+            radio.write_reg(lora_driver.REG_OCP, 0x20 | 0x0B)
+        except AttributeError:
+            pass
         ok = False
         for attempt in range(LORA_CMD_REPEAT_COUNT):
             tx_ok = radio.send_packet(payload)
