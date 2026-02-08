@@ -161,7 +161,7 @@ void LoraLink::queue_command_ack(LoraCommand cmd, bool logging_enabled) {
   ack_buf_[3] = logging_enabled ? 1u : 0u;
   ack_len_ = 4;
   ack_pending_ = true;
-  ack_retry_after_ms_ = 0;
+  ack_retry_after_ms_ = millis() + LORA_MIN_TX_INTERVAL_MS;
   ack_retries_left_ = LORA_RETRY_LIMIT;
 }
 
