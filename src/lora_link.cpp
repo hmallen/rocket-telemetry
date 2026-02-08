@@ -60,6 +60,8 @@ static constexpr uint8_t LORA_CMD_ACK = 0x10;
 static constexpr uint8_t LORA_CMD_SD_START = 0x01;
 static constexpr uint8_t LORA_CMD_SD_STOP = 0x02;
 static constexpr uint16_t LORA_RX_DONE_FLAG = 0x40;
+static constexpr uint8_t LORA_ACK_REPEAT_COUNT = 3;
+static constexpr uint32_t LORA_ACK_REPEAT_MS = 400;
 
 bool LoraLink::begin() {
   began_ = true;
@@ -161,8 +163,8 @@ void LoraLink::queue_command_ack(LoraCommand cmd, bool logging_enabled) {
   ack_buf_[3] = logging_enabled ? 1u : 0u;
   ack_len_ = 4;
   ack_pending_ = true;
-  ack_retry_after_ms_ = millis() + LORA_MIN_TX_INTERVAL_MS;
-  ack_retries_left_ = LORA_RETRY_LIMIT;
+  ack_retry_after_ms_ = millis() + LORA_ACK_REPEAT_MS;
+  ack_retries_left_ = LORA_ACK_REPEAT_COUNT;
 }
 
 void LoraLink::poll_telem(uint32_t now_ms,
@@ -555,9 +557,7 @@ void LoraLink::on_tx_done_() {
   consec_fail_ = 0;
 
   if (tx_is_ack_) {
-    ack_pending_ = false;
-    ack_retry_after_ms_ = 0;
-    ack_retries_left_ = 0;
+    schedule_ack_retry_(last_tx_ms_);
   } else if (tx_is_id_) {
     last_id_tx_ms_ = last_tx_ms_;
     id_retry_after_ms_ = 0;
@@ -628,6 +628,9 @@ bool LoraLink::handle_command_(const uint8_t* data, size_t len) {
   if (data[0] != LORA_CMD_MAGIC) return false;
   const uint8_t cmd = data[1];
   if (cmd != LORA_CMD_SD_START && cmd != LORA_CMD_SD_STOP) return false;
+#if DEBUG_MODE
+  DBG_PRINTF("lora: cmd rx 0x%02X\n", cmd);
+#endif
   pending_cmd_ = cmd;
   return true;
 }
@@ -816,12 +819,15 @@ void LoraLink::schedule_ack_retry_(uint32_t now_ms) {
   if (ack_retries_left_ == 0) {
     ack_pending_ = false;
     ack_retry_after_ms_ = 0;
-    enter_silence_();
     return;
   }
 
-  const uint8_t attempt = (uint8_t)(LORA_RETRY_LIMIT - ack_retries_left_ + 1);
-  const uint32_t backoff = LORA_RETRY_BASE_MS * (uint32_t)attempt;
   ack_retries_left_--;
-  ack_retry_after_ms_ = now_ms + backoff;
+  if (ack_retries_left_ == 0) {
+    ack_pending_ = false;
+    ack_retry_after_ms_ = 0;
+    return;
+  }
+
+  ack_retry_after_ms_ = now_ms + LORA_ACK_REPEAT_MS;
 }

@@ -295,6 +295,7 @@ static void sd_clear_logs() {
   Serial.println("sd: logging disabled");
   return;
 #endif
+  const bool restart_logging = sd_logging_enabled;
   if (!sdlog.clear_logs()) {
     Serial.println("sd: clear failed");
     return;
@@ -306,20 +307,22 @@ static void sd_clear_logs() {
 #if ENABLE_PSRAM_SPOOL
   spool.init(spool_mem, SPOOL_BYTES);
 #endif
+  sd_logging_enabled = false;
 
-  if (!sdlog.open_new_log(PREALLOC_BYTES)) {
-    Serial.println("sd: open new log failed");
-    sd_logging_enabled = false;
-    return;
-  }
+  if (restart_logging) {
+    if (!sdlog.open_new_log(PREALLOC_BYTES)) {
+      Serial.println("sd: open new log failed");
+      return;
+    }
 
-  sd_logging_enabled = true;
-  const char* log_name = sdlog.log_name();
-  if (log_name) {
-    Serial.print("sd: new log ");
-    Serial.println(log_name);
-  } else {
-    Serial.println("sd: new log started");
+    sd_logging_enabled = true;
+    const char* log_name = sdlog.log_name();
+    if (log_name) {
+      Serial.print("sd: new log ");
+      Serial.println(log_name);
+    } else {
+      Serial.println("sd: new log started");
+    }
   }
 }
 
@@ -359,7 +362,7 @@ static void sd_rotate_log() {
 
 static void sd_dump_print_help() {
   Serial.println("sd dump commands:");
-  Serial.println("  c: clear SD logs + start new log");
+  Serial.println("  c: clear SD logs (keeps logging off unless already on)");
   Serial.println("  d: dump SD log to serial");
   Serial.println("  n: close current log + start new log");
   Serial.println("  h/? : help");
@@ -686,8 +689,8 @@ void setup() {
 
 #if ENABLE_SD_LOGGER
   {
-    const bool sd_ok = sdlog.begin() && sdlog.open_new_log(PREALLOC_BYTES);
-    sd_logging_enabled = sd_ok;
+    const bool sd_ok = sdlog.begin();
+    sd_logging_enabled = false;
     if (sd_ok) {
       buzzer_ok();
     } else {
