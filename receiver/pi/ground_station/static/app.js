@@ -43,6 +43,9 @@ const elements = {
   sdStart: document.getElementById("sd-start"),
   sdStop: document.getElementById("sd-stop"),
   sdStatus: document.getElementById("sd-status"),
+  buzzerDuration: document.getElementById("buzzer-duration"),
+  buzzerActivate: document.getElementById("buzzer-activate"),
+  buzzerStatus: document.getElementById("buzzer-status"),
   telemetryWaiting: document.getElementById("telemetry-waiting"),
 };
 
@@ -69,6 +72,7 @@ const state = {
   sdLoggingAckTs: null,
   sdLoggingEnabled: null,
   sdCommandPending: false,
+  buzzerCommandPending: false,
 };
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -240,6 +244,13 @@ if (elements.sdStop) {
   });
 }
 
+if (elements.buzzerActivate) {
+  elements.buzzerActivate.addEventListener("click", () => {
+    const duration = elements.buzzerDuration ? Number(elements.buzzerDuration.value) : 0;
+    postBuzzerCommand(duration);
+  });
+}
+
 function setControlStatus(message, statusClass) {
   if (!elements.sdStatus) {
     return;
@@ -306,6 +317,55 @@ function postSdCommand(action, label) {
     .finally(() => {
       state.sdCommandPending = false;
       updateSdControlState();
+    });
+}
+
+function setBuzzerStatus(message, statusClass) {
+  if (!elements.buzzerStatus) {
+    return;
+  }
+  elements.buzzerStatus.textContent = message;
+  elements.buzzerStatus.classList.remove("ok", "pending", "error");
+  if (statusClass) {
+    elements.buzzerStatus.classList.add(statusClass);
+  }
+}
+
+function toggleBuzzerControls(disabled) {
+  if (elements.buzzerActivate) {
+    elements.buzzerActivate.disabled = disabled;
+  }
+  if (elements.buzzerDuration) {
+    elements.buzzerDuration.disabled = disabled;
+  }
+}
+
+function postBuzzerCommand(durationSec) {
+  if (!Number.isFinite(durationSec) || durationSec <= 0) {
+    setBuzzerStatus("Invalid duration", "error");
+    return;
+  }
+  setBuzzerStatus(`Sending buzzer (${durationSec}s)…`, "pending");
+  state.buzzerCommandPending = true;
+  toggleBuzzerControls(true);
+  fetch("/api/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "buzzer", duration_s: durationSec }),
+  })
+    .then((res) => res.json())
+    .then((payload) => {
+      if (!payload.ok) {
+        throw new Error(payload.error || "Command failed");
+      }
+      setBuzzerStatus(`Buzzer command sent (${durationSec}s).`, "ok");
+    })
+    .catch((err) => {
+      setBuzzerStatus(err.message || "Command failed", "error");
+    })
+    .finally(() => {
+      state.buzzerCommandPending = false;
+      toggleBuzzerControls(false);
     });
 }
 

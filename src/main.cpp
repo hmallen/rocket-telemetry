@@ -1061,14 +1061,30 @@ void loop() {
 
   {
     LoraCommand cmd = LoraCommand::kNone;
-    if (lora.pop_command(cmd)) {
-      if (!buzzer_busy()) {
-        buzzer_start_seq(60, 0, 1, now_ms);
-      }
+    uint8_t cmd_arg = 0;
+    if (lora.pop_command(cmd, &cmd_arg)) {
       if (cmd == LoraCommand::kSdStart) {
+        if (!buzzer_busy()) {
+          buzzer_start_seq(60, 0, 1, now_ms);
+        }
         sd_logging_start();
       } else if (cmd == LoraCommand::kSdStop) {
+        if (!buzzer_busy()) {
+          buzzer_start_seq(60, 0, 1, now_ms);
+        }
         sd_logging_stop();
+      } else if (cmd == LoraCommand::kBuzzer) {
+        uint16_t duration_ms = 0;
+        switch (cmd_arg) {
+          case 1: duration_ms = 1000; break;
+          case 5: duration_ms = 5000; break;
+          case 10: duration_ms = 10000; break;
+          case 30: duration_ms = 30000; break;
+          default: duration_ms = 0; break;
+        }
+        if (duration_ms != 0) {
+          buzzer_start_seq(duration_ms, 0, 1, now_ms);
+        }
       }
       lora.enable_tx(sd_logging_enabled);
       lora.queue_command_ack(cmd, sd_logging_enabled);
