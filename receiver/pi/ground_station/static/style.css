@@ -409,6 +409,21 @@ main {
   gap: 12px;
 }
 
+.telemetry-waiting {
+  display: none;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--line);
+  background: rgba(30, 111, 92, 0.08);
+  color: var(--accent-strong);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.telemetry-waiting.visible {
+  display: block;
+}
+
 .telemetry-grid {
   display: grid;
   gap: 16px;

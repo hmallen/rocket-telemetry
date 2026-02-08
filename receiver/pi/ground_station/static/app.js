@@ -43,6 +43,7 @@ const elements = {
   sdStart: document.getElementById("sd-start"),
   sdStop: document.getElementById("sd-stop"),
   sdStatus: document.getElementById("sd-status"),
+  telemetryWaiting: document.getElementById("telemetry-waiting"),
 };
 
 const rocketCanvas = document.getElementById("rocket-canvas");
@@ -343,6 +344,12 @@ function updateFromTelemetry(snapshot) {
   elements.packetCount.textContent = formatInt(snapshot.packet_count || 0);
   elements.callsign.textContent = snapshot.callsign || "--";
 
+  const packetCount = snapshot.packet_count || 0;
+  if (elements.telemetryWaiting) {
+    const waiting = packetCount === 0 && state.sdLoggingEnabled !== true;
+    elements.telemetryWaiting.classList.toggle("visible", waiting);
+  }
+
   const radio = snapshot.radio || {};
   elements.crcStatus.textContent = radio.crc_ok === null ? "--" : (radio.crc_ok ? "OK" : "BAD");
   elements.radioRssi.textContent = radio.rssi_dbm !== null ? `${radio.rssi_dbm} dBm` : "--";
@@ -410,6 +417,9 @@ function updateFromTelemetry(snapshot) {
     const timeLabel = formatTimestamp(sdLogging.ack_timestamp);
     setControlStatus(`${statusText} (${timeLabel})`, "ok");
     updateSdControlState();
+    if (elements.telemetryWaiting && enabled === true) {
+      elements.telemetryWaiting.classList.remove("visible");
+    }
   }
 
   const attitude = snapshot.attitude || {};

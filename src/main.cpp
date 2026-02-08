@@ -1062,11 +1062,15 @@ void loop() {
   {
     LoraCommand cmd = LoraCommand::kNone;
     if (lora.pop_command(cmd)) {
+      if (!buzzer_busy()) {
+        buzzer_start_seq(60, 0, 1, now_ms);
+      }
       if (cmd == LoraCommand::kSdStart) {
         sd_logging_start();
       } else if (cmd == LoraCommand::kSdStop) {
         sd_logging_stop();
       }
+      lora.enable_tx(sd_logging_enabled);
       lora.queue_command_ack(cmd, sd_logging_enabled);
     }
   }
