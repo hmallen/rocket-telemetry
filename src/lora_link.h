@@ -4,6 +4,12 @@
  #include "gnss_ubx.h"
  #include "sensors.h"
 
+enum class LoraCommand : uint8_t {
+  kNone = 0,
+  kSdStart = 0x01,
+  kSdStop = 0x02,
+};
+
 class LoraLink {
 public:
   bool begin();
@@ -14,6 +20,8 @@ public:
 
   bool ready() const;
   bool tx_enabled() const;
+  bool pop_command(LoraCommand& cmd);
+  void queue_command_ack(LoraCommand cmd, bool logging_enabled);
 
   // Cleartext telemetry payload (ASCII, human-decodable):
   //   ID=<CALLSIGN>;t_ms=<uint32>;
@@ -35,6 +43,9 @@ private:
   void log_params_() const;
   void enter_silence_();
   void on_tx_done_();
+  bool start_rx_();
+  void poll_rx_(uint32_t now_ms);
+  bool handle_command_(const uint8_t* data, size_t len);
   bool start_id_tx_(uint32_t now_ms);
   bool start_alt_tx_(uint32_t now_ms,
                      int32_t press_pa_x10,
@@ -46,6 +57,7 @@ private:
   bool start_imu_tx_(uint32_t now_ms,
                      const ImuSample& imu);
   void schedule_retry_(uint32_t now_ms);
+  void schedule_ack_retry_(uint32_t now_ms);
   void consume_pending_(uint32_t now_ms);
 
   bool began_ = false;
@@ -63,6 +75,7 @@ private:
   uint8_t retries_left_ = 0;
   uint8_t consec_fail_ = 0;
   bool tx_is_id_ = false;
+  bool tx_is_ack_ = false;
 
   uint32_t last_id_tx_ms_ = 0;
   uint32_t id_retry_after_ms_ = 0;
@@ -86,4 +99,11 @@ private:
   size_t tx_len_ = 0;
 
   uint8_t tx_buf_[32] = {0};
+  bool rx_active_ = false;
+  uint8_t pending_cmd_ = 0;
+  bool ack_pending_ = false;
+  uint32_t ack_retry_after_ms_ = 0;
+  uint8_t ack_retries_left_ = 0;
+  size_t ack_len_ = 0;
+  uint8_t ack_buf_[8] = {0};
 };

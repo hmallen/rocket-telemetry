@@ -154,6 +154,76 @@ h1 {
   margin-bottom: 2px;
 }
 
+.control-panel {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: #fdfbf8;
+  display: grid;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.control-panel .label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.control-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.control-button {
+  border: none;
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-family: "Space Grotesk", "Trebuchet MS", sans-serif;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #fff;
+  background: var(--accent);
+  cursor: pointer;
+  box-shadow: 0 10px 20px rgba(20, 20, 20, 0.2);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.2s ease;
+}
+
+.control-button.danger {
+  background: var(--danger);
+}
+
+.control-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.control-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 12px 24px rgba(20, 20, 20, 0.24);
+}
+
+.control-status {
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.control-status.ok {
+  color: var(--accent-strong);
+}
+
+.control-status.pending {
+  color: var(--warning);
+}
+
+.control-status.error {
+  color: var(--danger);
+}
+
 main {
   padding: 0 6vw 56px;
   display: grid;
