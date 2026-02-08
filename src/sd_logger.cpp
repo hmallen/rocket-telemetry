@@ -1,7 +1,10 @@
 #include "sd_logger.h"
 #include "cfg.h"
+#include <cstring>
 
-SdLogger::SdLogger() : last_sync_ms_(0), write_errs_(0) {}
+SdLogger::SdLogger() : last_sync_ms_(0), write_errs_(0) {
+  log_name_[0] = '\0';
+}
 
 bool SdLogger::begin() {
   // SDIO on Teensy 4.1
@@ -33,6 +36,7 @@ bool SdLogger::open_new_log(uint32_t prealloc_bytes) {
         return false;
       }
       last_sync_ms_ = millis();
+      snprintf(log_name_, sizeof(log_name_), "%s", name);
       DBG_PRINTF("sd: log %s\n", name);
       return true;
     }
@@ -67,4 +71,60 @@ void SdLogger::poll_sync(uint32_t now_ms) {
 
 void SdLogger::force_sync() {
   if (f_) f_.sync();
+}
+
+bool SdLogger::close_log() {
+  bool ok = true;
+  if (f_) {
+    if (!f_.sync()) ok = false;
+    if (!f_.close()) ok = false;
+  }
+  log_name_[0] = '\0';
+  last_sync_ms_ = 0;
+  return ok;
+}
+
+FsFile SdLogger::open_log_read() {
+  if (!log_name_[0]) return FsFile();
+  return sd_.open(log_name_, O_RDONLY);
+}
+
+bool SdLogger::clear_logs() {
+  if (f_) {
+    f_.sync();
+    f_.close();
+  }
+  log_name_[0] = '\0';
+  write_errs_ = 0;
+  last_sync_ms_ = 0;
+
+  FsFile dir = sd_.open("/", O_RDONLY);
+  if (!dir || !dir.isDir()) {
+    DBG_PRINTLN("sd: open root failed");
+    return false;
+  }
+  dir.rewind();
+
+  FsFile entry;
+  bool ok = true;
+  while (entry.openNext(&dir, O_RDONLY)) {
+    if (entry.isDir()) {
+      entry.close();
+      continue;
+    }
+    char name[32];
+    name[0] = '\0';
+    entry.getName(name, sizeof(name));
+    entry.close();
+
+    const size_t len = strlen(name);
+    if (len >= 8 && strncmp(name, "LOG", 3) == 0 && len >= 4 && strcmp(name + len - 4, ".BIN") == 0) {
+      if (!sd_.remove(name)) {
+        DBG_PRINTF("sd: remove failed %s\n", name);
+        ok = false;
+      }
+    }
+  }
+  dir.close();
+  return ok;
 }

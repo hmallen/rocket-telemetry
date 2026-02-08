@@ -44,3 +44,6 @@
 
 # Offline map tile cache
 receiver/pi/ground_station/static/tiles/
+
+*.BIN
+LOG*

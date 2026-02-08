@@ -19,12 +19,22 @@ static bool gyro_ok = false;
 static bool accel_ok = false;
 static bool baro2_ok = false;
 
+static inline uint8_t imu_ready_pin_mode(bool pullup) {
+  return pullup ? INPUT_PULLUP : INPUT;
+}
+
+static inline bool imu_ready_level(uint8_t pin, bool active_low) {
+  if (pin == 255) return true;
+  const bool high = digitalRead(pin) != 0;
+  return active_low ? !high : high;
+}
+
 bool Sensors::begin() {
   if (GINT_PIN != 255) pinMode(GINT_PIN, INPUT);
-  if (GRDY_PIN != 255) pinMode(GRDY_PIN, INPUT);
+  if (GRDY_PIN != 255) pinMode(GRDY_PIN, imu_ready_pin_mode(GYRO_RDY_PULLUP));
   if (LIN1_PIN != 255) pinMode(LIN1_PIN, INPUT);
   if (LIN2_PIN != 255) pinMode(LIN2_PIN, INPUT);
-  if (LRDY_PIN != 255) pinMode(LRDY_PIN, INPUT);
+  if (LRDY_PIN != 255) pinMode(LRDY_PIN, imu_ready_pin_mode(ACCEL_RDY_PULLUP));
 
   I2C_BUS.begin();
   I2C_BUS.setClock(I2C_HZ);
@@ -73,8 +83,8 @@ bool Sensors::read_imu(ImuSample& out) {
   out = {};
   if (!gyro_ok && !accel_ok) return false;
 
-  const bool accel_ready = (LRDY_PIN == 255) ? true : (digitalRead(LRDY_PIN) != 0);
-  const bool gyro_ready  = (GRDY_PIN == 255) ? true : (digitalRead(GRDY_PIN) != 0);
+  const bool accel_ready = imu_ready_level(LRDY_PIN, ACCEL_RDY_ACTIVE_LOW);
+  const bool gyro_ready  = imu_ready_level(GRDY_PIN, GYRO_RDY_ACTIVE_LOW);
 
   if (!accel_ready && !gyro_ready) return false;
 
