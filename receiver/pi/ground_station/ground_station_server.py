@@ -52,6 +52,8 @@ RAD_TO_DEG = 180.0 / math.pi
 LORA_CMD_MAGIC = 0xB1
 LORA_CMD_SD_START = 0x01
 LORA_CMD_SD_STOP = 0x02
+LORA_CMD_REPEAT_COUNT = 3
+LORA_CMD_REPEAT_DELAY_S = 0.1
 
 
 def _clamp(value, low, high):
@@ -855,7 +857,16 @@ def send_lora_command(action):
         radio = LORA_RADIO.get("radio")
         if radio is None:
             return False, "LoRa radio unavailable"
-        ok = radio.send_packet(payload)
+        ok = False
+        for attempt in range(LORA_CMD_REPEAT_COUNT):
+            tx_ok = radio.send_packet(payload)
+            print(
+                "LoRa CMD %s %s attempt %d/%d ok=%s"
+                % (action, payload.hex(), attempt + 1, LORA_CMD_REPEAT_COUNT, "yes" if tx_ok else "no")
+            )
+            ok = ok or tx_ok
+            if attempt + 1 < LORA_CMD_REPEAT_COUNT:
+                time.sleep(LORA_CMD_REPEAT_DELAY_S)
     if not ok:
         return False, "LoRa transmit failed"
     return True, None
