@@ -320,10 +320,43 @@ static void sd_clear_logs() {
   }
 }
 
+static void sd_rotate_log() {
+  Serial.println("\nsd: rotate requested");
+#if !ENABLE_SD_LOGGER
+  Serial.println("sd: logging disabled");
+  return;
+#endif
+  char old_name[32];
+  old_name[0] = '\0';
+  const char* log_name = sdlog.log_name();
+  if (log_name) {
+    snprintf(old_name, sizeof(old_name), "%s", log_name);
+  }
+
+  if (!sdlog.close_log()) {
+    Serial.println("sd: close failed");
+  }
+  if (!sdlog.open_new_log(PREALLOC_BYTES)) {
+    Serial.println("sd: open new log failed");
+    return;
+  }
+
+  if (old_name[0]) {
+    Serial.print("sd: closed ");
+    Serial.println(old_name);
+  }
+  log_name = sdlog.log_name();
+  if (log_name) {
+    Serial.print("sd: new log ");
+    Serial.println(log_name);
+  }
+}
+
 static void sd_dump_print_help() {
   Serial.println("sd dump commands:");
   Serial.println("  c: clear SD logs + start new log");
   Serial.println("  d: dump SD log to serial");
+  Serial.println("  n: close current log + start new log");
   Serial.println("  h/? : help");
 }
 #endif
@@ -682,6 +715,8 @@ void loop() {
       sd_clear_logs();
     } else if (c == 'd' || c == 'D') {
       sd_dump_log();
+    } else if (c == 'n' || c == 'N') {
+      sd_rotate_log();
     } else if (c == 'h' || c == '?') {
       sd_dump_print_help();
     }

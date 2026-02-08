@@ -12,6 +12,7 @@ public:
   bool write_block(const BlockHdr& hdr, const uint8_t* payload);
   void poll_sync(uint32_t now_ms);
   void force_sync();
+  bool close_log();
   bool clear_logs();
 
   const char* log_name() const { return log_name_[0] ? log_name_ : nullptr; }

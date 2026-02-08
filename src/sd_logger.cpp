@@ -73,6 +73,17 @@ void SdLogger::force_sync() {
   if (f_) f_.sync();
 }
 
+bool SdLogger::close_log() {
+  bool ok = true;
+  if (f_) {
+    if (!f_.sync()) ok = false;
+    if (!f_.close()) ok = false;
+  }
+  log_name_[0] = '\0';
+  last_sync_ms_ = 0;
+  return ok;
+}
+
 FsFile SdLogger::open_log_read() {
   if (!log_name_[0]) return FsFile();
   return sd_.open(log_name_, O_RDONLY);
