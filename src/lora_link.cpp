@@ -55,6 +55,14 @@ static void write_u32_le(uint8_t* p, uint32_t v) {
   p[3] = (uint8_t)((v >> 24) & 0xFFu);
 }
 
+static constexpr uint8_t LORA_CMD_MAGIC = 0xB1;
+static constexpr uint8_t LORA_CMD_ACK = 0x10;
+static constexpr uint8_t LORA_CMD_SD_START = 0x01;
+static constexpr uint8_t LORA_CMD_SD_STOP = 0x02;
+static constexpr uint16_t LORA_RX_DONE_FLAG = 0x40;
+static constexpr uint8_t LORA_ACK_REPEAT_COUNT = 3;
+static constexpr uint32_t LORA_ACK_REPEAT_MS = 400;
+
 bool LoraLink::begin() {
   began_ = true;
   mission_start_ms_ = millis();
@@ -132,6 +140,33 @@ bool LoraLink::tx_enabled() const {
   return tx_enabled_;
 }
 
+bool LoraLink::pop_command(LoraCommand& cmd) {
+  if (pending_cmd_ == 0) return false;
+  cmd = static_cast<LoraCommand>(pending_cmd_);
+  pending_cmd_ = 0;
+  return true;
+}
+
+void LoraLink::queue_command_ack(LoraCommand cmd, bool logging_enabled) {
+  uint8_t cmd_byte = 0;
+  if (cmd == LoraCommand::kSdStart) {
+    cmd_byte = LORA_CMD_SD_START;
+  } else if (cmd == LoraCommand::kSdStop) {
+    cmd_byte = LORA_CMD_SD_STOP;
+  } else {
+    return;
+  }
+
+  ack_buf_[0] = LORA_CMD_MAGIC;
+  ack_buf_[1] = LORA_CMD_ACK;
+  ack_buf_[2] = cmd_byte;
+  ack_buf_[3] = logging_enabled ? 1u : 0u;
+  ack_len_ = 4;
+  ack_pending_ = true;
+  ack_retry_after_ms_ = millis() + LORA_ACK_REPEAT_MS;
+  ack_retries_left_ = LORA_ACK_REPEAT_COUNT;
+}
+
 void LoraLink::poll_telem(uint32_t now_ms,
                           int32_t press_pa_x10,
                           int16_t temp_c_x100,
@@ -140,6 +175,8 @@ void LoraLink::poll_telem(uint32_t now_ms,
                           const GnssTime* gps,
                           const ImuSample* imu) {
   if (!began_) return;
+
+  poll_rx_(now_ms);
 
   // Hard failsafe: maximum mission transmit duration.
   if ((uint32_t)(now_ms - mission_start_ms_) >= LORA_MAX_MISSION_TX_MS) {
@@ -161,9 +198,41 @@ void LoraLink::poll_telem(uint32_t now_ms,
 #endif
       on_tx_done_();
     } else if ((uint32_t)(now_ms - tx_start_ms_) >= LORA_TX_WATCHDOG_MS) {
-      DBG_PRINTLN("lora: tx watchdog -> shutdown");
       (void)radio.finishTransmit();
-      shutdown();
+      if (tx_is_ack_) {
+        DBG_PRINTLN("lora: ack tx watchdog -> retry");
+        tx_active_ = false;
+        tx_is_ack_ = false;
+        schedule_ack_retry_(now_ms);
+      } else {
+        DBG_PRINTLN("lora: tx watchdog -> shutdown");
+        shutdown();
+      }
+    }
+    return;
+  }
+
+  const bool ack_due = ack_pending_ &&
+    (ack_retry_after_ms_ == 0 || (int32_t)(now_ms - ack_retry_after_ms_) >= 0);
+  if (ack_due) {
+    if ((uint32_t)(now_ms - last_tx_ms_) < LORA_MIN_TX_INTERVAL_MS) return;
+    if (next_tx_ms_ != 0 && (int32_t)(now_ms - next_tx_ms_) < 0) return;
+
+    lora_tx_done_isr = false;
+    tx_start_ms_ = now_ms;
+    tx_active_ = true;
+    rx_active_ = false;
+    tx_is_id_ = false;
+    tx_is_ack_ = true;
+    tx_type_ = 0;
+    tx_len_ = ack_len_;
+
+    const int state = radio.startTransmit(ack_buf_, ack_len_);
+    if (state != 0) {
+      tx_active_ = false;
+      tx_is_ack_ = false;
+      DBG_PRINTF("lora: ack startTransmit err %d\n", state);
+      schedule_ack_retry_(now_ms);
     }
     return;
   }
@@ -236,7 +305,9 @@ void LoraLink::poll_telem(uint32_t now_ms,
     lora_tx_done_isr = false;
     tx_start_ms_ = now_ms;
     tx_active_ = true;
+    rx_active_ = false;
     tx_is_id_ = false;
+    tx_is_ack_ = false;
     tx_type_ = pending_type_;
     tx_len_ = pending_len_;
 
@@ -343,7 +414,9 @@ void LoraLink::poll_telem(uint32_t now_ms,
     lora_tx_done_isr = false;
     tx_start_ms_ = now_ms;
     tx_active_ = true;
+    rx_active_ = false;
     tx_is_id_ = false;
+    tx_is_ack_ = false;
     tx_type_ = 4;
     tx_len_ = n;
 
@@ -414,7 +487,9 @@ bool LoraLink::start_navsat_tx_(uint32_t now_ms,
   lora_tx_done_isr = false;
   tx_start_ms_ = now_ms;
   tx_active_ = true;
+  rx_active_ = false;
   tx_is_id_ = false;
+  tx_is_ack_ = false;
   tx_type_ = 5;
   tx_len_ = n;
 
@@ -464,9 +539,13 @@ void LoraLink::enter_silence_() {
   pending_type_ = 0;
   pending_len_ = 0;
   tx_is_id_ = false;
+  tx_is_ack_ = false;
   id_retry_after_ms_ = 0;
   id_retries_left_ = 0;
-  (void)radio.sleep();
+  ack_pending_ = false;
+  ack_retry_after_ms_ = 0;
+  ack_retries_left_ = 0;
+  start_rx_();
 }
 
 void LoraLink::on_tx_done_() {
@@ -477,7 +556,9 @@ void LoraLink::on_tx_done_() {
   retries_left_ = 0;
   consec_fail_ = 0;
 
-  if (tx_is_id_) {
+  if (tx_is_ack_) {
+    schedule_ack_retry_(last_tx_ms_);
+  } else if (tx_is_id_) {
     last_id_tx_ms_ = last_tx_ms_;
     id_retry_after_ms_ = 0;
     id_retries_left_ = 0;
@@ -497,8 +578,61 @@ void LoraLink::on_tx_done_() {
   }
 
   tx_is_id_ = false;
+  tx_is_ack_ = false;
   tx_type_ = 0;
   tx_len_ = 0;
+  start_rx_();
+}
+
+bool LoraLink::start_rx_() {
+  if (!began_ || !config_ok_) {
+    rx_active_ = false;
+    return false;
+  }
+  const int state = radio.startReceive();
+  if (state != 0) {
+    rx_active_ = false;
+    return false;
+  }
+  rx_active_ = true;
+  return true;
+}
+
+void LoraLink::poll_rx_(uint32_t now_ms) {
+  (void)now_ms;
+  if (!began_ || !config_ok_) return;
+  if (tx_active_) return;
+  if (!rx_active_) start_rx_();
+
+  const uint16_t irq = radio.getIRQFlags();
+  if (!(irq & LORA_RX_DONE_FLAG)) return;
+
+  uint8_t buf[16];
+  size_t len = radio.getPacketLength();
+  if (len == 0) {
+    len = sizeof(buf);
+  }
+  if (len > sizeof(buf)) {
+    len = sizeof(buf);
+  }
+
+  const int state = radio.readData(buf, len);
+  if (state == 0) {
+    handle_command_(buf, len);
+  }
+  start_rx_();
+}
+
+bool LoraLink::handle_command_(const uint8_t* data, size_t len) {
+  if (len < 2) return false;
+  if (data[0] != LORA_CMD_MAGIC) return false;
+  const uint8_t cmd = data[1];
+  if (cmd != LORA_CMD_SD_START && cmd != LORA_CMD_SD_STOP) return false;
+#if DEBUG_MODE
+  DBG_PRINTF("lora: cmd rx 0x%02X\n", cmd);
+#endif
+  pending_cmd_ = cmd;
+  return true;
 }
 
 bool LoraLink::start_id_tx_(uint32_t now_ms) {
@@ -517,7 +651,9 @@ bool LoraLink::start_id_tx_(uint32_t now_ms) {
   lora_tx_done_isr = false;
   tx_start_ms_ = now_ms;
   tx_active_ = true;
+  rx_active_ = false;
   tx_is_id_ = true;
+  tx_is_ack_ = false;
 
   int state = radio.startTransmit(tx_buf_, n);
   if (state != 0) {
@@ -549,7 +685,9 @@ bool LoraLink::start_alt_tx_(uint32_t now_ms,
   lora_tx_done_isr = false;
   tx_start_ms_ = now_ms;
   tx_active_ = true;
+  rx_active_ = false;
   tx_is_id_ = false;
+  tx_is_ack_ = false;
   tx_type_ = 0;
   tx_len_ = n;
 
@@ -585,7 +723,9 @@ bool LoraLink::start_gps_tx_(uint32_t now_ms,
   lora_tx_done_isr = false;
   tx_start_ms_ = now_ms;
   tx_active_ = true;
+  rx_active_ = false;
   tx_is_id_ = false;
+  tx_is_ack_ = false;
   tx_type_ = 2;
   tx_len_ = n;
 
@@ -621,7 +761,9 @@ bool LoraLink::start_imu_tx_(uint32_t now_ms,
   lora_tx_done_isr = false;
   tx_start_ms_ = now_ms;
   tx_active_ = true;
+  rx_active_ = false;
   tx_is_id_ = false;
+  tx_is_ack_ = false;
   tx_type_ = 3;
   tx_len_ = n;
 
@@ -671,4 +813,21 @@ void LoraLink::schedule_retry_(uint32_t now_ms) {
   const uint32_t backoff = LORA_RETRY_BASE_MS * (uint32_t)attempt;
   retries_left_--;
   retry_after_ms_ = now_ms + backoff;
+}
+
+void LoraLink::schedule_ack_retry_(uint32_t now_ms) {
+  if (ack_retries_left_ == 0) {
+    ack_pending_ = false;
+    ack_retry_after_ms_ = 0;
+    return;
+  }
+
+  ack_retries_left_--;
+  if (ack_retries_left_ == 0) {
+    ack_pending_ = false;
+    ack_retry_after_ms_ = 0;
+    return;
+  }
+
+  ack_retry_after_ms_ = now_ms + LORA_ACK_REPEAT_MS;
 }

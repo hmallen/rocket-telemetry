@@ -147,6 +147,9 @@ REG_OP_MODE                 = 0x01
 REG_FRF_MSB                 = 0x06
 REG_FRF_MID                 = 0x07
 REG_FRF_LSB                 = 0x08
+REG_PA_CONFIG               = 0x09
+REG_PA_RAMP                 = 0x0A
+REG_OCP                     = 0x0B
 REG_LNA                     = 0x0C
 REG_FIFO_ADDR_PTR           = 0x0D
 REG_FIFO_TX_BASE_ADDR       = 0x0E
@@ -164,17 +167,31 @@ REG_MODEM_CONFIG_3          = 0x26
 REG_SYNC_WORD               = 0x39
 REG_DIO_MAPPING_1           = 0x40
 REG_VERSION                 = 0x42
+REG_PAYLOAD_LENGTH          = 0x22
+REG_PA_DAC                  = 0x4D
 
 # -------- Modes / bits --------
 LONG_RANGE_MODE = 0x80
 MODE_SLEEP      = 0x00
 MODE_STDBY      = 0x01
 MODE_RX_CONT    = 0x05
+MODE_TX         = 0x03
+
+PA_BOOST        = 0x80
 
 IRQ_RX_DONE     = 0x40
 IRQ_CRC_ERR     = 0x20
+IRQ_TX_DONE     = 0x08
+
+DIO0_RX_DONE    = 0x00
+DIO0_TX_DONE    = 0x40
 
 SYNCWORD_LORA_PUBLIC = 0x34
+
+CMD_MAGIC = 0xB1
+CMD_ACK = 0x10
+CMD_SD_START = 0x01
+CMD_SD_STOP = 0x02
 
 class SX1278:
     def __init__(self, spi, nss, rst, dio0):
@@ -223,6 +240,17 @@ class SX1278:
         self.cs(1)
         return data
 
+    def write_fifo(self, data):
+        if not data:
+            return
+        payload = bytearray([REG_FIFO | 0x80]) + bytearray(data)
+        if USE_HW_CS:
+            self.spi.xfer(payload)
+            return
+        self.cs(0)
+        self.spi.xfer(payload)
+        self.cs(1)
+
     def set_mode(self, mode):
         self.write_reg(REG_OP_MODE, LONG_RANGE_MODE | (mode & 0x07))
         time.sleep_ms(5)
@@ -259,6 +287,11 @@ class SX1278:
         self.write_reg(REG_SYNC_WORD, SYNCWORD_LORA_PUBLIC)
         self.write_reg(REG_DIO_MAPPING_1, 0x00)
 
+        # Ensure PA_BOOST is enabled for TX on common RFM9x modules.
+        self.write_reg(REG_PA_CONFIG, PA_BOOST | 0x0F)
+        self.write_reg(REG_PA_DAC, 0x84)
+        self.write_reg(REG_OCP, 0x20 | 0x0B)
+
         self.clear_irqs()
         self.set_mode(MODE_RX_CONT)
 
@@ -284,12 +317,56 @@ class SX1278:
 
         return payload, crc_ok, rssi, snr
 
+    def send_packet(self, payload, timeout_ms=2000):
+        if not payload:
+            return False
+        data = bytes(payload)
+
+        print("LoRa TX start len=%d hex=%s" % (len(data), data.hex()))
+
+        self.set_mode(MODE_STDBY)
+        self.clear_irqs()
+        self.write_reg(REG_FIFO_TX_BASE_ADDR, 0x00)
+        self.write_reg(REG_FIFO_ADDR_PTR, 0x00)
+        self.write_reg(REG_PAYLOAD_LENGTH, len(data))
+        self.write_reg(REG_DIO_MAPPING_1, DIO0_TX_DONE)
+        self.write_fifo(data)
+        self.set_mode(MODE_TX)
+
+        start = time.time()
+        tx_done = False
+        while (time.time() - start) * 1000.0 < timeout_ms:
+            irq = self.read_reg(REG_IRQ_FLAGS)
+            if irq & IRQ_TX_DONE:
+                tx_done = True
+                break
+            time.sleep_ms(2)
+
+        self.clear_irqs()
+        self.write_reg(REG_DIO_MAPPING_1, DIO0_RX_DONE)
+        self.set_mode(MODE_RX_CONT)
+        return tx_done
+
 def safe_ascii(b):
     return "".join(chr(x) if 32 <= x <= 126 else "." for x in b)
 
 def decode_payload(payload):
     if len(payload) < 2:
         return None
+    if payload[0] == CMD_MAGIC:
+        if len(payload) < 4:
+            return "CMD ACK (short)"
+        if payload[1] != CMD_ACK:
+            return "CMD type=0x%02X" % payload[1]
+        cmd = payload[2]
+        enabled = "on" if payload[3] else "off"
+        if cmd == CMD_SD_START:
+            cmd_label = "sd_start"
+        elif cmd == CMD_SD_STOP:
+            cmd_label = "sd_stop"
+        else:
+            cmd_label = "0x%02X" % cmd
+        return "ACK %s logging=%s" % (cmd_label, enabled)
     if payload[0] != 0xA1:
         return None
     typ = payload[1]
@@ -362,6 +439,23 @@ def decode_payload(payload):
 def parse_payload(payload):
     if len(payload) < 2:
         return None
+    if payload[0] == CMD_MAGIC:
+        if payload[1] != CMD_ACK:
+            return None
+        if len(payload) < 4:
+            return None
+        cmd = payload[2]
+        if cmd == CMD_SD_START:
+            cmd_label = "sd_start"
+        elif cmd == CMD_SD_STOP:
+            cmd_label = "sd_stop"
+        else:
+            cmd_label = "unknown"
+        return {
+            "type": "cmd_ack",
+            "command": cmd_label,
+            "logging_enabled": bool(payload[3]),
+        }
     if payload[0] != 0xA1:
         return None
     typ = payload[1]

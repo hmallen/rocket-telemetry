@@ -17,6 +17,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
 
 try:
+    import lora_receive_pi as lora_driver
     from lora_receive_pi import LED, parse_payload, safe_ascii, setup_radio
 except ImportError as exc:  # pylint: disable=import-error
     raise SystemExit(
@@ -48,6 +49,12 @@ ATTITUDE_FILTERS = ("madgwick", "mahony", "complementary", "accel-threshold")
 DEFAULT_Z_THRESHOLD_G = 1.2
 DEG_TO_RAD = math.pi / 180.0
 RAD_TO_DEG = 180.0 / math.pi
+
+LORA_CMD_MAGIC = 0xB1
+LORA_CMD_SD_START = 0x01
+LORA_CMD_SD_STOP = 0x02
+LORA_CMD_REPEAT_COUNT = 3
+LORA_CMD_REPEAT_DELAY_S = 0.1
 
 
 def _clamp(value, low, high):
@@ -419,6 +426,11 @@ class TelemetryStore:
                 "bat_state": None,
                 "bat_state_label": None,
             },
+            "sd_logging": {
+                "enabled": None,
+                "last_command": None,
+                "ack_timestamp": None,
+            },
             "attitude": {
                 "roll": None,
                 "pitch": None,
@@ -550,6 +562,12 @@ class TelemetryStore:
                         "vbat_v": vbat_mv / 1000.0 if vbat_mv is not None else None,
                         "bat_state": bat_state,
                         "bat_state_label": BAT_STATE_LABELS.get(bat_state, "UNKNOWN"),
+                    })
+                elif payload_type == "cmd_ack":
+                    self._state["sd_logging"].update({
+                        "enabled": parsed.get("logging_enabled"),
+                        "last_command": parsed.get("command"),
+                        "ack_timestamp": self._state["timestamp"],
                     })
 
             return copy.deepcopy(self._state)
@@ -742,6 +760,8 @@ MAP_DOWNLOADS = MapDownloadManager()
 CLIENTS = []
 CLIENTS_LOCK = threading.Lock()
 STOP_EVENT = threading.Event()
+LORA_LOCK = threading.Lock()
+LORA_RADIO = {"radio": None}
 
 
 def broadcast(snapshot):
@@ -766,8 +786,11 @@ def lora_worker():
     radio = None
     try:
         spi, radio = setup_radio()
+        with LORA_LOCK:
+            LORA_RADIO["radio"] = radio
         while not STOP_EVENT.is_set():
-            pkt = radio.poll_packet()
+            with LORA_LOCK:
+                pkt = radio.poll_packet()
             if not pkt:
                 time.sleep(0.01)
                 continue
@@ -800,6 +823,9 @@ def lora_worker():
         except OSError:
             pass
 
+        with LORA_LOCK:
+            LORA_RADIO["radio"] = None
+
         if radio is not None:
             try:
                 radio.cs(1)
@@ -818,6 +844,39 @@ def lora_worker():
             GPIO.cleanup()
         except (ImportError, RuntimeError):
             pass
+
+
+def send_lora_command(action):
+    if action == "sd_start":
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_START])
+    elif action == "sd_stop":
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_STOP])
+    else:
+        return False, "Unknown command"
+
+    with LORA_LOCK:
+        radio = LORA_RADIO.get("radio")
+        if radio is None:
+            return False, "LoRa radio unavailable"
+        try:
+            radio.write_reg(lora_driver.REG_PA_CONFIG, lora_driver.PA_BOOST | 0x0F)
+            radio.write_reg(lora_driver.REG_PA_DAC, 0x84)
+            radio.write_reg(lora_driver.REG_OCP, 0x20 | 0x0B)
+        except AttributeError:
+            pass
+        ok = False
+        for attempt in range(LORA_CMD_REPEAT_COUNT):
+            tx_ok = radio.send_packet(payload)
+            print(
+                "LoRa CMD %s %s attempt %d/%d ok=%s"
+                % (action, payload.hex(), attempt + 1, LORA_CMD_REPEAT_COUNT, "yes" if tx_ok else "no")
+            )
+            ok = ok or tx_ok
+            if attempt + 1 < LORA_CMD_REPEAT_COUNT:
+                time.sleep(LORA_CMD_REPEAT_DELAY_S)
+    if not ok:
+        return False, "LoRa transmit failed"
+    return True, None
 
 
 class GroundStationHandler(BaseHTTPRequestHandler):
@@ -901,6 +960,14 @@ class GroundStationHandler(BaseHTTPRequestHandler):
                 "ok": True,
                 "threshold_g": snapshot.get("attitude", {}).get("threshold_g"),
             })
+
+        if path == "/api/command":
+            payload = self._read_json() or {}
+            action = payload.get("action")
+            ok, error = send_lora_command(action)
+            if not ok:
+                return self._send_json({"ok": False, "error": error}, status=400)
+            return self._send_json({"ok": True})
 
         self.send_error(404, "Not Found")
 

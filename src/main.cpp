@@ -25,6 +25,7 @@ static PsramSpool spool;
 static BlockBuilder block;
 static SdLogger sdlog;
 static uint32_t block_seq = 0;
+static bool sd_logging_enabled = false;
 
 #if ENABLE_SD_DUMP
 static const char* sd_dump_record_name(uint8_t type) {
@@ -294,6 +295,7 @@ static void sd_clear_logs() {
   Serial.println("sd: logging disabled");
   return;
 #endif
+  const bool restart_logging = sd_logging_enabled;
   if (!sdlog.clear_logs()) {
     Serial.println("sd: clear failed");
     return;
@@ -305,18 +307,22 @@ static void sd_clear_logs() {
 #if ENABLE_PSRAM_SPOOL
   spool.init(spool_mem, SPOOL_BYTES);
 #endif
+  sd_logging_enabled = false;
 
-  if (!sdlog.open_new_log(PREALLOC_BYTES)) {
-    Serial.println("sd: open new log failed");
-    return;
-  }
+  if (restart_logging) {
+    if (!sdlog.open_new_log(PREALLOC_BYTES)) {
+      Serial.println("sd: open new log failed");
+      return;
+    }
 
-  const char* log_name = sdlog.log_name();
-  if (log_name) {
-    Serial.print("sd: new log ");
-    Serial.println(log_name);
-  } else {
-    Serial.println("sd: new log started");
+    sd_logging_enabled = true;
+    const char* log_name = sdlog.log_name();
+    if (log_name) {
+      Serial.print("sd: new log ");
+      Serial.println(log_name);
+    } else {
+      Serial.println("sd: new log started");
+    }
   }
 }
 
@@ -338,9 +344,11 @@ static void sd_rotate_log() {
   }
   if (!sdlog.open_new_log(PREALLOC_BYTES)) {
     Serial.println("sd: open new log failed");
+    sd_logging_enabled = false;
     return;
   }
 
+  sd_logging_enabled = true;
   if (old_name[0]) {
     Serial.print("sd: closed ");
     Serial.println(old_name);
@@ -354,12 +362,48 @@ static void sd_rotate_log() {
 
 static void sd_dump_print_help() {
   Serial.println("sd dump commands:");
-  Serial.println("  c: clear SD logs + start new log");
+  Serial.println("  c: clear SD logs (keeps logging off unless already on)");
   Serial.println("  d: dump SD log to serial");
   Serial.println("  n: close current log + start new log");
   Serial.println("  h/? : help");
 }
 #endif
+
+static void sd_logging_reset_buffers() {
+  block_seq = 0;
+  block.reset(block_seq, micros());
+  ring.init(ring_mem, RING_BYTES);
+#if ENABLE_PSRAM_SPOOL
+  spool.init(spool_mem, SPOOL_BYTES);
+#endif
+}
+
+static void sd_logging_stop() {
+#if !ENABLE_SD_LOGGER
+  return;
+#endif
+  if (!sd_logging_enabled) return;
+  sdlog.force_sync();
+  sdlog.close_log();
+  sd_logging_enabled = false;
+  sd_logging_reset_buffers();
+  DBG_PRINTLN("sd: logging stopped");
+}
+
+static void sd_logging_start() {
+#if !ENABLE_SD_LOGGER
+  return;
+#endif
+  if (sd_logging_enabled) return;
+  sd_logging_reset_buffers();
+  if (sdlog.open_new_log(PREALLOC_BYTES)) {
+    sd_logging_enabled = true;
+    DBG_PRINTLN("sd: logging started");
+  } else {
+    sd_logging_enabled = false;
+    DBG_PRINTLN("sd: logging start failed");
+  }
+}
 
 #if ENABLE_GNSS
 static GnssUbx gnss_primary(GNSS_SERIAL_PRIMARY);
@@ -467,6 +511,7 @@ static inline void buzzer_fail() {
 }
 
 static inline void ring_write_stats() {
+  if (!sd_logging_enabled) return;
   RecStats r{};
   r.h.type = REC_STATS; r.h.ver = 2; r.h.len = sizeof(r);
   r.t_us = micros();
@@ -483,6 +528,7 @@ static inline void ring_write_stats() {
 }
 
 static inline void ring_write_time_anchor(uint32_t t_us_at_pps, const GnssTime& gt) {
+  if (!sd_logging_enabled) return;
   RecTimeAnchor r{};
   r.h.type = REC_TIME_ANCHOR; r.h.ver = 1; r.h.len = sizeof(r);
   r.t_us_at_pps = t_us_at_pps;
@@ -493,6 +539,7 @@ static inline void ring_write_time_anchor(uint32_t t_us_at_pps, const GnssTime& 
 }
 
 static inline void ring_write_baro(uint32_t t_us, const BaroSample& s) {
+  if (!sd_logging_enabled) return;
   RecBaro r{};
   r.h.type = REC_BARO; r.h.ver = 1; r.h.len = sizeof(r);
   r.t_us = t_us;
@@ -503,6 +550,7 @@ static inline void ring_write_baro(uint32_t t_us, const BaroSample& s) {
 }
 
 static inline void ring_write_baro2(uint32_t t_us, const BaroSample& s) {
+  if (!sd_logging_enabled) return;
   RecBaro2 r{};
   r.h.type = REC_BARO2; r.h.ver = 1; r.h.len = sizeof(r);
   r.t_us = t_us;
@@ -513,6 +561,7 @@ static inline void ring_write_baro2(uint32_t t_us, const BaroSample& s) {
 }
 
 static inline void ring_write_imu(uint32_t t_us, const ImuSample& s) {
+  if (!sd_logging_enabled) return;
   RecImuFast r{};
   r.h.type = REC_IMU_FAST; r.h.ver = 1; r.h.len = sizeof(r);
   r.t_us = t_us;
@@ -568,6 +617,7 @@ static inline bool build_and_write_block_from_source(uint32_t now_ms) {
   uint32_t total = block.finalize(hdr);
   (void)total;
 #if ENABLE_SD_LOGGER
+  if (!sd_logging_enabled) return false;
   bool ok = sdlog.write_block(hdr, block.payload_ptr());
   if (!ok) {
     // record SD error via stats records (done periodically)
@@ -577,12 +627,17 @@ static inline bool build_and_write_block_from_source(uint32_t now_ms) {
   block.reset(block_seq, micros());
 
 #if ENABLE_SD_LOGGER
-  sdlog.poll_sync(now_ms);
+  if (sd_logging_enabled) {
+    sdlog.poll_sync(now_ms);
+  }
 #endif
   return true;
 }
 
 static inline void pump_ring_to_spool() {
+#if ENABLE_SD_LOGGER
+  if (!sd_logging_enabled) return;
+#endif
 #if ENABLE_PSRAM_SPOOL
   uint8_t tmp[1024];
   while (ring.available()) {
@@ -634,7 +689,8 @@ void setup() {
 
 #if ENABLE_SD_LOGGER
   {
-    const bool sd_ok = sdlog.begin() && sdlog.open_new_log(PREALLOC_BYTES);
+    const bool sd_ok = sdlog.begin();
+    sd_logging_enabled = false;
     if (sd_ok) {
       buzzer_ok();
     } else {
@@ -666,9 +722,11 @@ void setup() {
 #endif
 
   // Warm-up: force one small write path activity early (filesystem + card)
-  ring_write_stats();
-  pump_ring_to_spool();
-  build_and_write_block_from_source(millis());
+  if (sd_logging_enabled) {
+    ring_write_stats();
+    pump_ring_to_spool();
+    build_and_write_block_from_source(millis());
+  }
 
 #if ENABLE_LORA
   {
@@ -878,6 +936,11 @@ void loop() {
   ByteRing* ring_out_primary = gnss_use_backup_as_primary ? nullptr : &ring;
   ByteRing* ring_out_backup  = gnss_use_backup_as_primary ? &ring : nullptr;
 
+  if (!sd_logging_enabled) {
+    ring_out_primary = nullptr;
+    ring_out_backup = nullptr;
+  }
+
   gnss_primary.poll(ring_out_primary, now_us);
   gnss_backup.poll(ring_out_backup, now_us);
 #endif
@@ -974,7 +1037,7 @@ void loop() {
 #endif
 
   // Periodic stats record
-  if ((uint32_t)(now_ms - last_stats_ms) >= 500) {
+  if (sd_logging_enabled && (uint32_t)(now_ms - last_stats_ms) >= 500) {
     ring_write_stats();
     last_stats_ms = now_ms;
   }
@@ -983,7 +1046,9 @@ void loop() {
   pump_ring_to_spool();
 
   // Drain to SD in blocks
-  build_and_write_block_from_source(now_ms);
+  if (sd_logging_enabled) {
+    build_and_write_block_from_source(now_ms);
+  }
 
 #if ENABLE_LORA
   lora.poll_telem(now_ms,
@@ -993,10 +1058,28 @@ void loop() {
                   g_bat_state,
                   lora_gps,
                   have_imu_sample ? &last_imu_sample : nullptr);
+
+  {
+    LoraCommand cmd = LoraCommand::kNone;
+    if (lora.pop_command(cmd)) {
+      if (!buzzer_busy()) {
+        buzzer_start_seq(60, 0, 1, now_ms);
+      }
+      if (cmd == LoraCommand::kSdStart) {
+        sd_logging_start();
+      } else if (cmd == LoraCommand::kSdStop) {
+        sd_logging_stop();
+      }
+      lora.enable_tx(sd_logging_enabled);
+      lora.queue_command_ack(cmd, sd_logging_enabled);
+    }
+  }
 #endif
 
   // Controlled SD sync
 #if ENABLE_SD_LOGGER
-  sdlog.poll_sync(now_ms);
+  if (sd_logging_enabled) {
+    sdlog.poll_sync(now_ms);
+  }
 #endif
 }

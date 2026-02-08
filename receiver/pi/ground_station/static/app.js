@@ -40,6 +40,10 @@ const elements = {
   mapOverlay: document.getElementById("map-overlay"),
   mapJump: document.getElementById("map-jump"),
   mapSetHome: document.getElementById("map-set-home"),
+  sdStart: document.getElementById("sd-start"),
+  sdStop: document.getElementById("sd-stop"),
+  sdStatus: document.getElementById("sd-status"),
+  telemetryWaiting: document.getElementById("telemetry-waiting"),
 };
 
 const rocketCanvas = document.getElementById("rocket-canvas");
@@ -62,6 +66,9 @@ const state = {
   mapHomePending: false,
   mapHome: null,
   mapLastFix: null,
+  sdLoggingAckTs: null,
+  sdLoggingEnabled: null,
+  sdCommandPending: false,
 };
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -221,6 +228,87 @@ function postFilterSelection(value) {
     });
 }
 
+if (elements.sdStart) {
+  elements.sdStart.addEventListener("click", () => {
+    postSdCommand("sd_start", "start logging");
+  });
+}
+
+if (elements.sdStop) {
+  elements.sdStop.addEventListener("click", () => {
+    postSdCommand("sd_stop", "stop logging");
+  });
+}
+
+function setControlStatus(message, statusClass) {
+  if (!elements.sdStatus) {
+    return;
+  }
+  elements.sdStatus.textContent = message;
+  elements.sdStatus.classList.remove("ok", "pending", "error");
+  if (statusClass) {
+    elements.sdStatus.classList.add(statusClass);
+  }
+}
+
+function toggleControlButtons(disabled) {
+  if (elements.sdStart) {
+    elements.sdStart.disabled = disabled;
+  }
+  if (elements.sdStop) {
+    elements.sdStop.disabled = disabled;
+  }
+}
+
+function updateSdControlState() {
+  if (state.sdCommandPending) {
+    toggleControlButtons(true);
+    return;
+  }
+  if (state.sdLoggingEnabled === true) {
+    if (elements.sdStart) {
+      elements.sdStart.disabled = true;
+    }
+    if (elements.sdStop) {
+      elements.sdStop.disabled = false;
+    }
+  } else if (state.sdLoggingEnabled === false) {
+    if (elements.sdStart) {
+      elements.sdStart.disabled = false;
+    }
+    if (elements.sdStop) {
+      elements.sdStop.disabled = true;
+    }
+  } else {
+    toggleControlButtons(false);
+  }
+}
+
+function postSdCommand(action, label) {
+  setControlStatus(`Sending ${label}…`, "pending");
+  state.sdCommandPending = true;
+  toggleControlButtons(true);
+  fetch("/api/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+  })
+    .then((res) => res.json())
+    .then((payload) => {
+      if (!payload.ok) {
+        throw new Error(payload.error || "Command failed");
+      }
+      setControlStatus(`Command sent: ${label}. Awaiting ack…`, "pending");
+    })
+    .catch((err) => {
+      setControlStatus(err.message || "Command failed", "error");
+    })
+    .finally(() => {
+      state.sdCommandPending = false;
+      updateSdControlState();
+    });
+}
+
 function postThresholdUpdate(value) {
   const previous = state.attitudeThreshold;
   fetch("/api/attitude/threshold", {
@@ -255,6 +343,12 @@ function updateFromTelemetry(snapshot) {
 
   elements.packetCount.textContent = formatInt(snapshot.packet_count || 0);
   elements.callsign.textContent = snapshot.callsign || "--";
+
+  const packetCount = snapshot.packet_count || 0;
+  if (elements.telemetryWaiting) {
+    const waiting = packetCount === 0 && state.sdLoggingEnabled !== true;
+    elements.telemetryWaiting.classList.toggle("visible", waiting);
+  }
 
   const radio = snapshot.radio || {};
   elements.crcStatus.textContent = radio.crc_ok === null ? "--" : (radio.crc_ok ? "OK" : "BAD");
@@ -311,6 +405,22 @@ function updateFromTelemetry(snapshot) {
     ? formatNumber(battery.vbat_v, 2)
     : "--";
   elements.batState.textContent = battery.bat_state_label || "--";
+
+  const sdLogging = snapshot.sd_logging || {};
+  if (sdLogging.ack_timestamp && sdLogging.ack_timestamp !== state.sdLoggingAckTs) {
+    state.sdLoggingAckTs = sdLogging.ack_timestamp;
+    state.sdLoggingEnabled = sdLogging.enabled;
+    const enabled = sdLogging.enabled;
+    const statusText = enabled === null || enabled === undefined
+      ? "Logging ack received"
+      : (enabled ? "Logging enabled" : "Logging stopped");
+    const timeLabel = formatTimestamp(sdLogging.ack_timestamp);
+    setControlStatus(`${statusText} (${timeLabel})`, "ok");
+    updateSdControlState();
+    if (elements.telemetryWaiting && enabled === true) {
+      elements.telemetryWaiting.classList.remove("visible");
+    }
+  }
 
   const attitude = snapshot.attitude || {};
   updateOrientation(attitude, imu);
