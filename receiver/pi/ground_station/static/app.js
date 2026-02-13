@@ -25,6 +25,12 @@ const elements = {
   altPressPa: document.getElementById("alt-press-pa"),
   altPressKpa: document.getElementById("alt-press-kpa"),
   altTempC: document.getElementById("alt-temp-c"),
+  recoveryMode: document.getElementById("recovery-mode"),
+  recoveryPhase: document.getElementById("recovery-phase"),
+  recoveryAgl: document.getElementById("recovery-agl"),
+  recoveryVspeed: document.getElementById("recovery-vspeed"),
+  recoveryDrogue: document.getElementById("recovery-drogue"),
+  recoveryMain: document.getElementById("recovery-main"),
   imuTime: document.getElementById("imu-time"),
   imuTimeRaw: document.getElementById("imu-time-raw"),
   imuGyro: document.getElementById("imu-gyro"),
@@ -140,6 +146,30 @@ function formatInt(value) {
     return "--";
   }
   return Math.round(value).toString();
+}
+
+function setDeployIndicator(element, stage) {
+  if (!element) {
+    return;
+  }
+  element.classList.remove("pending", "deployed");
+  if (!stage || stage.deployed !== true) {
+    element.textContent = "Pending";
+    element.classList.add("pending");
+    return;
+  }
+
+  const altitude = stage.deploy_alt_agl_m;
+  const reason = stage.reason;
+  const parts = ["DEPLOYED"];
+  if (altitude !== null && altitude !== undefined) {
+    parts.push(`${formatNumber(altitude, 1)} m AGL`);
+  }
+  if (reason) {
+    parts.push(reason);
+  }
+  element.textContent = parts.join(" · ");
+  element.classList.add("deployed");
 }
 
 function labelForFilter(value) {
@@ -388,6 +418,18 @@ function updateFromTelemetry(snapshot) {
   elements.altPressPa.textContent = alt.press_pa !== null && alt.press_pa !== undefined ? formatNumber(alt.press_pa, 1) : "--";
   elements.altPressKpa.textContent = alt.press_kpa !== null && alt.press_kpa !== undefined ? formatNumber(alt.press_kpa, 3) : "--";
   elements.altTempC.textContent = alt.temp_c !== null && alt.temp_c !== undefined ? formatNumber(alt.temp_c, 2) : "--";
+
+  const recovery = snapshot.recovery || {};
+  elements.recoveryMode.textContent = recovery.mode || "--";
+  elements.recoveryPhase.textContent = recovery.phase || "--";
+  elements.recoveryAgl.textContent = recovery.altitude_agl_m !== null && recovery.altitude_agl_m !== undefined
+    ? `${formatNumber(recovery.altitude_agl_m, 1)} m`
+    : "--";
+  elements.recoveryVspeed.textContent = recovery.vertical_speed_mps !== null && recovery.vertical_speed_mps !== undefined
+    ? `${formatNumber(recovery.vertical_speed_mps, 1)} m/s`
+    : "--";
+  setDeployIndicator(elements.recoveryDrogue, recovery.drogue);
+  setDeployIndicator(elements.recoveryMain, recovery.main);
 
   const imu = snapshot.imu || {};
   elements.imuTime.textContent = imu.t_ms !== null && imu.t_ms !== undefined ? `${imu.t_ms} ms` : "--";

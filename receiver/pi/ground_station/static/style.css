@@ -460,6 +460,27 @@ main {
   font-weight: 600;
 }
 
+.deploy-state {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #fff;
+  font-size: 0.8rem;
+}
+
+.deploy-state.pending {
+  color: var(--warning);
+  border-color: rgba(185, 129, 24, 0.35);
+  background: rgba(185, 129, 24, 0.08);
+}
+
+.deploy-state.deployed {
+  color: var(--accent-strong);
+  border-color: rgba(30, 111, 92, 0.35);
+  background: rgba(30, 111, 92, 0.12);
+}
+
 .mono {
   font-family: "Space Mono", "Courier New", monospace;
   font-size: 0.78rem;
