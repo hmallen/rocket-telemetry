@@ -56,6 +56,7 @@ private:
                         const GnssTime& gps);
   bool start_imu_tx_(uint32_t now_ms,
                      const ImuSample& imu);
+  bool start_recovery_tx_(uint32_t now_ms);
   void schedule_retry_(uint32_t now_ms);
   void schedule_ack_retry_(uint32_t now_ms);
   void consume_pending_(uint32_t now_ms);
@@ -86,10 +87,24 @@ private:
   uint32_t last_imu_tx_ms_ = 0;
   uint32_t last_bat_tx_ms_ = 0;
   uint32_t last_navsat_tx_ms_ = 0;
+  uint32_t last_recovery_tx_ms_ = 0;
 
   int32_t  last_press_pa_x10_ = 0;
   int16_t  last_temp_c_x100_ = 0;
   bool have_last_alt_ = false;
+
+  bool recovery_initialized_ = false;
+  int32_t recovery_launch_alt_mm_ = 0;
+  int32_t recovery_last_alt_mm_ = 0;
+  uint32_t recovery_last_t_ms_ = 0;
+  int32_t recovery_agl_mm_ = 0;
+  int32_t recovery_max_agl_mm_ = 0;
+  int16_t recovery_vspeed_cms_ = 0;
+  uint8_t recovery_phase_ = 0;
+  bool recovery_drogue_deployed_ = false;
+  bool recovery_main_deployed_ = false;
+  int32_t recovery_drogue_deploy_agl_mm_ = -1;
+  int32_t recovery_main_deploy_agl_mm_ = -1;
 
   bool pending_valid_ = false;
   uint8_t pending_type_ = 0;
