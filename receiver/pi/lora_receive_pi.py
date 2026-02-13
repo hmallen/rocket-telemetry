@@ -574,6 +574,17 @@ def parse_payload(payload):
     if typ == 6:
         if len(payload) < 26:
             return None
+        # PROTO A1 type 6 (recovery), 26 bytes total:
+        # [0]    u8   0xA1                protocol marker
+        # [1]    u8   6                   packet type (recovery)
+        # [2:6]  u32  t_ms                telemetry timestamp (ms)
+        # [6]    u8   phase               0=idle,1=ascent,2=descent,3=landed
+        # [7]    u8   flags               bit0=drogue deployed, bit1=main deployed
+        # [8:12] i32  agl_mm              current altitude AGL (mm)
+        # [12:16]i32  max_agl_mm          max altitude AGL reached (mm)
+        # [16:18]i16  vspeed_cms          vertical speed (cm/s)
+        # [18:22]i32  drogue_deploy_agl_mm deployment AGL for drogue, -1 if not deployed
+        # [22:26]i32  main_deploy_agl_mm   deployment AGL for main, -1 if not deployed
         t_ms = int.from_bytes(payload[2:6], "little", signed=False)
         phase_code = int(payload[6])
         flags = int(payload[7])
