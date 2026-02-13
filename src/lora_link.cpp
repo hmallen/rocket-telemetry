@@ -69,6 +69,13 @@ static constexpr uint8_t RECOVERY_PHASE_ASCENT = 1;
 static constexpr uint8_t RECOVERY_PHASE_DESCENT = 2;
 static constexpr uint8_t RECOVERY_PHASE_LANDED = 3;
 
+static constexpr uint8_t RECOVERY_REASON_NONE = 0;
+static constexpr uint8_t RECOVERY_DROGUE_REASON_APOGEE_VOTE = 1;
+static constexpr uint8_t RECOVERY_MAIN_REASON_PRIMARY_ALTITUDE = 1;
+static constexpr uint8_t RECOVERY_MAIN_REASON_BACKUP_ALTITUDE = 2;
+static constexpr uint8_t RECOVERY_MAIN_REASON_FAST_DESCENT = 3;
+static constexpr uint8_t RECOVERY_MAIN_REASON_BACKUP_NO_DROGUE = 4;
+
 bool LoraLink::begin() {
   began_ = true;
   mission_start_ms_ = millis();
@@ -161,7 +168,7 @@ bool LoraLink::start_recovery_tx_(uint32_t now_ms) {
   if (!tx_enabled_) return false;
   if (!recovery_initialized_) return false;
 
-  // PROTO A1 type 6 (recovery), 26 bytes total:
+  // PROTO A1 type 6 (recovery), 28 bytes total:
   // [0]    u8   0xA1                protocol marker
   // [1]    u8   6                   packet type (recovery)
   // [2:6]  u32  t_ms                telemetry timestamp (ms)
@@ -172,6 +179,8 @@ bool LoraLink::start_recovery_tx_(uint32_t now_ms) {
   // [16:18]i16  vspeed_cms          vertical speed (cm/s)
   // [18:22]i32  drogue_deploy_agl_mm deployment AGL for drogue, -1 if not deployed
   // [22:26]i32  main_deploy_agl_mm   deployment AGL for main, -1 if not deployed
+  // [26]   u8   drogue_reason        0=none,1=apogee_vote
+  // [27]   u8   main_reason          0=none,1=primary_alt,2=backup_alt,3=fast_descent,4=backup_no_drogue
 
   tx_buf_[0] = 0xA1;
   tx_buf_[1] = 6;
@@ -183,7 +192,9 @@ bool LoraLink::start_recovery_tx_(uint32_t now_ms) {
   write_i16_le(&tx_buf_[16], recovery_vspeed_cms_);
   write_u32_le(&tx_buf_[18], (uint32_t)recovery_drogue_deploy_agl_mm_);
   write_u32_le(&tx_buf_[22], (uint32_t)recovery_main_deploy_agl_mm_);
-  const size_t n = 26;
+  tx_buf_[26] = recovery_drogue_reason_;
+  tx_buf_[27] = recovery_main_reason_;
+  const size_t n = 28;
 
   pending_valid_ = true;
   pending_type_ = 6;
@@ -399,8 +410,14 @@ void LoraLink::poll_telem(uint32_t now_ms,
       recovery_max_agl_mm_ = 0;
       recovery_vspeed_cms_ = 0;
       recovery_phase_ = RECOVERY_PHASE_IDLE;
+      recovery_launch_armed_ = false;
+      recovery_liftoff_detected_ = false;
+      recovery_have_min_press_ = false;
+      recovery_min_press_pa_x10_ = 0;
       recovery_drogue_deployed_ = false;
       recovery_main_deployed_ = false;
+      recovery_drogue_reason_ = RECOVERY_REASON_NONE;
+      recovery_main_reason_ = RECOVERY_REASON_NONE;
       recovery_drogue_deploy_agl_mm_ = -1;
       recovery_main_deploy_agl_mm_ = -1;
     } else {
@@ -425,29 +442,81 @@ void LoraLink::poll_telem(uint32_t now_ms,
         }
       }
 
-      const bool has_launched = recovery_max_agl_mm_ >= RECOVERY_MIN_ASCENT_AGL_MM;
-      const bool descending = recovery_agl_mm_ <= (recovery_max_agl_mm_ - RECOVERY_DESCENT_CONFIRM_MM);
-      if (has_launched) {
+      if (!recovery_launch_armed_ && recovery_max_agl_mm_ >= RECOVERY_MIN_ASCENT_AGL_MM) {
+        recovery_launch_armed_ = true;
+      }
+      if (!recovery_liftoff_detected_ &&
+          (recovery_agl_mm_ >= RECOVERY_LIFTOFF_CONFIRM_AGL_MM
+            || recovery_vspeed_cms_ >= RECOVERY_LAUNCH_VSPEED_CMS)) {
+        recovery_liftoff_detected_ = true;
+      }
+
+      if (press_pa_x10 > 0) {
+        if (!recovery_have_min_press_) {
+          recovery_have_min_press_ = true;
+          recovery_min_press_pa_x10_ = press_pa_x10;
+        } else if (!recovery_drogue_deployed_ && press_pa_x10 < recovery_min_press_pa_x10_) {
+          recovery_min_press_pa_x10_ = press_pa_x10;
+        }
+      }
+
+      const bool flight_enabled = recovery_launch_armed_ && recovery_liftoff_detected_;
+      const bool altitude_drop = recovery_agl_mm_ <= (recovery_max_agl_mm_ - RECOVERY_APOGEE_DROP_MM);
+      const bool descending = recovery_agl_mm_ <= (recovery_max_agl_mm_ - RECOVERY_DESCENT_CONFIRM_MM)
+        || recovery_vspeed_cms_ < 0;
+      if (flight_enabled) {
         recovery_phase_ = descending ? RECOVERY_PHASE_DESCENT : RECOVERY_PHASE_ASCENT;
-      } else if (recovery_agl_mm_ >= 5000) {
-        recovery_phase_ = RECOVERY_PHASE_ASCENT;
       } else {
         recovery_phase_ = RECOVERY_PHASE_IDLE;
       }
 
-      if (has_launched && !recovery_drogue_deployed_) {
-        if (recovery_agl_mm_ <= (recovery_max_agl_mm_ - RECOVERY_APOGEE_DROP_MM)) {
+      if (flight_enabled && !recovery_drogue_deployed_) {
+        const bool neg_vspeed = recovery_vspeed_cms_ <= RECOVERY_APOGEE_NEG_VSPEED_CMS;
+        const bool pressure_rise = recovery_have_min_press_
+          && press_pa_x10 >= (recovery_min_press_pa_x10_ + RECOVERY_APOGEE_PRESS_RISE_PA_X10);
+        uint8_t votes = 0;
+        if (altitude_drop) votes++;
+        if (neg_vspeed) votes++;
+        if (pressure_rise) votes++;
+
+        if (votes >= RECOVERY_APOGEE_VOTE_MIN) {
           recovery_drogue_deployed_ = true;
+          recovery_drogue_reason_ = RECOVERY_DROGUE_REASON_APOGEE_VOTE;
           recovery_drogue_deploy_agl_mm_ = recovery_agl_mm_;
         }
       }
 
-      if (recovery_drogue_deployed_ && !recovery_main_deployed_) {
-        const bool enough_drop = recovery_drogue_deploy_agl_mm_ < 0
-          || recovery_agl_mm_ <= (recovery_drogue_deploy_agl_mm_ - RECOVERY_MAIN_DROP_AFTER_DROGUE_MM);
-        if (recovery_agl_mm_ <= RECOVERY_MAIN_DEPLOY_AGL_MM && enough_drop) {
-          recovery_main_deployed_ = true;
-          recovery_main_deploy_agl_mm_ = recovery_agl_mm_;
+      if (!recovery_main_deployed_) {
+        const bool fast_descent = recovery_vspeed_cms_ <= RECOVERY_MAIN_FAST_DESCENT_CMS;
+        const bool low_enough_for_fast_backup = recovery_agl_mm_ <= RECOVERY_MAIN_FAST_DESCENT_MAX_AGL_MM;
+        const bool backup_alt_trigger = recovery_agl_mm_ <= RECOVERY_MAIN_BACKUP_AGL_MM;
+
+        if (recovery_drogue_deployed_) {
+          const bool enough_drop = recovery_drogue_deploy_agl_mm_ < 0
+            || recovery_agl_mm_ <= (recovery_drogue_deploy_agl_mm_ - RECOVERY_MAIN_DROP_AFTER_DROGUE_MM);
+          const bool primary_main_trigger = descending && enough_drop
+            && recovery_agl_mm_ <= RECOVERY_MAIN_DEPLOY_AGL_MM;
+          const bool backup_fast_descent = descending && fast_descent && low_enough_for_fast_backup;
+          uint8_t main_reason = RECOVERY_REASON_NONE;
+          if (primary_main_trigger) {
+            main_reason = RECOVERY_MAIN_REASON_PRIMARY_ALTITUDE;
+          } else if (backup_fast_descent) {
+            main_reason = RECOVERY_MAIN_REASON_FAST_DESCENT;
+          } else if (backup_alt_trigger) {
+            main_reason = RECOVERY_MAIN_REASON_BACKUP_ALTITUDE;
+          }
+          if (main_reason != RECOVERY_REASON_NONE) {
+            recovery_main_deployed_ = true;
+            recovery_main_reason_ = main_reason;
+            recovery_main_deploy_agl_mm_ = recovery_agl_mm_;
+          }
+        } else if (flight_enabled) {
+          // Backup path if apogee/drogue logic underperforms: still prevent ballistic descent.
+          if (descending && backup_alt_trigger) {
+            recovery_main_deployed_ = true;
+            recovery_main_reason_ = RECOVERY_MAIN_REASON_BACKUP_NO_DROGUE;
+            recovery_main_deploy_agl_mm_ = recovery_agl_mm_;
+          }
         }
       }
 

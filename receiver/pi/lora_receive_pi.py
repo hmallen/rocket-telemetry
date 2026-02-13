@@ -201,6 +201,19 @@ RECOVERY_PHASE_LABELS = {
     3: "landed",
 }
 
+RECOVERY_DROGUE_REASON_LABELS = {
+    0: "none",
+    1: "apogee_vote",
+}
+
+RECOVERY_MAIN_REASON_LABELS = {
+    0: "none",
+    1: "primary_altitude",
+    2: "backup_altitude",
+    3: "fast_descent",
+    4: "backup_no_drogue",
+}
+
 class SX1278:
     def __init__(self, spi, nss, rst, dio0):
         self.spi = spi
@@ -452,11 +465,13 @@ def decode_payload(payload):
         vspeed_mps = int.from_bytes(payload[16:18], "little", signed=True) / 100.0
         drogue_agl_mm = int.from_bytes(payload[18:22], "little", signed=True)
         main_agl_mm = int.from_bytes(payload[22:26], "little", signed=True)
+        drogue_reason_code = int(payload[26]) if len(payload) >= 27 else 0
+        main_reason_code = int(payload[27]) if len(payload) >= 28 else 0
         drogue_m = (drogue_agl_mm / 1000.0) if drogue_agl_mm >= 0 else None
         main_m = (main_agl_mm / 1000.0) if main_agl_mm >= 0 else None
         return (
             "RECOVERY t_ms=%d phase=%s agl=%.1f max_agl=%.1f vs=%.2f drogue=%s"
-            " main=%s drogue_agl=%s main_agl=%s"
+            " main=%s drogue_agl=%s main_agl=%s drogue_reason=%s main_reason=%s"
         ) % (
             t_ms,
             RECOVERY_PHASE_LABELS.get(phase, str(phase)),
@@ -467,6 +482,8 @@ def decode_payload(payload):
             "yes" if (flags & 0x02) else "no",
             "%.1f" % drogue_m if drogue_m is not None else "--",
             "%.1f" % main_m if main_m is not None else "--",
+            RECOVERY_DROGUE_REASON_LABELS.get(drogue_reason_code, str(drogue_reason_code)),
+            RECOVERY_MAIN_REASON_LABELS.get(main_reason_code, str(main_reason_code)),
         )
     return "PROTO A1 type=%d" % typ
 
@@ -577,7 +594,7 @@ def parse_payload(payload):
     if typ == 6:
         if len(payload) < 26:
             return None
-        # PROTO A1 type 6 (recovery), 26 bytes total:
+        # PROTO A1 type 6 (recovery), 28 bytes total (older 26-byte frames are accepted):
         # [0]    u8   0xA1                protocol marker
         # [1]    u8   6                   packet type (recovery)
         # [2:6]  u32  t_ms                telemetry timestamp (ms)
@@ -588,6 +605,8 @@ def parse_payload(payload):
         # [16:18]i16  vspeed_cms          vertical speed (cm/s)
         # [18:22]i32  drogue_deploy_agl_mm deployment AGL for drogue, -1 if not deployed
         # [22:26]i32  main_deploy_agl_mm   deployment AGL for main, -1 if not deployed
+        # [26]   u8   drogue_reason        0=none,1=apogee_vote
+        # [27]   u8   main_reason          0=none,1=primary_alt,2=backup_alt,3=fast_descent,4=backup_no_drogue
         t_ms = int.from_bytes(payload[2:6], "little", signed=False)
         phase_code = int(payload[6])
         flags = int(payload[7])
@@ -596,6 +615,8 @@ def parse_payload(payload):
         vspeed_cms = int.from_bytes(payload[16:18], "little", signed=True)
         drogue_agl_mm = int.from_bytes(payload[18:22], "little", signed=True)
         main_agl_mm = int.from_bytes(payload[22:26], "little", signed=True)
+        drogue_reason_code = int(payload[26]) if len(payload) >= 27 else 0
+        main_reason_code = int(payload[27]) if len(payload) >= 28 else 0
         return {
             "type": "recovery",
             "t_ms": t_ms,
@@ -608,6 +629,10 @@ def parse_payload(payload):
             "vertical_speed_mps": vspeed_cms / 100.0,
             "drogue_deploy_alt_agl_m": (drogue_agl_mm / 1000.0) if drogue_agl_mm >= 0 else None,
             "main_deploy_alt_agl_m": (main_agl_mm / 1000.0) if main_agl_mm >= 0 else None,
+            "drogue_reason_code": drogue_reason_code,
+            "main_reason_code": main_reason_code,
+            "drogue_reason": RECOVERY_DROGUE_REASON_LABELS.get(drogue_reason_code, "unknown"),
+            "main_reason": RECOVERY_MAIN_REASON_LABELS.get(main_reason_code, "unknown"),
         }
     return {"type": "unknown", "type_id": typ}
 

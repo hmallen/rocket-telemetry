@@ -587,6 +587,8 @@ class TelemetryStore:
                         "bat_state_label": BAT_STATE_LABELS.get(bat_state, "UNKNOWN"),
                     })
                 elif payload_type == "recovery":
+                    drogue_deployed = bool(parsed.get("drogue_deployed"))
+                    main_deployed = bool(parsed.get("main_deployed"))
                     self._state["recovery"].update({
                         "enabled": True,
                         "mode": "downlink",
@@ -596,16 +598,16 @@ class TelemetryStore:
                         "max_altitude_agl_m": parsed.get("max_altitude_agl_m"),
                         "vertical_speed_mps": parsed.get("vertical_speed_mps"),
                         "drogue": {
-                            "deployed": bool(parsed.get("drogue_deployed")),
+                            "deployed": drogue_deployed,
                             "deploy_timestamp": None,
                             "deploy_alt_agl_m": parsed.get("drogue_deploy_alt_agl_m"),
-                            "reason": "Flight computer trigger" if parsed.get("drogue_deployed") else None,
+                            "reason": parsed.get("drogue_reason") if drogue_deployed else None,
                         },
                         "main": {
-                            "deployed": bool(parsed.get("main_deployed")),
+                            "deployed": main_deployed,
                             "deploy_timestamp": None,
                             "deploy_alt_agl_m": parsed.get("main_deploy_alt_agl_m"),
-                            "reason": "Flight computer trigger" if parsed.get("main_deployed") else None,
+                            "reason": parsed.get("main_reason") if main_deployed else None,
                         },
                         "rules": None,
                     })

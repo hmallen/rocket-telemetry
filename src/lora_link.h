@@ -102,8 +102,14 @@ private:
   int32_t recovery_max_agl_mm_ = 0;
   int16_t recovery_vspeed_cms_ = 0;
   uint8_t recovery_phase_ = 0;
+  bool recovery_launch_armed_ = false;
+  bool recovery_liftoff_detected_ = false;
+  bool recovery_have_min_press_ = false;
+  int32_t recovery_min_press_pa_x10_ = 0;
   bool recovery_drogue_deployed_ = false;
   bool recovery_main_deployed_ = false;
+  uint8_t recovery_drogue_reason_ = 0;
+  uint8_t recovery_main_reason_ = 0;
   int32_t recovery_drogue_deploy_agl_mm_ = -1;
   int32_t recovery_main_deploy_agl_mm_ = -1;
 
