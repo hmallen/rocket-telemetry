@@ -32,6 +32,14 @@ const elements = {
   batTime: document.getElementById("bat-time"),
   batVoltage: document.getElementById("bat-voltage"),
   batState: document.getElementById("bat-state"),
+  vmStatus: document.getElementById("vm-status"),
+  vmUpdated: document.getElementById("vm-updated"),
+  vmVin: document.getElementById("vm-vin"),
+  vmVout: document.getElementById("vm-vout"),
+  vmVbatt: document.getElementById("vm-vbatt"),
+  vmTempC: document.getElementById("vm-temp-c"),
+  vmTempF: document.getElementById("vm-temp-f"),
+  vmWarning: document.getElementById("vm-warning"),
   attRoll: document.getElementById("att-roll"),
   attPitch: document.getElementById("att-pitch"),
   attYaw: document.getElementById("att-yaw"),
@@ -465,6 +473,37 @@ function updateFromTelemetry(snapshot) {
     ? formatNumber(battery.vbat_v, 2)
     : "--";
   elements.batState.textContent = battery.bat_state_label || "--";
+
+  const monitor = snapshot.voltage_monitor || {};
+  const monitorStatus = monitor.status || "--";
+  const monitorDisabled = monitor.enabled === false && monitor.disabled_reason;
+  elements.vmStatus.textContent = monitorDisabled
+    ? `disabled (${monitor.disabled_reason})`
+    : monitorStatus;
+  elements.vmUpdated.textContent = formatTimestamp(monitor.timestamp);
+  elements.vmVin.textContent = monitor.vin_v !== null && monitor.vin_v !== undefined
+    ? `${formatNumber(monitor.vin_v, 2)} V`
+    : "--";
+  elements.vmVout.textContent = monitor.vout_v !== null && monitor.vout_v !== undefined
+    ? `${formatNumber(monitor.vout_v, 2)} V`
+    : "--";
+  elements.vmVbatt.textContent = monitor.vbatt_v !== null && monitor.vbatt_v !== undefined
+    ? `${formatNumber(monitor.vbatt_v, 2)} V`
+    : "--";
+  elements.vmTempC.textContent = monitor.temp_c !== null && monitor.temp_c !== undefined
+    ? `${formatNumber(monitor.temp_c, 2)} °C`
+    : "--";
+  elements.vmTempF.textContent = monitor.temp_f !== null && monitor.temp_f !== undefined
+    ? `${formatNumber(monitor.temp_f, 2)} °F`
+    : "--";
+
+  if (monitor.shutdown_triggered) {
+    elements.vmWarning.textContent = "Shutdown triggered: low input and low battery";
+  } else if (monitor.last_error) {
+    elements.vmWarning.textContent = `Error: ${monitor.last_error}`;
+  } else {
+    elements.vmWarning.textContent = monitor.warning || "--";
+  }
 
   const sdLogging = snapshot.sd_logging || {};
   if (sdLogging.ack_timestamp && sdLogging.ack_timestamp !== state.sdLoggingAckTs) {
