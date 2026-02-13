@@ -37,10 +37,12 @@ constexpr int VBAT_PIN = A2;
 constexpr float VBAT_CAL_SCALE = 1.0f;
 constexpr uint8_t VBAT_AVG_SAMPLES = 16;
 constexpr float VBAT_LP_ALPHA = 0.1f;
-
-constexpr float VBAT_WARN_V = 3.55f;
-constexpr float VBAT_SHED_V = 3.45f;
-constexpr float VBAT_CUTOFF_V = 3.30f;
+// 2S LiPo (7.4V nominal, 3.7V per cell)
+// Warning: 7.10V (3.55V per cell), Shed: 6.90V (3.45V per cell), Cutoff: 6.60V (3.30V per cell)
+// These values are specific to your battery and calibration - adjust as needed for your specific battery
+constexpr float VBAT_WARN_V = 7.10f;
+constexpr float VBAT_SHED_V = 6.90f;
+constexpr float VBAT_CUTOFF_V = 6.60f;
 constexpr float VBAT_HYST_V = 0.15f;
 constexpr uint32_t VBAT_DWELL_MS = 2000;
 
@@ -97,6 +99,27 @@ constexpr uint32_t LORA_ALT_INTERVAL_MS = 200;
 constexpr uint32_t LORA_IMU_INTERVAL_MS = 200;
 constexpr uint32_t LORA_BAT_INTERVAL_MS = 1000;
 constexpr uint32_t LORA_NAVSAT_INTERVAL_MS = 2000;
+constexpr uint32_t LORA_RECOVERY_INTERVAL_MS = 500;
+
+// Recovery-state simulation runs on the rocket flight computer and is downlinked over LoRa.
+// Distances are in millimeters to match GNSS height units.
+constexpr int32_t RECOVERY_MIN_ASCENT_AGL_MM = 90000;            // 90 m AGL launch-arm threshold (~300 ft)
+constexpr int32_t RECOVERY_LIFTOFF_CONFIRM_AGL_MM = 5000;        // 5 m confirms non-idle motion
+constexpr int16_t RECOVERY_LAUNCH_VSPEED_CMS = 500;              // +5.0 m/s indicates liftoff
+
+constexpr int32_t RECOVERY_APOGEE_DROP_MM = 12000;               // 12 m drop from peak altitude
+constexpr int16_t RECOVERY_APOGEE_NEG_VSPEED_CMS = -100;         // -1.0 m/s descent criterion
+constexpr int32_t RECOVERY_APOGEE_PRESS_RISE_PA_X10 = 50;        // +5 Pa from min pressure suggests descent
+constexpr uint8_t RECOVERY_APOGEE_VOTE_MIN = 2;                  // 2-of-3 criteria required
+
+constexpr int32_t RECOVERY_MAIN_DEPLOY_AGL_MM = 300000;          // primary main trigger (300 m AGL)
+constexpr int32_t RECOVERY_MAIN_BACKUP_AGL_MM = 220000;          // lower backup main trigger (220 m AGL)
+constexpr int32_t RECOVERY_MAIN_DROP_AFTER_DROGUE_MM = 30000;    // 30 m drop after drogue before primary main
+constexpr int16_t RECOVERY_MAIN_FAST_DESCENT_CMS = -2500;        // -25 m/s fast-descent backup
+constexpr int32_t RECOVERY_MAIN_FAST_DESCENT_MAX_AGL_MM = 450000; // enable fast-descent backup below 450 m AGL
+
+constexpr int32_t RECOVERY_DESCENT_CONFIRM_MM = 2000;             // 2 m drop confirms descent phase
+constexpr int32_t RECOVERY_LANDED_AGL_MM = 20000;                // 20 m AGL considered landed
 
 // Retries: bounded, with backoff; fail toward silence.
 constexpr uint8_t  LORA_RETRY_LIMIT = 2;
@@ -115,7 +138,7 @@ constexpr int32_t  LORA_LANDING_PRESS_STABLE_DELTA_PA_X10 = 50;
 constexpr int32_t  LORA_FLIGHT_PRESS_DELTA_PA_X10 = 5000;
 
 // TX is disabled by default on boot. Set to 1 only when intentional and supervised.
-#define LORA_TX_ENABLE_AT_BOOT 1
+#define LORA_TX_ENABLE_AT_BOOT 0
 
 // ---------- Build toggles ----------
 #define ENABLE_SD_LOGGER 1

@@ -64,6 +64,18 @@ static constexpr uint16_t LORA_RX_DONE_FLAG = 0x40;
 static constexpr uint8_t LORA_ACK_REPEAT_COUNT = 3;
 static constexpr uint32_t LORA_ACK_REPEAT_MS = 400;
 
+static constexpr uint8_t RECOVERY_PHASE_IDLE = 0;
+static constexpr uint8_t RECOVERY_PHASE_ASCENT = 1;
+static constexpr uint8_t RECOVERY_PHASE_DESCENT = 2;
+static constexpr uint8_t RECOVERY_PHASE_LANDED = 3;
+
+static constexpr uint8_t RECOVERY_REASON_NONE = 0;
+static constexpr uint8_t RECOVERY_DROGUE_REASON_APOGEE_VOTE = 1;
+static constexpr uint8_t RECOVERY_MAIN_REASON_PRIMARY_ALTITUDE = 1;
+static constexpr uint8_t RECOVERY_MAIN_REASON_BACKUP_ALTITUDE = 2;
+static constexpr uint8_t RECOVERY_MAIN_REASON_FAST_DESCENT = 3;
+static constexpr uint8_t RECOVERY_MAIN_REASON_BACKUP_NO_DROGUE = 4;
+
 bool LoraLink::begin() {
   began_ = true;
   mission_start_ms_ = millis();
@@ -149,6 +161,61 @@ bool LoraLink::pop_command(LoraCommand& cmd, uint8_t* arg) {
   }
   pending_cmd_ = 0;
   pending_cmd_arg_ = 0;
+  return true;
+}
+
+bool LoraLink::start_recovery_tx_(uint32_t now_ms) {
+  if (!tx_enabled_) return false;
+  if (!recovery_initialized_) return false;
+
+  // PROTO A1 type 6 (recovery), 28 bytes total:
+  // [0]    u8   0xA1                protocol marker
+  // [1]    u8   6                   packet type (recovery)
+  // [2:6]  u32  t_ms                telemetry timestamp (ms)
+  // [6]    u8   phase               0=idle,1=ascent,2=descent,3=landed
+  // [7]    u8   flags               bit0=drogue deployed, bit1=main deployed
+  // [8:12] i32  agl_mm              current altitude AGL (mm)
+  // [12:16]i32  max_agl_mm          max altitude AGL reached (mm)
+  // [16:18]i16  vspeed_cms          vertical speed (cm/s)
+  // [18:22]i32  drogue_deploy_agl_mm deployment AGL for drogue, -1 if not deployed
+  // [22:26]i32  main_deploy_agl_mm   deployment AGL for main, -1 if not deployed
+  // [26]   u8   drogue_reason        0=none,1=apogee_vote
+  // [27]   u8   main_reason          0=none,1=primary_alt,2=backup_alt,3=fast_descent,4=backup_no_drogue
+
+  tx_buf_[0] = 0xA1;
+  tx_buf_[1] = 6;
+  write_u32_le(&tx_buf_[2], (uint32_t)now_ms);
+  tx_buf_[6] = recovery_phase_;
+  tx_buf_[7] = (recovery_drogue_deployed_ ? 0x01u : 0x00u) | (recovery_main_deployed_ ? 0x02u : 0x00u);
+  write_u32_le(&tx_buf_[8], (uint32_t)recovery_agl_mm_);
+  write_u32_le(&tx_buf_[12], (uint32_t)recovery_max_agl_mm_);
+  write_i16_le(&tx_buf_[16], recovery_vspeed_cms_);
+  write_u32_le(&tx_buf_[18], (uint32_t)recovery_drogue_deploy_agl_mm_);
+  write_u32_le(&tx_buf_[22], (uint32_t)recovery_main_deploy_agl_mm_);
+  tx_buf_[26] = recovery_drogue_reason_;
+  tx_buf_[27] = recovery_main_reason_;
+  const size_t n = 28;
+
+  pending_valid_ = true;
+  pending_type_ = 6;
+  pending_len_ = n;
+
+  lora_tx_done_isr = false;
+  tx_start_ms_ = now_ms;
+  tx_active_ = true;
+  rx_active_ = false;
+  tx_is_id_ = false;
+  tx_is_ack_ = false;
+  tx_type_ = 6;
+  tx_len_ = n;
+
+  int state = radio.startTransmit(tx_buf_, n);
+  if (state != 0) {
+    tx_active_ = false;
+    DBG_PRINTF("lora: startTransmit err %d\n", state);
+    return false;
+  }
+
   return true;
 }
 
@@ -330,12 +397,144 @@ void LoraLink::poll_telem(uint32_t now_ms,
   const uint32_t imu_int_ms = LORA_IMU_INTERVAL_MS;
   const uint32_t bat_int_ms = LORA_BAT_INTERVAL_MS;
   const uint32_t navsat_int_ms = LORA_NAVSAT_INTERVAL_MS;
+  const uint32_t recovery_int_ms = LORA_RECOVERY_INTERVAL_MS;
+
+  if (gps != nullptr && gps->last_pvt_ms != 0) {
+    const int32_t alt_mm = gps->height_mm;
+    if (!recovery_initialized_) {
+      recovery_initialized_ = true;
+      recovery_launch_alt_mm_ = alt_mm;
+      recovery_last_alt_mm_ = alt_mm;
+      recovery_last_t_ms_ = now_ms;
+      recovery_agl_mm_ = 0;
+      recovery_max_agl_mm_ = 0;
+      recovery_vspeed_cms_ = 0;
+      recovery_phase_ = RECOVERY_PHASE_IDLE;
+      recovery_launch_armed_ = false;
+      recovery_liftoff_detected_ = false;
+      recovery_have_min_press_ = false;
+      recovery_min_press_pa_x10_ = 0;
+      recovery_drogue_deployed_ = false;
+      recovery_main_deployed_ = false;
+      recovery_drogue_reason_ = RECOVERY_REASON_NONE;
+      recovery_main_reason_ = RECOVERY_REASON_NONE;
+      recovery_drogue_deploy_agl_mm_ = -1;
+      recovery_main_deploy_agl_mm_ = -1;
+    } else {
+      const int32_t agl_mm_raw = alt_mm - recovery_launch_alt_mm_;
+      recovery_agl_mm_ = (agl_mm_raw > 0) ? agl_mm_raw : 0;
+
+      if (recovery_agl_mm_ > recovery_max_agl_mm_) {
+        recovery_max_agl_mm_ = recovery_agl_mm_;
+      }
+
+      recovery_vspeed_cms_ = 0;
+      const uint32_t dt_ms = now_ms - recovery_last_t_ms_;
+      if (dt_ms > 0 && dt_ms <= 10000) {
+        const int32_t delta_mm = alt_mm - recovery_last_alt_mm_;
+        const int32_t vspeed_cms = (delta_mm * 100) / (int32_t)dt_ms;
+        if (vspeed_cms > 32767) {
+          recovery_vspeed_cms_ = 32767;
+        } else if (vspeed_cms < -32768) {
+          recovery_vspeed_cms_ = -32768;
+        } else {
+          recovery_vspeed_cms_ = (int16_t)vspeed_cms;
+        }
+      }
+
+      if (!recovery_launch_armed_ && recovery_max_agl_mm_ >= RECOVERY_MIN_ASCENT_AGL_MM) {
+        recovery_launch_armed_ = true;
+      }
+      if (!recovery_liftoff_detected_ &&
+          (recovery_agl_mm_ >= RECOVERY_LIFTOFF_CONFIRM_AGL_MM
+            || recovery_vspeed_cms_ >= RECOVERY_LAUNCH_VSPEED_CMS)) {
+        recovery_liftoff_detected_ = true;
+      }
+
+      if (press_pa_x10 > 0) {
+        if (!recovery_have_min_press_) {
+          recovery_have_min_press_ = true;
+          recovery_min_press_pa_x10_ = press_pa_x10;
+        } else if (!recovery_drogue_deployed_ && press_pa_x10 < recovery_min_press_pa_x10_) {
+          recovery_min_press_pa_x10_ = press_pa_x10;
+        }
+      }
+
+      const bool flight_enabled = recovery_launch_armed_ && recovery_liftoff_detected_;
+      const bool altitude_drop = recovery_agl_mm_ <= (recovery_max_agl_mm_ - RECOVERY_APOGEE_DROP_MM);
+      const bool descending = recovery_agl_mm_ <= (recovery_max_agl_mm_ - RECOVERY_DESCENT_CONFIRM_MM)
+        || recovery_vspeed_cms_ < 0;
+      if (flight_enabled) {
+        recovery_phase_ = descending ? RECOVERY_PHASE_DESCENT : RECOVERY_PHASE_ASCENT;
+      } else {
+        recovery_phase_ = RECOVERY_PHASE_IDLE;
+      }
+
+      if (flight_enabled && !recovery_drogue_deployed_) {
+        const bool neg_vspeed = recovery_vspeed_cms_ <= RECOVERY_APOGEE_NEG_VSPEED_CMS;
+        const bool pressure_rise = recovery_have_min_press_
+          && press_pa_x10 >= (recovery_min_press_pa_x10_ + RECOVERY_APOGEE_PRESS_RISE_PA_X10);
+        uint8_t votes = 0;
+        if (altitude_drop) votes++;
+        if (neg_vspeed) votes++;
+        if (pressure_rise) votes++;
+
+        if (votes >= RECOVERY_APOGEE_VOTE_MIN) {
+          recovery_drogue_deployed_ = true;
+          recovery_drogue_reason_ = RECOVERY_DROGUE_REASON_APOGEE_VOTE;
+          recovery_drogue_deploy_agl_mm_ = recovery_agl_mm_;
+        }
+      }
+
+      if (!recovery_main_deployed_) {
+        const bool fast_descent = recovery_vspeed_cms_ <= RECOVERY_MAIN_FAST_DESCENT_CMS;
+        const bool low_enough_for_fast_backup = recovery_agl_mm_ <= RECOVERY_MAIN_FAST_DESCENT_MAX_AGL_MM;
+        const bool backup_alt_trigger = recovery_agl_mm_ <= RECOVERY_MAIN_BACKUP_AGL_MM;
+
+        if (recovery_drogue_deployed_) {
+          const bool enough_drop = recovery_drogue_deploy_agl_mm_ < 0
+            || recovery_agl_mm_ <= (recovery_drogue_deploy_agl_mm_ - RECOVERY_MAIN_DROP_AFTER_DROGUE_MM);
+          const bool primary_main_trigger = descending && enough_drop
+            && recovery_agl_mm_ <= RECOVERY_MAIN_DEPLOY_AGL_MM;
+          const bool backup_fast_descent = descending && fast_descent && low_enough_for_fast_backup;
+          uint8_t main_reason = RECOVERY_REASON_NONE;
+          if (primary_main_trigger) {
+            main_reason = RECOVERY_MAIN_REASON_PRIMARY_ALTITUDE;
+          } else if (backup_fast_descent) {
+            main_reason = RECOVERY_MAIN_REASON_FAST_DESCENT;
+          } else if (backup_alt_trigger) {
+            main_reason = RECOVERY_MAIN_REASON_BACKUP_ALTITUDE;
+          }
+          if (main_reason != RECOVERY_REASON_NONE) {
+            recovery_main_deployed_ = true;
+            recovery_main_reason_ = main_reason;
+            recovery_main_deploy_agl_mm_ = recovery_agl_mm_;
+          }
+        } else if (flight_enabled) {
+          // Backup path if apogee/drogue logic underperforms: still prevent ballistic descent.
+          if (descending && backup_alt_trigger) {
+            recovery_main_deployed_ = true;
+            recovery_main_reason_ = RECOVERY_MAIN_REASON_BACKUP_NO_DROGUE;
+            recovery_main_deploy_agl_mm_ = recovery_agl_mm_;
+          }
+        }
+      }
+
+      if (recovery_main_deployed_ && recovery_agl_mm_ <= RECOVERY_LANDED_AGL_MM) {
+        recovery_phase_ = RECOVERY_PHASE_LANDED;
+      }
+
+      recovery_last_alt_mm_ = alt_mm;
+      recovery_last_t_ms_ = now_ms;
+    }
+  }
 
   int32_t gps_late = -2147483647;
   int32_t alt_late = -2147483647;
   int32_t imu_late = -2147483647;
   int32_t bat_late = -2147483647;
   int32_t navsat_late = -2147483647;
+  int32_t recovery_late = -2147483647;
 
   if (gps != nullptr && gps_int_ms != 0 && gps->last_pvt_ms != 0) {
     if (last_gps_tx_ms_ == 0) gps_late = (int32_t)now_ms;
@@ -357,6 +556,10 @@ void LoraLink::poll_telem(uint32_t now_ms,
     if (last_navsat_tx_ms_ == 0) navsat_late = (int32_t)now_ms;
     else navsat_late = (int32_t)((uint32_t)(now_ms - last_navsat_tx_ms_) - navsat_int_ms);
   }
+  if (recovery_initialized_ && recovery_int_ms != 0) {
+    if (last_recovery_tx_ms_ == 0) recovery_late = (int32_t)now_ms;
+    else recovery_late = (int32_t)((uint32_t)(now_ms - last_recovery_tx_ms_) - recovery_int_ms);
+  }
 
   auto pick_most_overdue = [](int32_t best_late, int32_t candidate_late) {
     if (candidate_late < 0) return false;
@@ -374,6 +577,10 @@ void LoraLink::poll_telem(uint32_t now_ms,
   if (pick_most_overdue(best_late, navsat_late)) {
     pick = 5;
     best_late = navsat_late;
+  }
+  if (pick_most_overdue(best_late, recovery_late)) {
+    pick = 6;
+    best_late = recovery_late;
   }
   if (pick_most_overdue(best_late, alt_late)) {
     pick = 0;
@@ -402,6 +609,8 @@ void LoraLink::poll_telem(uint32_t now_ms,
     ok = start_gps_tx_(now_ms, *gps);
   } else if (pick == 5) {
     ok = start_navsat_tx_(now_ms, *gps);
+  } else if (pick == 6) {
+    ok = start_recovery_tx_(now_ms);
   } else if (pick == 3) {
     ok = start_imu_tx_(now_ms, *imu);
   } else if (pick == 4) {
@@ -578,6 +787,8 @@ void LoraLink::on_tx_done_() {
       last_bat_tx_ms_ = last_tx_ms_;
     } else if (tx_type_ == 5) {
       last_navsat_tx_ms_ = last_tx_ms_;
+    } else if (tx_type_ == 6) {
+      last_recovery_tx_ms_ = last_tx_ms_;
     }
     pending_valid_ = false;
   }
@@ -796,6 +1007,8 @@ void LoraLink::consume_pending_(uint32_t now_ms) {
     last_gps_tx_ms_ = now_ms;
   } else if (pending_type_ == 5) {
     last_navsat_tx_ms_ = now_ms;
+  } else if (pending_type_ == 6) {
+    last_recovery_tx_ms_ = now_ms;
   } else if (pending_type_ == 3) {
     last_imu_tx_ms_ = now_ms;
   } else if (pending_type_ == 4) {
