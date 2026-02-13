@@ -432,6 +432,22 @@ class TelemetryStore:
                 "last_command": None,
                 "ack_timestamp": None,
             },
+            "voltage_monitor": {
+                "timestamp": None,
+                "enabled": False,
+                "running": False,
+                "status": "init",
+                "disabled_reason": None,
+                "vin_v": None,
+                "vout_v": None,
+                "vbatt_v": None,
+                "temp_v": None,
+                "temp_c": None,
+                "temp_f": None,
+                "warning": None,
+                "shutdown_triggered": False,
+                "last_error": None,
+            },
             "attitude": {
                 "roll": None,
                 "pitch": None,
@@ -482,6 +498,7 @@ class TelemetryStore:
         with self._lock:
             self._state["timestamp"] = time.time()
             self._state["packet_count"] += 1
+            self._state["voltage_monitor"] = lora_driver.get_voltage_monitor_snapshot()
 
             radio_state = self._state["radio"]
             radio_state.update(radio_info)
@@ -620,8 +637,14 @@ class TelemetryStore:
 
             return copy.deepcopy(self._state)
 
+    def update_voltage_monitor(self, monitor_snapshot):
+        with self._lock:
+            self._state["voltage_monitor"] = dict(monitor_snapshot or {})
+            return copy.deepcopy(self._state)
+
     def snapshot(self):
         with self._lock:
+            self._state["voltage_monitor"] = lora_driver.get_voltage_monitor_snapshot()
             return copy.deepcopy(self._state)
 
 
@@ -827,6 +850,11 @@ def broadcast(snapshot):
                     client.put_nowait(data)
                 except queue.Full:
                     pass
+
+
+def handle_voltage_monitor_update(monitor_snapshot):
+    snapshot = TELEMETRY.update_voltage_monitor(monitor_snapshot)
+    broadcast(snapshot)
 
 
 def lora_worker():
@@ -1128,20 +1156,25 @@ def main():
 
     TILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
+    voltage_monitor = lora_driver.start_voltage_monitor(on_sample=handle_voltage_monitor_update)
+    server = None
+
     worker = threading.Thread(target=lora_worker, daemon=True)
     worker.start()
 
-    server = ThreadingHTTPServer((HOST, PORT), GroundStationHandler)
-    print("Ground station running at http://%s:%d" % (HOST, PORT))
-
     try:
+        server = ThreadingHTTPServer((HOST, PORT), GroundStationHandler)
+        print("Ground station running at http://%s:%d" % (HOST, PORT))
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         STOP_EVENT.set()
-        server.shutdown()
-        server.server_close()
+        if voltage_monitor is not None:
+            voltage_monitor.stop()
+        if server is not None:
+            server.shutdown()
+            server.server_close()
 
 
 if __name__ == "__main__":
