@@ -161,6 +161,16 @@ function labelForFilter(value) {
   return FILTER_LABELS[value] || value;
 }
 
+function setMonitorTone(element, tone) {
+  if (!element) {
+    return;
+  }
+  element.classList.remove("tone-ok", "tone-warn", "tone-error");
+  if (tone) {
+    element.classList.add(tone);
+  }
+}
+
 function setFilterOptions(filters, active) {
   if (!elements.attitudeFilter) {
     return;
@@ -477,9 +487,21 @@ function updateFromTelemetry(snapshot) {
   const monitor = snapshot.voltage_monitor || {};
   const monitorStatus = monitor.status || "--";
   const monitorDisabled = monitor.enabled === false && monitor.disabled_reason;
+  let statusTone = null;
   elements.vmStatus.textContent = monitorDisabled
     ? `disabled (${monitor.disabled_reason})`
     : monitorStatus;
+  if (monitor.shutdown_triggered || monitor.status === "error") {
+    statusTone = "tone-error";
+  } else if (monitor.warning) {
+    statusTone = "tone-warn";
+  } else if (monitor.status === "running") {
+    statusTone = "tone-ok";
+  } else if (monitorDisabled || monitor.status === "disabled") {
+    statusTone = "tone-warn";
+  }
+  setMonitorTone(elements.vmStatus, statusTone);
+
   elements.vmUpdated.textContent = formatTimestamp(monitor.timestamp);
   elements.vmVin.textContent = monitor.vin_v !== null && monitor.vin_v !== undefined
     ? `${formatNumber(monitor.vin_v, 2)} V`
@@ -499,10 +521,13 @@ function updateFromTelemetry(snapshot) {
 
   if (monitor.shutdown_triggered) {
     elements.vmWarning.textContent = "Shutdown triggered: low input and low battery";
+    setMonitorTone(elements.vmWarning, "tone-error");
   } else if (monitor.last_error) {
     elements.vmWarning.textContent = `Error: ${monitor.last_error}`;
+    setMonitorTone(elements.vmWarning, "tone-error");
   } else {
     elements.vmWarning.textContent = monitor.warning || "--";
+    setMonitorTone(elements.vmWarning, monitor.warning ? "tone-warn" : null);
   }
 
   const sdLogging = snapshot.sd_logging || {};

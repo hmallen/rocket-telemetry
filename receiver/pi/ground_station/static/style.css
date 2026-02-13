@@ -253,6 +253,18 @@ h1 {
   color: var(--danger);
 }
 
+.tone-ok {
+  color: var(--accent-strong);
+}
+
+.tone-warn {
+  color: var(--warning);
+}
+
+.tone-error {
+  color: var(--danger);
+}
+
 main {
   padding: 0 6vw 56px;
   display: grid;
