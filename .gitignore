@@ -48,3 +48,4 @@ receiver/pi/ground_station/static/tiles/
 *.BIN
 LOG*
 **/*.FCBak
+**/__pycache__/
