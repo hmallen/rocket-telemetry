@@ -8,6 +8,7 @@ enum class LoraCommand : uint8_t {
   kNone = 0,
   kSdStart = 0x01,
   kSdStop = 0x02,
+  kBuzzer = 0x03,
 };
 
 class LoraLink {
@@ -20,7 +21,7 @@ public:
 
   bool ready() const;
   bool tx_enabled() const;
-  bool pop_command(LoraCommand& cmd);
+  bool pop_command(LoraCommand& cmd, uint8_t* arg = nullptr);
   void queue_command_ack(LoraCommand cmd, bool logging_enabled);
 
   // Cleartext telemetry payload (ASCII, human-decodable):
@@ -101,6 +102,7 @@ private:
   uint8_t tx_buf_[32] = {0};
   bool rx_active_ = false;
   uint8_t pending_cmd_ = 0;
+  uint8_t pending_cmd_arg_ = 0;
   bool ack_pending_ = false;
   uint32_t ack_retry_after_ms_ = 0;
   uint8_t ack_retries_left_ = 0;
