@@ -438,6 +438,28 @@ class TelemetryStore:
                 "filter": None,
                 "threshold_g": self._attitude.threshold_g,
             },
+            "recovery": {
+                "enabled": True,
+                "mode": "downlink",
+                "phase": "idle",
+                "launch_alt_m": None,
+                "altitude_agl_m": None,
+                "max_altitude_agl_m": None,
+                "vertical_speed_mps": None,
+                "drogue": {
+                    "deployed": False,
+                    "deploy_timestamp": None,
+                    "deploy_alt_agl_m": None,
+                    "reason": None,
+                },
+                "main": {
+                    "deployed": False,
+                    "deploy_timestamp": None,
+                    "deploy_alt_agl_m": None,
+                    "reason": None,
+                },
+                "rules": None,
+            },
         }
 
     def set_attitude_filter(self, mode):
@@ -562,6 +584,29 @@ class TelemetryStore:
                         "vbat_v": vbat_mv / 1000.0 if vbat_mv is not None else None,
                         "bat_state": bat_state,
                         "bat_state_label": BAT_STATE_LABELS.get(bat_state, "UNKNOWN"),
+                    })
+                elif payload_type == "recovery":
+                    self._state["recovery"].update({
+                        "enabled": True,
+                        "mode": "downlink",
+                        "phase": parsed.get("phase") or "unknown",
+                        "launch_alt_m": None,
+                        "altitude_agl_m": parsed.get("altitude_agl_m"),
+                        "max_altitude_agl_m": parsed.get("max_altitude_agl_m"),
+                        "vertical_speed_mps": parsed.get("vertical_speed_mps"),
+                        "drogue": {
+                            "deployed": bool(parsed.get("drogue_deployed")),
+                            "deploy_timestamp": None,
+                            "deploy_alt_agl_m": parsed.get("drogue_deploy_alt_agl_m"),
+                            "reason": "Flight computer trigger" if parsed.get("drogue_deployed") else None,
+                        },
+                        "main": {
+                            "deployed": bool(parsed.get("main_deployed")),
+                            "deploy_timestamp": None,
+                            "deploy_alt_agl_m": parsed.get("main_deploy_alt_agl_m"),
+                            "reason": "Flight computer trigger" if parsed.get("main_deployed") else None,
+                        },
+                        "rules": None,
                     })
                 elif payload_type == "cmd_ack":
                     self._state["sd_logging"].update({
