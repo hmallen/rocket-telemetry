@@ -97,6 +97,16 @@ constexpr uint32_t LORA_ALT_INTERVAL_MS = 200;
 constexpr uint32_t LORA_IMU_INTERVAL_MS = 200;
 constexpr uint32_t LORA_BAT_INTERVAL_MS = 1000;
 constexpr uint32_t LORA_NAVSAT_INTERVAL_MS = 2000;
+constexpr uint32_t LORA_RECOVERY_INTERVAL_MS = 500;
+
+// Recovery-state simulation runs on the rocket flight computer and is downlinked over LoRa.
+// Distances are in millimeters to match GNSS height units.
+constexpr int32_t RECOVERY_MIN_ASCENT_AGL_MM = 80000;           // 80 m AGL
+constexpr int32_t RECOVERY_APOGEE_DROP_MM = 12000;              // 12 m drop from peak
+constexpr int32_t RECOVERY_MAIN_DEPLOY_AGL_MM = 300000;         // 300 m AGL
+constexpr int32_t RECOVERY_MAIN_DROP_AFTER_DROGUE_MM = 30000;   // 30 m additional drop
+constexpr int32_t RECOVERY_DESCENT_CONFIRM_MM = 2000;            // 2 m drop confirms descent
+constexpr int32_t RECOVERY_LANDED_AGL_MM = 20000;               // 20 m AGL considered landed
 
 // Retries: bounded, with backoff; fail toward silence.
 constexpr uint8_t  LORA_RETRY_LIMIT = 2;
@@ -115,7 +125,7 @@ constexpr int32_t  LORA_LANDING_PRESS_STABLE_DELTA_PA_X10 = 50;
 constexpr int32_t  LORA_FLIGHT_PRESS_DELTA_PA_X10 = 5000;
 
 // TX is disabled by default on boot. Set to 1 only when intentional and supervised.
-#define LORA_TX_ENABLE_AT_BOOT 1
+#define LORA_TX_ENABLE_AT_BOOT 0
 
 // ---------- Build toggles ----------
 #define ENABLE_SD_LOGGER 1
