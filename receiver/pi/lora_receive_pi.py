@@ -192,6 +192,7 @@ CMD_MAGIC = 0xB1
 CMD_ACK = 0x10
 CMD_SD_START = 0x01
 CMD_SD_STOP = 0x02
+CMD_BUZZER = 0x03
 
 RECOVERY_PHASE_LABELS = {
     0: "idle",
@@ -483,6 +484,8 @@ def parse_payload(payload):
             cmd_label = "sd_start"
         elif cmd == CMD_SD_STOP:
             cmd_label = "sd_stop"
+        elif cmd == CMD_BUZZER:
+            cmd_label = "buzzer"
         else:
             cmd_label = "unknown"
         return {

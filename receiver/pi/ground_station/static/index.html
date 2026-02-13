@@ -46,6 +46,22 @@
           </div>
           <p class="control-status" id="sd-status">Idle</p>
         </div>
+        <div class="control-panel">
+          <span class="label">Buzzer</span>
+          <div class="control-buttons">
+            <div class="control-input">
+              <label for="buzzer-duration">Duration (s)</label>
+              <select id="buzzer-duration" class="control-select">
+                <option value="1">1</option>
+                <option value="5" selected>5</option>
+                <option value="10">10</option>
+                <option value="30">30</option>
+              </select>
+            </div>
+            <button class="control-button" id="buzzer-activate" type="button">Activate buzzer</button>
+          </div>
+          <p class="control-status" id="buzzer-status">Idle</p>
+        </div>
         <a class="ghost-button" href="/map-setup">Offline map setup</a>
       </div>
     </header>

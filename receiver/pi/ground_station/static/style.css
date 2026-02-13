@@ -177,6 +177,35 @@ h1 {
   gap: 8px;
 }
 
+.control-input {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 110px;
+}
+
+.control-input label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+}
+
+.control-select {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-family: "Space Grotesk", "Trebuchet MS", sans-serif;
+  font-size: 0.82rem;
+  color: var(--ink);
+  background: #fff;
+}
+
+.control-select:focus {
+  outline: 2px solid rgba(30, 111, 92, 0.25);
+  outline-offset: 1px;
+}
+
 .control-button {
   border: none;
   border-radius: 999px;

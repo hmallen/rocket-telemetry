@@ -53,6 +53,7 @@ RAD_TO_DEG = 180.0 / math.pi
 LORA_CMD_MAGIC = 0xB1
 LORA_CMD_SD_START = 0x01
 LORA_CMD_SD_STOP = 0x02
+LORA_CMD_BUZZER = 0x03
 LORA_CMD_REPEAT_COUNT = 3
 LORA_CMD_REPEAT_DELAY_S = 0.1
 
@@ -891,11 +892,19 @@ def lora_worker():
             pass
 
 
-def send_lora_command(action):
+def send_lora_command(action, duration_s=None):
     if action == "sd_start":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_START])
     elif action == "sd_stop":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_STOP])
+    elif action == "buzzer":
+        try:
+            duration = int(duration_s)
+        except (TypeError, ValueError):
+            return False, "Duration must be a number"
+        if duration not in (1, 5, 10, 30):
+            return False, "Duration must be one of 1, 5, 10, 30"
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_BUZZER, duration])
     else:
         return False, "Unknown command"
 
@@ -1009,7 +1018,8 @@ class GroundStationHandler(BaseHTTPRequestHandler):
         if path == "/api/command":
             payload = self._read_json() or {}
             action = payload.get("action")
-            ok, error = send_lora_command(action)
+            duration_s = payload.get("duration_s")
+            ok, error = send_lora_command(action, duration_s)
             if not ok:
                 return self._send_json({"ok": False, "error": error}, status=400)
             return self._send_json({"ok": True})

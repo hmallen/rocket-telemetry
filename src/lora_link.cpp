@@ -59,6 +59,7 @@ static constexpr uint8_t LORA_CMD_MAGIC = 0xB1;
 static constexpr uint8_t LORA_CMD_ACK = 0x10;
 static constexpr uint8_t LORA_CMD_SD_START = 0x01;
 static constexpr uint8_t LORA_CMD_SD_STOP = 0x02;
+static constexpr uint8_t LORA_CMD_BUZZER = 0x03;
 static constexpr uint16_t LORA_RX_DONE_FLAG = 0x40;
 static constexpr uint8_t LORA_ACK_REPEAT_COUNT = 3;
 static constexpr uint32_t LORA_ACK_REPEAT_MS = 400;
@@ -145,10 +146,14 @@ bool LoraLink::tx_enabled() const {
   return tx_enabled_;
 }
 
-bool LoraLink::pop_command(LoraCommand& cmd) {
+bool LoraLink::pop_command(LoraCommand& cmd, uint8_t* arg) {
   if (pending_cmd_ == 0) return false;
   cmd = static_cast<LoraCommand>(pending_cmd_);
+  if (arg != nullptr) {
+    *arg = pending_cmd_arg_;
+  }
   pending_cmd_ = 0;
+  pending_cmd_arg_ = 0;
   return true;
 }
 
@@ -769,11 +774,16 @@ bool LoraLink::handle_command_(const uint8_t* data, size_t len) {
   if (len < 2) return false;
   if (data[0] != LORA_CMD_MAGIC) return false;
   const uint8_t cmd = data[1];
-  if (cmd != LORA_CMD_SD_START && cmd != LORA_CMD_SD_STOP) return false;
+  if (cmd == LORA_CMD_BUZZER) {
+    if (len < 3) return false;
+  } else if (cmd != LORA_CMD_SD_START && cmd != LORA_CMD_SD_STOP) {
+    return false;
+  }
 #if DEBUG_MODE
   DBG_PRINTF("lora: cmd rx 0x%02X\n", cmd);
 #endif
   pending_cmd_ = cmd;
+  pending_cmd_arg_ = (cmd == LORA_CMD_BUZZER && len >= 3) ? data[2] : 0;
   return true;
 }
 
