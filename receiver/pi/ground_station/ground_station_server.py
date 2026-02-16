@@ -12,6 +12,22 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+try:
+    import adafruit_ssd1306
+    import board
+    import busio
+except Exception:  # pylint: disable=broad-except
+    adafruit_ssd1306 = None
+    board = None
+    busio = None
+
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except Exception:  # pylint: disable=broad-except
+    Image = None
+    ImageDraw = None
+    ImageFont = None
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
@@ -33,6 +49,15 @@ TILE_SOURCE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 TILE_USER_AGENT = "RocketTelemetryGroundStation/1.0"
 TILE_REQUEST_TIMEOUT = 10
 MAX_TILE_REQUEST = 50000
+
+OLED_WIDTH = 128
+OLED_HEIGHT = 32
+OLED_I2C_ADDR = 0x3C
+OLED_LINE_HEIGHT = 8
+OLED_CHARS_PER_LINE = OLED_WIDTH // 6
+OLED_UPDATE_INTERVAL_S = 0.5
+OLED_FONT_SIZE = 8
+OLED_FONT_PATH = Path(__file__).resolve().parent / "resources" / "slkscr.ttf"
 
 mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("text/javascript", ".js")
@@ -67,6 +92,142 @@ def _quat_to_euler(q0, q1, q2, q3):
     pitch = math.asin(_clamp(2.0 * (q0 * q2 - q3 * q1), -1.0, 1.0))
     yaw = math.atan2(2.0 * (q0 * q3 + q1 * q2), 1.0 - 2.0 * (q2 * q2 + q3 * q3))
     return roll * RAD_TO_DEG, pitch * RAD_TO_DEG, yaw * RAD_TO_DEG
+
+
+class OledStatusDisplay:
+    def __init__(self, width=OLED_WIDTH, height=OLED_HEIGHT, address=OLED_I2C_ADDR):
+        self._lock = threading.Lock()
+        self._enabled = False
+        self._display = None
+        self._i2c = None
+        self._font = None
+        self._disabled_reason = None
+        self._last_update_s = 0.0
+        self._update_interval_s = OLED_UPDATE_INTERVAL_S
+        self._chars_per_line = OLED_CHARS_PER_LINE
+        self._width = width
+        self._height = height
+
+        if "linux" not in sys.platform.lower():
+            self._disabled_reason = "Linux only"
+            return
+        if adafruit_ssd1306 is None or board is None or busio is None:
+            self._disabled_reason = "OLED dependencies missing"
+            return
+        if Image is None or ImageDraw is None or ImageFont is None:
+            self._disabled_reason = "Pillow not installed"
+            return
+
+        try:
+            self._i2c = busio.I2C(board.SCL, board.SDA)
+            self._display = adafruit_ssd1306.SSD1306_I2C(width, height, self._i2c, addr=address)
+            self._font = self._load_font()
+            self._display.fill(0)
+            self._display.show()
+            self._enabled = True
+            self._draw_lines(["Ground Station", "OLED ready", "Waiting data", ""])
+            print("OLED status display enabled")
+        except Exception as exc:  # pylint: disable=broad-except
+            self._disabled_reason = str(exc)
+            self._display = None
+            print("OLED status display disabled:", exc)
+
+    def _load_font(self):
+        if ImageFont is None:
+            return None
+        if OLED_FONT_PATH.exists():
+            try:
+                return ImageFont.truetype(str(OLED_FONT_PATH), OLED_FONT_SIZE)
+            except Exception as exc:  # pylint: disable=broad-except
+                print("OLED font load failed (%s): %s" % (OLED_FONT_PATH, exc))
+        else:
+            print("OLED font file not found at %s; falling back to default font" % OLED_FONT_PATH)
+
+        return ImageFont.load_default()
+
+    @staticmethod
+    def _fmt_voltage(value):
+        if value is None:
+            return "--"
+        return "%.2f" % value
+
+    def _build_lines(self, snapshot):
+        snapshot = snapshot or {}
+        radio = snapshot.get("radio") or {}
+        battery = snapshot.get("battery") or {}
+        monitor = snapshot.get("voltage_monitor") or {}
+        recovery = snapshot.get("recovery") or {}
+        gps = snapshot.get("gps") or {}
+
+        callsign = (snapshot.get("callsign") or "--")[:6]
+        packet_count = int(snapshot.get("packet_count") or 0)
+        rssi = radio.get("rssi_dbm")
+        rssi_text = "--" if rssi is None else "%d" % int(rssi)
+        line1 = "ID:%s P:%d R:%s" % (callsign, packet_count, rssi_text)
+
+        rocket_v = self._fmt_voltage(battery.get("vbat_v"))
+        rocket_state = (battery.get("bat_state_label") or "--")[:7]
+        line2 = "Rkt:%sV %s" % (rocket_v, rocket_state)
+
+        pi_batt_v = self._fmt_voltage(monitor.get("vbatt_v"))
+        pi_in_v = self._fmt_voltage(monitor.get("vin_v"))
+        line3 = "Pi:%sV In:%sV" % (pi_batt_v, pi_in_v)
+
+        if monitor.get("shutdown_triggered"):
+            line4 = "ALERT: PI SHUTDOWN"
+        elif monitor.get("last_error"):
+            line4 = "Err:%s" % monitor.get("last_error")
+        elif monitor.get("warning"):
+            line4 = "Warn:%s" % monitor.get("warning")
+        else:
+            phase = (recovery.get("phase") or "--")[:8]
+            altitude = recovery.get("altitude_agl_m")
+            if altitude is None:
+                altitude = gps.get("alt_m")
+            alt_text = "--" if altitude is None else "%dm" % int(round(altitude))
+            line4 = "Alt:%s Ph:%s" % (alt_text, phase)
+
+        return [line1, line2, line3, line4]
+
+    def _draw_lines(self, lines):
+        if not self._enabled or self._display is None:
+            return
+
+        image = Image.new("1", (self._width, self._height))
+        draw = ImageDraw.Draw(image)
+        for idx, line in enumerate(lines[:4]):
+            y = idx * OLED_LINE_HEIGHT
+            draw.text((0, y), (line or "")[:self._chars_per_line], font=self._font, fill=255)
+        self._display.image(image)
+        self._display.show()
+
+    def update(self, snapshot):
+        if not self._enabled:
+            return
+
+        now = time.time()
+        with self._lock:
+            if now - self._last_update_s < self._update_interval_s:
+                return
+            self._last_update_s = now
+            try:
+                self._draw_lines(self._build_lines(snapshot))
+            except Exception as exc:  # pylint: disable=broad-except
+                print("OLED update failed:", exc)
+
+    def stop(self):
+        if not self._enabled:
+            return
+        with self._lock:
+            try:
+                self._display.fill(0)
+                self._display.show()
+            except Exception:  # pylint: disable=broad-except
+                pass
+
+    @property
+    def disabled_reason(self):
+        return self._disabled_reason
 
 
 class ComplementaryFilter:
@@ -833,9 +994,13 @@ CLIENTS_LOCK = threading.Lock()
 STOP_EVENT = threading.Event()
 LORA_LOCK = threading.Lock()
 LORA_RADIO = {"radio": None}
+OLED_DISPLAY = None
 
 
 def broadcast(snapshot):
+    if OLED_DISPLAY is not None:
+        OLED_DISPLAY.update(snapshot)
+
     data = json.dumps({"state": snapshot})
     with CLIENTS_LOCK:
         for client in list(CLIENTS):
@@ -1151,10 +1316,16 @@ class GroundStationHandler(BaseHTTPRequestHandler):
 
 
 def main():
+    global OLED_DISPLAY
+
     if not STATIC_DIR.exists():
         raise SystemExit("Static assets not found at %s" % STATIC_DIR)
 
     TILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+    OLED_DISPLAY = OledStatusDisplay()
+    if OLED_DISPLAY.disabled_reason:
+        print("OLED status display unavailable:", OLED_DISPLAY.disabled_reason)
 
     voltage_monitor = lora_driver.start_voltage_monitor(on_sample=handle_voltage_monitor_update)
     server = None
@@ -1172,6 +1343,8 @@ def main():
         STOP_EVENT.set()
         if voltage_monitor is not None:
             voltage_monitor.stop()
+        if OLED_DISPLAY is not None:
+            OLED_DISPLAY.stop()
         if server is not None:
             server.shutdown()
             server.server_close()
