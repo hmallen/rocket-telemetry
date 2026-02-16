@@ -2,3 +2,4 @@ adafruit-circuitpython-rfm9x
 adafruit-blinka
 smbus2
 adafruit-circuitpython-ssd1306
+Pillow

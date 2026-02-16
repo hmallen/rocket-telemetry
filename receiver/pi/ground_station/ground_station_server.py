@@ -21,6 +21,13 @@ except Exception:  # pylint: disable=broad-except
     board = None
     busio = None
 
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except Exception:  # pylint: disable=broad-except
+    Image = None
+    ImageDraw = None
+    ImageFont = None
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
@@ -49,6 +56,8 @@ OLED_I2C_ADDR = 0x3C
 OLED_LINE_HEIGHT = 8
 OLED_CHARS_PER_LINE = OLED_WIDTH // 6
 OLED_UPDATE_INTERVAL_S = 0.5
+OLED_FONT_SIZE = 8
+OLED_FONT_PATH = Path(__file__).resolve().parent / "resources" / "slkscr.ttf"
 
 mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("text/javascript", ".js")
@@ -91,10 +100,13 @@ class OledStatusDisplay:
         self._enabled = False
         self._display = None
         self._i2c = None
+        self._font = None
         self._disabled_reason = None
         self._last_update_s = 0.0
         self._update_interval_s = OLED_UPDATE_INTERVAL_S
         self._chars_per_line = OLED_CHARS_PER_LINE
+        self._width = width
+        self._height = height
 
         if "linux" not in sys.platform.lower():
             self._disabled_reason = "Linux only"
@@ -102,10 +114,14 @@ class OledStatusDisplay:
         if adafruit_ssd1306 is None or board is None or busio is None:
             self._disabled_reason = "OLED dependencies missing"
             return
+        if Image is None or ImageDraw is None or ImageFont is None:
+            self._disabled_reason = "Pillow not installed"
+            return
 
         try:
             self._i2c = busio.I2C(board.SCL, board.SDA)
             self._display = adafruit_ssd1306.SSD1306_I2C(width, height, self._i2c, addr=address)
+            self._font = self._load_font()
             self._display.fill(0)
             self._display.show()
             self._enabled = True
@@ -115,6 +131,19 @@ class OledStatusDisplay:
             self._disabled_reason = str(exc)
             self._display = None
             print("OLED status display disabled:", exc)
+
+    def _load_font(self):
+        if ImageFont is None:
+            return None
+        if OLED_FONT_PATH.exists():
+            try:
+                return ImageFont.truetype(str(OLED_FONT_PATH), OLED_FONT_SIZE)
+            except Exception as exc:  # pylint: disable=broad-except
+                print("OLED font load failed (%s): %s" % (OLED_FONT_PATH, exc))
+        else:
+            print("OLED font file not found at %s; falling back to default font" % OLED_FONT_PATH)
+
+        return ImageFont.load_default()
 
     @staticmethod
     def _fmt_voltage(value):
@@ -164,10 +193,12 @@ class OledStatusDisplay:
         if not self._enabled or self._display is None:
             return
 
-        self._display.fill(0)
+        image = Image.new("1", (self._width, self._height))
+        draw = ImageDraw.Draw(image)
         for idx, line in enumerate(lines[:4]):
             y = idx * OLED_LINE_HEIGHT
-            self._display.text((line or "")[:self._chars_per_line], 0, y, 1)
+            draw.text((0, y), (line or "")[:self._chars_per_line], font=self._font, fill=255)
+        self._display.image(image)
         self._display.show()
 
     def update(self, snapshot):
