@@ -1246,8 +1246,7 @@ class GroundStationHandler(BaseHTTPRequestHandler):
 
         # FIX: Require authentication for command endpoints (not read-only telemetry SSE)
         if path == "/api/map/download":
-            if not self._check_auth():
-                return self._send_auth_error()
+            # No auth required — map tile downloads are a local convenience, not a rocket command.
             payload = self._read_json()
             ok, error = MAP_DOWNLOADS.start(payload)
             if not ok:
@@ -1255,8 +1254,7 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             return self._send_json({"ok": True})
 
         if path == "/api/map/cancel":
-            if not self._check_auth():
-                return self._send_auth_error()
+            # No auth required — cancelling a tile download is safe.
             MAP_DOWNLOADS.cancel()
             return self._send_json({"ok": True})
 
