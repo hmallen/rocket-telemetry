@@ -19,6 +19,9 @@ This is a first-pass firmware scaffold for the 3.2" ESP32 touchscreen companion 
   - `BUZZ 1s`
   - `BUZZ 5s`
   - `SD TOGGLE` (start/stop)
+- Alert strip + recent event history cues (phase/link/alert changes)
+- Command ack status text on footer
+- Quick touch calibration mode (tap top-left corner; exit via top-right)
 
 ## Directory
 

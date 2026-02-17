@@ -15,6 +15,8 @@ class Controller {
   void tick();
 
  private:
+  enum class UiMode { DASHBOARD, CALIBRATION };
+
   ApiClient api_;
   MainScreen screen_;
   CompanionState state_;
@@ -25,6 +27,11 @@ class Controller {
   uint32_t lastRxMs_ = 0;
   uint32_t lastReconnectAttemptMs_ = 0;
   uint32_t lastTouchMs_ = 0;
+  UiMode mode_ = UiMode::DASHBOARD;
+  String lastPhase_;
+  bool lastConnected_ = false;
+  bool lastStale_ = true;
+  String lastPrimaryAlert_;
 
   void updateStaleness();
   bool ensureConnected();

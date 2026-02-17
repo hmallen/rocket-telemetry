@@ -15,6 +15,9 @@ class MainScreen {
   MainScreen(TFT_eSPI& tft);
   void begin();
   void render(const CompanionState& state);
+  void renderCalibration(int rawX, int rawY, int mappedX, int mappedY, bool hasPoint);
+  void setCommandStatus(const String& msg, bool ok);
+  void pushAlert(const String& msg);
   const ButtonRects& buttons() const { return buttons_; }
 
  private:
@@ -23,6 +26,13 @@ class MainScreen {
   uint32_t lastRenderMs_ = 0;
   void drawHeader(const CompanionState& state);
   void drawPrimary(const CompanionState& state);
+  void drawAlertStrip(const CompanionState& state);
   void drawFooter(const CompanionState& state);
   void drawButtons(const CompanionState& state);
+
+  String cmdMsg_;
+  bool cmdOk_ = true;
+  uint32_t cmdTs_ = 0;
+  String alerts_[4];
+  int alertCount_ = 0;
 };

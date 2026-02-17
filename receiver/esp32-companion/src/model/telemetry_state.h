@@ -32,5 +32,6 @@ struct CompanionState {
   FlightState flight;
   AltState alt;
   BatteryState battery;
+  String primaryAlert;
   bool stale = true;
 };

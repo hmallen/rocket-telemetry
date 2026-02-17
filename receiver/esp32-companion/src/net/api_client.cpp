@@ -177,6 +177,13 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
   ioState.battery.vbatV = battery["vbat_v"].isNull() ? NAN : (float)battery["vbat_v"].as<float>();
   ioState.battery.label = String((const char*)(battery["bat_state_label"] | ""));
 
+  ioState.primaryAlert = "";
+  JsonArray alerts = state["alerts"].as<JsonArray>();
+  if (!alerts.isNull() && alerts.size() > 0) {
+    JsonObject a0 = alerts[0];
+    ioState.primaryAlert = String((const char*)(a0["message"] | ""));
+  }
+
   ioState.stale = false;
   return true;
 }

@@ -13,6 +13,12 @@ void Controller::begin() {
   if (api_.fetchInitialState(state_)) {
     lastRxMs_ = millis();
   }
+
+  lastPhase_ = state_.flight.phase;
+  lastConnected_ = state_.link.connected;
+  lastStale_ = state_.stale;
+  lastPrimaryAlert_ = state_.primaryAlert;
+
   sseConnected_ = api_.openEventStream();
 }
 
@@ -35,6 +41,15 @@ void Controller::updateStaleness() {
     state_.link.connected = false;
     state_.link.lastPacketAgeMs = static_cast<int>(age);
   }
+
+  if (state_.link.connected != lastConnected_) {
+    screen_.pushAlert(state_.link.connected ? "LINK RESTORED" : "LINK DOWN");
+    lastConnected_ = state_.link.connected;
+  }
+  if (state_.stale != lastStale_) {
+    screen_.pushAlert(state_.stale ? "LINK STALE" : "LINK LIVE");
+    lastStale_ = state_.stale;
+  }
 }
 
 void Controller::tick() {
@@ -44,12 +59,24 @@ void Controller::tick() {
     bool updated = api_.pollEventStream(state_);
     if (updated) {
       lastRxMs_ = millis();
+
+      if (state_.flight.phase != lastPhase_ && state_.flight.phase.length()) {
+        screen_.pushAlert("PHASE -> " + state_.flight.phase);
+        lastPhase_ = state_.flight.phase;
+      }
+
+      if (state_.primaryAlert.length() && state_.primaryAlert != lastPrimaryAlert_) {
+        screen_.pushAlert(state_.primaryAlert);
+        lastPrimaryAlert_ = state_.primaryAlert;
+      }
     }
   }
 
   handleTouch();
   updateStaleness();
-  screen_.render(state_);
+  if (mode_ == UiMode::DASHBOARD) {
+    screen_.render(state_);
+  }
 }
 
 bool Controller::inside(int x, int y, int bx, int by, int bw, int bh) {
@@ -74,16 +101,37 @@ void Controller::handleTouch() {
   int x = 0, y = 0;
   if (!mapTouchToScreen(p.x, p.y, x, y)) return;
 
+  if (mode_ == UiMode::CALIBRATION) {
+    screen_.renderCalibration(p.x, p.y, x, y, true);
+    if (x > 280 && y < 40) {
+      mode_ = UiMode::DASHBOARD;
+      lastTouchMs_ = now;
+    }
+    return;
+  }
+
+  // Enter calibration mode from top-left corner.
+  if (x < 40 && y < 40) {
+    mode_ = UiMode::CALIBRATION;
+    screen_.renderCalibration(p.x, p.y, x, y, true);
+    lastTouchMs_ = now;
+    return;
+  }
+
   const auto& b = screen_.buttons();
   bool sent = false;
 
   if (inside(x, y, b.buzz1X, b.buzz1Y, b.buzz1W, b.buzz1H)) {
     sent = api_.sendCommand("buzzer", 1);
+    screen_.setCommandStatus(sent ? "BUZZ 1s sent" : "BUZZ 1s failed", sent);
   } else if (inside(x, y, b.buzz5X, b.buzz5Y, b.buzz5W, b.buzz5H)) {
     sent = api_.sendCommand("buzzer", 5);
+    screen_.setCommandStatus(sent ? "BUZZ 5s sent" : "BUZZ 5s failed", sent);
   } else if (inside(x, y, b.sdX, b.sdY, b.sdW, b.sdH)) {
     sent = api_.sendCommand(sdLoggingEnabled_ ? "sd_stop" : "sd_start", 0);
     if (sent) sdLoggingEnabled_ = !sdLoggingEnabled_;
+    screen_.setCommandStatus(
+        sent ? (sdLoggingEnabled_ ? "SD start sent" : "SD stop sent") : "SD cmd failed", sent);
   }
 
   if (sent) {
