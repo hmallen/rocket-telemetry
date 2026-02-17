@@ -14,6 +14,9 @@ TFT_eSPI tft = TFT_eSPI();
 Controller* controller = nullptr;
 
 static void connectWifi() {
+  if (COMPANION_LINK_UART) {
+    return;
+  }
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
@@ -41,17 +44,21 @@ void setup() {
   pinMode(27, OUTPUT);
   digitalWrite(27, HIGH);
 
-  connectWifi();
+  if (!COMPANION_LINK_UART) {
+    connectWifi();
+  }
 
   controller = new Controller(tft, String(GS_HOST), static_cast<uint16_t>(GS_PORT));
   controller->begin();
 }
 
 void loop() {
-  if (WiFi.status() != WL_CONNECTED) {
-    connectWifi();
-    delay(300);
-    return;
+  if (!COMPANION_LINK_UART) {
+    if (WiFi.status() != WL_CONNECTED) {
+      connectWifi();
+      delay(300);
+      return;
+    }
   }
 
   if (controller != nullptr) {
