@@ -52,3 +52,6 @@ LOG*
 
 # Local ESP32 companion runtime config (contains Wi-Fi/token values)
 receiver/esp32-companion/include/config.h
+
+# Ground station local runtime env
+receiver/pi/ground_station/.env
