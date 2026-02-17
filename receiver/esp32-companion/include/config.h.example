@@ -1,0 +1,17 @@
+#pragma once
+
+// Copy this file to include/config.h and fill values.
+
+#define WIFI_SSID "YOUR_WIFI_SSID"
+#define WIFI_PASSWORD "YOUR_WIFI_PASSWORD"
+
+// Example: "192.168.1.200"
+#define GS_HOST "192.168.1.200"
+#define GS_PORT 8000
+
+// Optional auth token for /api/companion/cmd.
+// Keep empty if not configured on ground station.
+#define GS_AUTH_TOKEN ""
+
+// TLS is not used in this first-pass local-field setup.
+#define GS_USE_TLS 0
