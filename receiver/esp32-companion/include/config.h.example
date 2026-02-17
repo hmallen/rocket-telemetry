@@ -26,3 +26,6 @@
 #define TOUCH_X_MAX 3900
 #define TOUCH_Y_MIN 200
 #define TOUCH_Y_MAX 3900
+
+// Set to 1 if touch axes are rotated (X/Y swapped)
+#define TOUCH_SWAP_XY 0

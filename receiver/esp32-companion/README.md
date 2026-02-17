@@ -70,6 +70,7 @@ Start with the defaults in `config.h.example`, then calibrate and update:
 
 - `TOUCH_X_MIN`, `TOUCH_X_MAX`
 - `TOUCH_Y_MIN`, `TOUCH_Y_MAX`
+- `TOUCH_SWAP_XY` (set to `1` if X/Y are rotated/swapped)
 
 ## Next steps (Phase 4)
 

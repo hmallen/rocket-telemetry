@@ -85,6 +85,11 @@ bool Controller::inside(int x, int y, int bx, int by, int bw, int bh) {
 
 bool Controller::mapTouchToScreen(int rawX, int rawY, int& outX, int& outY) {
   if (TOUCH_X_MAX <= TOUCH_X_MIN || TOUCH_Y_MAX <= TOUCH_Y_MIN) return false;
+  if (TOUCH_SWAP_XY) {
+    int tmp = rawX;
+    rawX = rawY;
+    rawY = tmp;
+  }
   long sx = map(rawX, TOUCH_X_MIN, TOUCH_X_MAX, 0, 319);
   long sy = map(rawY, TOUCH_Y_MIN, TOUCH_Y_MAX, 0, 239);
   outX = constrain((int)sx, 0, 319);
