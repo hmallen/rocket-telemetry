@@ -13,6 +13,26 @@
 TFT_eSPI tft = TFT_eSPI();
 Controller* controller = nullptr;
 
+static void runDisplaySelfTest() {
+#if DISPLAY_TEST_SCREEN
+  tft.init();
+  tft.setRotation(1);
+
+  // RGB bars for quick visual verification.
+  tft.fillRect(0, 0, 106, 160, TFT_RED);
+  tft.fillRect(106, 0, 106, 160, TFT_GREEN);
+  tft.fillRect(212, 0, 108, 160, TFT_BLUE);
+
+  tft.fillRect(0, 160, 320, 80, TFT_BLACK);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.setTextFont(2);
+  tft.drawString("ESP32 Companion Display Test", 8, 172);
+  tft.drawString("If you can read this, LCD+BL are OK", 8, 194);
+
+  delay(2000);
+#endif
+}
+
 static void connectWifi() {
   if (COMPANION_LINK_UART) {
     return;
@@ -43,6 +63,8 @@ void setup() {
   // LCDWiki E32R32P/E32N32P backlight control (IO27): high = backlight on.
   pinMode(27, OUTPUT);
   digitalWrite(27, HIGH);
+
+  runDisplaySelfTest();
 
   if (!COMPANION_LINK_UART) {
     connectWifi();

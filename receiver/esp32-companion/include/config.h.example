@@ -41,3 +41,6 @@
 
 // Set to 1 if touch axes are rotated (X/Y swapped)
 #define TOUCH_SWAP_XY 0
+
+// Set to 1 to show a quick LCD bring-up test (RGB + text) at boot.
+#define DISPLAY_TEST_SCREEN 1
