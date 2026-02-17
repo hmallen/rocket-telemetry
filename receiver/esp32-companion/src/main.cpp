@@ -37,6 +37,10 @@ void setup() {
   Serial.begin(115200);
   delay(100);
 
+  // LCDWiki E32R32P/E32N32P backlight control (IO27): high = backlight on.
+  pinMode(27, OUTPUT);
+  digitalWrite(27, HIGH);
+
   connectWifi();
 
   controller = new Controller(tft, String(GS_HOST), static_cast<uint16_t>(GS_PORT));

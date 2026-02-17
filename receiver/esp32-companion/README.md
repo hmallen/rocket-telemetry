@@ -65,8 +65,10 @@ pio device monitor
 
 ## TFT_eSPI note
 
-This scaffold uses `TFT_eSPI`. You must configure your panel in TFT_eSPI's setup
-(User_Setup or User_Setup_Select) to match your hardware wiring (ST7789, pins, rotation).
+This scaffold uses `TFT_eSPI` with build-time pin definitions for the LCDWiki
+E32R32P/E32N32P board (ST7789, BL on IO27, touch CS on IO33).
+
+If your board revision differs, override pins in `platformio.ini` build flags.
 
 ## Touch note
 
@@ -80,6 +82,9 @@ Start with the defaults in `config.h.example`, then calibrate and update:
 ## UART mode
 
 Set `COMPANION_LINK_UART` to `1` in `config.h` to use direct UART instead of Wi-Fi.
+
+Default UART pins in `config.h.example` are set to the board's exposed UART header
+(`RXD0=IO3`, `TXD0=IO1`).
 
 See `UART_PROTOCOL.md` for frame format and Pi-ground-station integration notes.
 

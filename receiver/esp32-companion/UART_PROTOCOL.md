@@ -14,6 +14,10 @@ Pi note:
 - Use the Pi UART on GPIO14/15 (`/dev/serial0` preferred).
 - Disable Linux serial console on that UART if needed, so your app has exclusive access.
 
+ESP32 board note (LCDWiki E32R32P/E32N32P):
+- The exposed UART header is tied to ESP32 UART0 (`RXD0=IO3`, `TXD0=IO1`) per LCDWiki docs.
+- GPIO numbers are ESP32 GPIO IDs (not Raspberry Pi BCM numbering).
+
 ## Frame format
 
 ```text

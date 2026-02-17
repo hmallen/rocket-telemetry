@@ -23,8 +23,10 @@
 
 // UART link settings (used when COMPANION_LINK_UART=1)
 #define UART_BAUD 115200
-#define UART_RX_PIN 16
-#define UART_TX_PIN 17
+// LCDWiki E32R32P UART header is wired to ESP32 UART0: RXD0(IO3), TXD0(IO1)
+// (per LCDWiki pin assignment table).
+#define UART_RX_PIN 3
+#define UART_TX_PIN 1
 
 // XPT2046 touch controller pins (adjust to your wiring)
 #define TOUCH_CS_PIN 33
