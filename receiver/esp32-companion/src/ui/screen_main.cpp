@@ -19,6 +19,7 @@ void MainScreen::render(const CompanionState& state) {
   tft_.fillScreen(TFT_BLACK);
   drawHeader(state);
   drawPrimary(state);
+  drawButtons(state);
   drawFooter(state);
 }
 
@@ -64,4 +65,20 @@ void MainScreen::drawFooter(const CompanionState& state) {
   tft_.drawString("VBAT " + batt + "V", 140, 219);
 
   tft_.drawString("PKT " + String(state.flight.packetCount), 245, 219);
+}
+
+void MainScreen::drawButtons(const CompanionState& state) {
+  (void)state;
+  tft_.setTextFont(2);
+  tft_.setTextColor(TFT_BLACK, TFT_ORANGE);
+
+  tft_.fillRoundRect(buttons_.buzz1X, buttons_.buzz1Y, buttons_.buzz1W, buttons_.buzz1H, 4, TFT_ORANGE);
+  tft_.drawCentreString("BUZZ 1s", buttons_.buzz1X + buttons_.buzz1W / 2, buttons_.buzz1Y + 6, 2);
+
+  tft_.fillRoundRect(buttons_.buzz5X, buttons_.buzz5Y, buttons_.buzz5W, buttons_.buzz5H, 4, TFT_ORANGE);
+  tft_.drawCentreString("BUZZ 5s", buttons_.buzz5X + buttons_.buzz5W / 2, buttons_.buzz5Y + 6, 2);
+
+  tft_.setTextColor(TFT_BLACK, TFT_CYAN);
+  tft_.fillRoundRect(buttons_.sdX, buttons_.sdY, buttons_.sdW, buttons_.sdH, 4, TFT_CYAN);
+  tft_.drawCentreString("SD TOGGLE", buttons_.sdX + buttons_.sdW / 2, buttons_.sdY + 6, 2);
 }

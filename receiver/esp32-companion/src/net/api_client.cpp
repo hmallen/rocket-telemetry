@@ -3,6 +3,8 @@
 #include <ArduinoJson.h>
 #include <HTTPClient.h>
 
+#include "config.h"
+
 ApiClient::ApiClient(const String& host, uint16_t port) : host_(host), port_(port) {}
 
 bool ApiClient::fetchInitialState(CompanionState& outState) {
@@ -119,6 +121,31 @@ void ApiClient::closeEventStream() {
 }
 
 void ApiClient::markLastRx() { lastRxMs_ = millis(); }
+
+bool ApiClient::sendCommand(const String& action, int durationS) {
+  HTTPClient http;
+  String url = "http://" + host_ + ":" + String(port_) + "/api/companion/cmd";
+  if (!http.begin(url)) {
+    return false;
+  }
+
+  http.addHeader("Content-Type", "application/json");
+  if (strlen(GS_AUTH_TOKEN) > 0) {
+    http.addHeader("Authorization", "Bearer " + String(GS_AUTH_TOKEN));
+  }
+
+  JsonDocument doc;
+  doc["action"] = action;
+  if (action == "buzzer") {
+    doc["duration_s"] = durationS;
+  }
+
+  String body;
+  serializeJson(doc, body);
+  int code = http.POST(body);
+  http.end();
+  return code == 200;
+}
 
 bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioState) {
   JsonDocument doc;

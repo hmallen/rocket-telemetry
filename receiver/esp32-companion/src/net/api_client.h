@@ -12,6 +12,7 @@ class ApiClient {
   bool openEventStream();
   bool pollEventStream(CompanionState& ioState);
   void closeEventStream();
+  bool sendCommand(const String& action, int durationS = 0);
 
  private:
   bool applyStateJson(const String& jsonPayload, CompanionState& ioState);

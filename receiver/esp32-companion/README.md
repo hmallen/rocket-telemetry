@@ -15,6 +15,10 @@ This is a first-pass firmware scaffold for the 3.2" ESP32 touchscreen companion 
   - Vertical speed
   - Callsign, battery, packet count
 - Stale-link watchdog (marks link stale after 3s)
+- Touch command buttons (XPT2046):
+  - `BUZZ 1s`
+  - `BUZZ 5s`
+  - `SD TOGGLE` (start/stop)
 
 ## Directory
 
@@ -40,6 +44,8 @@ cp include/config.h.example include/config.h
 2. Edit `include/config.h` with:
 - Wi-Fi SSID/password
 - Pi host/IP and port (ground station)
+- Touch pins and calibration bounds
+- `GS_AUTH_TOKEN` (required if companion command endpoint is protected)
 
 3. Install/build/upload with PlatformIO:
 
@@ -54,10 +60,16 @@ pio device monitor
 This scaffold uses `TFT_eSPI`. You must configure your panel in TFT_eSPI's setup
 (User_Setup or User_Setup_Select) to match your hardware wiring (ST7789, pins, rotation).
 
-## Next steps (Phase 3)
+## Touch note
 
-- Add touch handling (XPT2046)
-- Add command buttons to call `POST /api/companion/cmd`
+Touch uses XPT2046. Raw touch calibration differs by panel orientation and wiring.
+Start with the defaults in `config.h.example`, then calibrate and update:
+
+- `TOUCH_X_MIN`, `TOUCH_X_MAX`
+- `TOUCH_Y_MIN`, `TOUCH_Y_MAX`
+
+## Next steps (Phase 4)
+
 - Add alert panel and event history
 - Add screen brightness control + night mode
 - Optional: migrate UI to LVGL for richer widgets

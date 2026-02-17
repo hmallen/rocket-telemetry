@@ -15,3 +15,14 @@
 
 // TLS is not used in this first-pass local-field setup.
 #define GS_USE_TLS 0
+
+// XPT2046 touch controller pins (adjust to your wiring)
+#define TOUCH_CS_PIN 33
+#define TOUCH_IRQ_PIN 36
+
+// Touch calibration bounds (raw ADC values from your panel)
+// Update after calibration for accurate button taps.
+#define TOUCH_X_MIN 200
+#define TOUCH_X_MAX 3900
+#define TOUCH_Y_MIN 200
+#define TOUCH_Y_MAX 3900

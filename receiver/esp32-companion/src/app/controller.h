@@ -2,6 +2,7 @@
 
 #include <Arduino.h>
 #include <TFT_eSPI.h>
+#include <XPT2046_Touchscreen.h>
 
 #include "../model/telemetry_state.h"
 #include "../net/api_client.h"
@@ -17,11 +18,17 @@ class Controller {
   ApiClient api_;
   MainScreen screen_;
   CompanionState state_;
+  XPT2046_Touchscreen touch_;
+  bool sdLoggingEnabled_ = false;
 
   bool sseConnected_ = false;
   uint32_t lastRxMs_ = 0;
   uint32_t lastReconnectAttemptMs_ = 0;
+  uint32_t lastTouchMs_ = 0;
 
   void updateStaleness();
   bool ensureConnected();
+  void handleTouch();
+  bool inside(int x, int y, int bx, int by, int bw, int bh);
+  bool mapTouchToScreen(int rawX, int rawY, int& outX, int& outY);
 };
