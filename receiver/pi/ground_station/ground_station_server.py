@@ -45,6 +45,7 @@ AUTH_TOKEN = os.environ.get("GS_AUTH_TOKEN", "CHANGE_ME_BEFORE_FLIGHT")
 COMPANION_UART_ENABLED = os.environ.get("GS_COMPANION_UART", "0") in ("1", "true", "TRUE", "yes")
 COMPANION_UART_PORT = os.environ.get("GS_COMPANION_UART_PORT", "/dev/serial0")
 COMPANION_UART_BAUD = int(os.environ.get("GS_COMPANION_UART_BAUD", "115200"))
+COMPANION_UART_DEBUG = os.environ.get("GS_COMPANION_UART_DEBUG", "0") in ("1", "true", "TRUE", "yes")
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 TILE_CACHE_DIR = STATIC_DIR / "tiles"
@@ -972,6 +973,10 @@ class CompanionUartBridge:
         self._rx_thread = None
         self._running = False
         self._tx_seq = 0
+        self._tx_frames = 0
+        self._rx_frames = 0
+        self._crc_fail = 0
+        self._last_dbg = time.time()
 
     @staticmethod
     def _crc16_ccitt(data):
@@ -1068,8 +1073,10 @@ class CompanionUartBridge:
         with self._lock:
             try:
                 self._ser.write(frame)
+                self._tx_frames += 1
             except Exception:  # pylint: disable=broad-except
                 pass
+        self._debug_tick()
 
     def _send_cmd_ack(self, cmd, ok, err=0):
         if self._ser is None:
@@ -1083,6 +1090,8 @@ class CompanionUartBridge:
                 pass
 
     def _handle_cmd(self, cmd, arg):
+        if COMPANION_UART_DEBUG:
+            print(f"Companion UART cmd rx: cmd={cmd} arg={arg}")
         if cmd == self.CMD_SD_START:
             ok, error = send_lora_command("sd_start")
         elif cmd == self.CMD_SD_STOP:
@@ -1132,11 +1141,27 @@ class CompanionUartBridge:
 
                 del buf[:frame_len]
                 if ver != self.VER or crc_rx != crc_calc:
+                    self._crc_fail += 1
                     continue
+
+                self._rx_frames += 1
 
                 if msg_type == self.MSG_CMD and payload_len >= 2:
                     cmd, arg = struct.unpack_from("<BB", payload, 0)
                     self._handle_cmd(cmd, arg)
+                self._debug_tick()
+
+    def _debug_tick(self):
+        if not COMPANION_UART_DEBUG:
+            return
+        now = time.time()
+        if now - self._last_dbg < 2.0:
+            return
+        print(
+            "Companion UART stats: tx_frames=%d rx_frames=%d crc_fail=%d"
+            % (self._tx_frames, self._rx_frames, self._crc_fail)
+        )
+        self._last_dbg = now
 
 
 def broadcast(snapshot):

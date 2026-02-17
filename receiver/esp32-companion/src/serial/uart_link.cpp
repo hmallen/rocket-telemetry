@@ -3,6 +3,8 @@
 #include <math.h>
 #include <string.h>
 
+#include "config.h"
+
 using namespace companion_proto;
 
 UartLink::UartLink(HardwareSerial& serial, uint32_t baud, int rxPin, int txPin)
@@ -43,18 +45,22 @@ bool UartLink::poll(CompanionState& ioState) {
       memcpy(&t, frame.payload, sizeof(TelemetryV1));
       applyTelemetry(t, ioState);
       updated = true;
+      rxFrames_++;
     } else if (frame.type == MSG_ALERT_EVENT && frame.len >= sizeof(AlertV1)) {
       AlertV1 a{};
       memcpy(&a, frame.payload, sizeof(AlertV1));
       ioState.primaryAlert = "ALERT " + String(a.code);
       updated = true;
+      rxFrames_++;
     } else if (frame.type == MSG_CMD_ACK && frame.len >= sizeof(CmdAckV1)) {
       CmdAckV1 ack{};
       memcpy(&ack, frame.payload, sizeof(CmdAckV1));
       ioState.primaryAlert = ack.ok ? "CMD OK" : "CMD FAIL";
       updated = true;
+      rxFrames_++;
     }
   }
+  debugTick();
   return updated;
 }
 
@@ -83,5 +89,17 @@ bool UartLink::sendCommand(const String& action, int durationS) {
   uint8_t out[2 + 1 + 1 + 2 + 2 + MAX_PAYLOAD + 2];
   size_t n = encodeFrame(f, out, sizeof(out));
   if (n == 0) return false;
-  return serial_.write(out, n) == n;
+  bool ok = serial_.write(out, n) == n;
+  if (ok) txFrames_++;
+  debugTick();
+  return ok;
+}
+
+void UartLink::debugTick() {
+#if COMPANION_UART_DEBUG
+  uint32_t now = millis();
+  if (now - lastDbgMs_ < 2000) return;
+  Serial.printf("[UART] rx_frames=%lu tx_frames=%lu\n", (unsigned long)rxFrames_, (unsigned long)txFrames_);
+  lastDbgMs_ = now;
+#endif
 }

@@ -28,6 +28,9 @@
 #define UART_RX_PIN 3
 #define UART_TX_PIN 1
 
+// Set to 1 for periodic UART debug logs on USB serial monitor.
+#define COMPANION_UART_DEBUG 0
+
 // XPT2046 touch controller pins (adjust to your wiring)
 #define TOUCH_CS_PIN 33
 #define TOUCH_IRQ_PIN 36

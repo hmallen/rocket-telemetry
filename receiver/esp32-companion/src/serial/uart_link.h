@@ -21,6 +21,10 @@ class UartLink {
   int txPin_;
   uint16_t txSeq_ = 0;
   companion_proto::FrameParser parser_;
+  uint32_t rxFrames_ = 0;
+  uint32_t txFrames_ = 0;
+  uint32_t lastDbgMs_ = 0;
 
   void applyTelemetry(const companion_proto::TelemetryV1& t, CompanionState& ioState);
+  void debugTick();
 };
