@@ -999,10 +999,105 @@ TELEMETRY = TelemetryStore()
 MAP_DOWNLOADS = MapDownloadManager()
 CLIENTS = []
 CLIENTS_LOCK = threading.Lock()
+COMPANION_CLIENTS = []
+COMPANION_CLIENTS_LOCK = threading.Lock()
+COMPANION_SEQ = 0
+COMPANION_SEQ_LOCK = threading.Lock()
 STOP_EVENT = threading.Event()
 LORA_LOCK = threading.Lock()
 LORA_RADIO = {"radio": None}
 OLED_DISPLAY = None
+
+
+def _next_companion_seq():
+    global COMPANION_SEQ
+    with COMPANION_SEQ_LOCK:
+        COMPANION_SEQ += 1
+        return COMPANION_SEQ
+
+
+def _build_companion_state(snapshot, seq=None):
+    now = time.time()
+    ts = snapshot.get("timestamp")
+    age_s = (now - ts) if isinstance(ts, (int, float)) else None
+    age_ms = int(age_s * 1000) if age_s is not None else None
+
+    radio = snapshot.get("radio", {})
+    recovery = snapshot.get("recovery", {})
+    gps = snapshot.get("gps", {})
+    navsat = snapshot.get("navsat", {})
+    imu = snapshot.get("imu", {})
+    alt = snapshot.get("alt", {})
+    battery = snapshot.get("battery", {})
+    attitude = snapshot.get("attitude", {})
+
+    connected = age_s is not None and age_s <= 2.0
+    phase = recovery.get("phase") or "unknown"
+
+    alerts = []
+    if age_s is None or age_s > 5.0:
+        alerts.append({"level": "critical", "code": "LINK_LOST", "message": "Telemetry link lost"})
+    elif age_s > 2.0:
+        alerts.append({"level": "warning", "code": "LINK_STALE", "message": "Telemetry stale"})
+
+    if battery.get("vbat_v") is not None and battery.get("vbat_v") < 3.5:
+        alerts.append({"level": "warning", "code": "LOW_BATTERY", "message": "Rocket battery low"})
+
+    return {
+        "ts": now,
+        "seq": seq,
+        "link": {
+            "connected": connected,
+            "rssi": radio.get("rssi_dbm"),
+            "snr": radio.get("snr_db"),
+            "crc_ok": radio.get("crc_ok"),
+            "last_packet_age_ms": age_ms,
+        },
+        "flight": {
+            "phase": phase,
+            "packet_count": snapshot.get("packet_count"),
+            "callsign": snapshot.get("callsign"),
+        },
+        "gps": {
+            "lat_deg": gps.get("lat_deg"),
+            "lon_deg": gps.get("lon_deg"),
+            "alt_m": gps.get("alt_m"),
+            "svs_used": navsat.get("svs_used"),
+            "svs_total": navsat.get("svs_total"),
+        },
+        "alt": {
+            "press_kpa": alt.get("press_kpa"),
+            "temp_c": alt.get("temp_c"),
+        },
+        "imu": {
+            "ax_g": imu.get("ax_g"),
+            "ay_g": imu.get("ay_g"),
+            "az_g": imu.get("az_g"),
+            "gx_dps": imu.get("gx_dps"),
+            "gy_dps": imu.get("gy_dps"),
+            "gz_dps": imu.get("gz_dps"),
+        },
+        "attitude": {
+            "roll": attitude.get("roll"),
+            "pitch": attitude.get("pitch"),
+            "yaw": attitude.get("yaw"),
+            "filter": attitude.get("filter"),
+        },
+        "battery": {
+            "vbat_v": battery.get("vbat_v"),
+            "bat_state_label": battery.get("bat_state_label"),
+        },
+        "recovery": {
+            "enabled": recovery.get("enabled"),
+            "phase": recovery.get("phase"),
+            "altitude_agl_m": recovery.get("altitude_agl_m"),
+            "max_altitude_agl_m": recovery.get("max_altitude_agl_m"),
+            "vertical_speed_mps": recovery.get("vertical_speed_mps"),
+            "drogue": {"deployed": recovery.get("drogue", {}).get("deployed")},
+            "main": {"deployed": recovery.get("main", {}).get("deployed")},
+        },
+        "alerts": alerts,
+    }
 
 
 def broadcast(snapshot):
@@ -1021,6 +1116,24 @@ def broadcast(snapshot):
                     pass
                 try:
                     client.put_nowait(data)
+                except queue.Full:
+                    pass
+
+    # Companion stream: lightweight, ESP32-friendly state payload
+    seq = _next_companion_seq()
+    companion_state = _build_companion_state(snapshot, seq=seq)
+    companion_data = json.dumps({"event": "telemetry", "state": companion_state})
+    with COMPANION_CLIENTS_LOCK:
+        for client in list(COMPANION_CLIENTS):
+            try:
+                client.put_nowait(companion_data)
+            except queue.Full:
+                try:
+                    client.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    client.put_nowait(companion_data)
                 except queue.Full:
                     pass
 
@@ -1218,6 +1331,11 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             return self._serve_static("map-setup.js")
         if path == "/api/state":
             return self._send_json({"state": TELEMETRY.snapshot()})
+        if path == "/api/companion/state":
+            seq = _next_companion_seq()
+            return self._send_json({"state": _build_companion_state(TELEMETRY.snapshot(), seq=seq)})
+        if path == "/api/companion/events":
+            return self._serve_companion_events()
         if path == "/api/map/status":
             return self._send_json({"status": MAP_DOWNLOADS.snapshot()})
         if path == "/api/attitude/filters":
@@ -1290,6 +1408,17 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             })
 
         if path == "/api/command":
+            if not self._check_auth():
+                return self._send_auth_error()
+            payload = self._read_json() or {}
+            action = payload.get("action")
+            duration_s = payload.get("duration_s")
+            ok, error = send_lora_command(action, duration_s)
+            if not ok:
+                return self._send_json({"ok": False, "error": error}, status=400)
+            return self._send_json({"ok": True})
+
+        if path == "/api/companion/cmd":
             if not self._check_auth():
                 return self._send_auth_error()
             payload = self._read_json() or {}
@@ -1395,6 +1524,44 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             with CLIENTS_LOCK:
                 if client_queue in CLIENTS:
                     CLIENTS.remove(client_queue)
+
+    def _serve_companion_events(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+        client_queue = queue.Queue(maxsize=1)
+        with COMPANION_CLIENTS_LOCK:
+            COMPANION_CLIENTS.append(client_queue)
+
+        try:
+            seq = _next_companion_seq()
+            state = _build_companion_state(TELEMETRY.snapshot(), seq=seq)
+            self.wfile.write(f"event: telemetry\ndata: {json.dumps({'event': 'telemetry', 'state': state})}\n\n".encode("utf-8"))
+            self.wfile.flush()
+
+            last_keepalive = time.time()
+            while True:
+                try:
+                    data = client_queue.get(timeout=1.0)
+                except queue.Empty:
+                    if time.time() - last_keepalive >= 1.0:
+                        hb = {"event": "hb", "ts": time.time()}
+                        self.wfile.write(f"event: hb\ndata: {json.dumps(hb)}\n\n".encode("utf-8"))
+                        self.wfile.flush()
+                        last_keepalive = time.time()
+                    continue
+
+                self.wfile.write(f"event: telemetry\ndata: {data}\n\n".encode("utf-8"))
+                self.wfile.flush()
+        except Exception:  # pylint: disable=broad-except
+            pass
+        finally:
+            with COMPANION_CLIENTS_LOCK:
+                if client_queue in COMPANION_CLIENTS:
+                    COMPANION_CLIENTS.remove(client_queue)
 
     def log_message(self, fmt, *args):  # pylint: disable=arguments-differ
         print("%s - - [%s] %s" % (self.client_address[0], self.log_date_time_string(), fmt % args))
