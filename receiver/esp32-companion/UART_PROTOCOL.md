@@ -59,5 +59,4 @@ Run a small UART bridge process on the Pi that:
 3. Executes command actions in ground-station code (`buzzer`, `sd_start`, `sd_stop`)
 4. Replies with `MSG_CMD_ACK`
 
-If you still want a direct Teensy↔ESP32 mode later, the Teensy helper skeleton files
-(`src/companion_uart.*`) remain available as an optional path.
+This repository now treats UART companion mode as **Pi ground station ↔ ESP32**.

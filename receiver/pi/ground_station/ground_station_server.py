@@ -2,7 +2,9 @@ import copy
 import json
 import math
 import mimetypes
+import os
 import queue
+import struct
 import sys
 import threading
 import time
@@ -28,6 +30,11 @@ except Exception:  # pylint: disable=broad-except
     ImageDraw = None
     ImageFont = None
 
+try:
+    import serial  # pyserial
+except Exception:  # pylint: disable=broad-except
+    serial = None
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
@@ -48,8 +55,12 @@ PORT = 8000
 # FIX: Simple shared-secret authentication for command endpoints.
 # Set to None to disable auth (not recommended if HOST="0.0.0.0").
 # Generate a secure token with: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-import os
 AUTH_TOKEN = os.environ.get("GS_AUTH_TOKEN", "CHANGE_ME_BEFORE_FLIGHT")
+
+# Optional direct UART bridge for ESP32 companion display (Pi <-> ESP32).
+COMPANION_UART_ENABLED = os.environ.get("GS_COMPANION_UART", "0") in ("1", "true", "TRUE", "yes")
+COMPANION_UART_PORT = os.environ.get("GS_COMPANION_UART_PORT", "/dev/serial0")
+COMPANION_UART_BAUD = int(os.environ.get("GS_COMPANION_UART_BAUD", "115200"))
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 TILE_CACHE_DIR = STATIC_DIR / "tiles"
@@ -1007,6 +1018,7 @@ STOP_EVENT = threading.Event()
 LORA_LOCK = threading.Lock()
 LORA_RADIO = {"radio": None}
 OLED_DISPLAY = None
+COMPANION_UART_BRIDGE = None
 
 
 def _next_companion_seq():
@@ -1100,6 +1112,195 @@ def _build_companion_state(snapshot, seq=None):
     }
 
 
+class CompanionUartBridge:
+    SOF1 = 0xA5
+    SOF2 = 0x5A
+    VER = 0x01
+    MSG_TELEM_SNAPSHOT = 0x01
+    MSG_ALERT_EVENT = 0x02
+    MSG_HEARTBEAT = 0x03
+    MSG_CMD = 0x10
+    MSG_CMD_ACK = 0x11
+
+    CMD_SD_START = 0x01
+    CMD_SD_STOP = 0x02
+    CMD_BUZZER = 0x03
+
+    def __init__(self, port, baud):
+        self._port = port
+        self._baud = baud
+        self._ser = None
+        self._lock = threading.Lock()
+        self._rx_thread = None
+        self._running = False
+        self._tx_seq = 0
+
+    @staticmethod
+    def _crc16_ccitt(data):
+        crc = 0xFFFF
+        for byte in data:
+            crc ^= (byte << 8)
+            for _ in range(8):
+                if crc & 0x8000:
+                    crc = ((crc << 1) ^ 0x1021) & 0xFFFF
+                else:
+                    crc = (crc << 1) & 0xFFFF
+        return crc
+
+    def start(self):
+        if serial is None:
+            print("Companion UART disabled: pyserial not installed")
+            return False
+        try:
+            self._ser = serial.Serial(self._port, self._baud, timeout=0.05)
+        except Exception as exc:  # pylint: disable=broad-except
+            print(f"Companion UART disabled: open failed ({self._port} @ {self._baud}): {exc}")
+            return False
+
+        self._running = True
+        self._rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
+        self._rx_thread.start()
+        print(f"Companion UART enabled on {self._port} @ {self._baud}")
+        return True
+
+    def stop(self):
+        self._running = False
+        if self._rx_thread is not None:
+            self._rx_thread.join(timeout=1.0)
+        if self._ser is not None:
+            try:
+                self._ser.close()
+            except Exception:  # pylint: disable=broad-except
+                pass
+        self._ser = None
+
+    def _encode_frame(self, msg_type, payload):
+        seq = self._tx_seq & 0xFFFF
+        self._tx_seq = (self._tx_seq + 1) & 0xFFFF
+        header = struct.pack("<BBBBHH", self.SOF1, self.SOF2, self.VER, msg_type, seq, len(payload))
+        crc_input = struct.pack("<BBHH", self.VER, msg_type, seq, len(payload)) + payload
+        crc = self._crc16_ccitt(crc_input)
+        return header + payload + struct.pack("<H", crc)
+
+    def _phase_to_code(self, phase):
+        phase = (phase or "").lower()
+        mapping = {"idle": 0, "pad": 1, "boost": 2, "coast": 3, "descent": 4, "landed": 5}
+        return mapping.get(phase, 0)
+
+    def send_companion_state(self, state):
+        if self._ser is None:
+            return
+        recovery = state.get("recovery", {})
+        link = state.get("link", {})
+        gps = state.get("gps", {})
+        battery = state.get("battery", {})
+        flight = state.get("flight", {})
+
+        lat_deg = gps.get("lat_deg")
+        lon_deg = gps.get("lon_deg")
+        alt_m = gps.get("alt_m")
+        altitude_agl_m = recovery.get("altitude_agl_m")
+        if altitude_agl_m is None:
+            altitude_agl_m = alt_m
+
+        phase_code = self._phase_to_code(flight.get("phase"))
+        flags = 0
+        if link.get("connected"):
+            flags |= 0x01
+        if recovery.get("drogue", {}).get("deployed"):
+            flags |= 0x02
+        if recovery.get("main", {}).get("deployed"):
+            flags |= 0x04
+
+        payload = struct.pack(
+            "<IiiihhbBHHB",
+            int((state.get("ts") or time.time()) * 1000) & 0xFFFFFFFF,
+            int((lat_deg or 0.0) * 1e7),
+            int((lon_deg or 0.0) * 1e7),
+            int((altitude_agl_m or 0.0) * 1000),
+            int((recovery.get("vertical_speed_mps") or 0.0) * 100),
+            int(link.get("rssi") or -120),
+            int(float(link.get("snr") or 0.0) * 4),
+            int(phase_code),
+            int(flight.get("packet_count") or 0) & 0xFFFF,
+            int((battery.get("vbat_v") or 0.0) * 1000),
+            int(flags),
+        )
+        frame = self._encode_frame(self.MSG_TELEM_SNAPSHOT, payload)
+        with self._lock:
+            try:
+                self._ser.write(frame)
+            except Exception:  # pylint: disable=broad-except
+                pass
+
+    def _send_cmd_ack(self, cmd, ok, err=0):
+        if self._ser is None:
+            return
+        payload = struct.pack("<BBB", cmd, 1 if ok else 0, err & 0xFF)
+        frame = self._encode_frame(self.MSG_CMD_ACK, payload)
+        with self._lock:
+            try:
+                self._ser.write(frame)
+            except Exception:  # pylint: disable=broad-except
+                pass
+
+    def _handle_cmd(self, cmd, arg):
+        if cmd == self.CMD_SD_START:
+            ok, error = send_lora_command("sd_start")
+        elif cmd == self.CMD_SD_STOP:
+            ok, error = send_lora_command("sd_stop")
+        elif cmd == self.CMD_BUZZER:
+            ok, error = send_lora_command("buzzer", int(arg))
+        else:
+            ok, error = False, "Unknown UART command"
+
+        if not ok and error:
+            print(f"Companion UART cmd failed: cmd={cmd} arg={arg} err={error}")
+        self._send_cmd_ack(cmd, ok, 0 if ok else 1)
+
+    def _rx_loop(self):
+        buf = bytearray()
+        while self._running:
+            try:
+                chunk = self._ser.read(128)
+            except Exception:  # pylint: disable=broad-except
+                time.sleep(0.05)
+                continue
+
+            if chunk:
+                buf.extend(chunk)
+
+            while True:
+                if len(buf) < 10:
+                    break
+                sof_idx = buf.find(bytes([self.SOF1, self.SOF2]))
+                if sof_idx < 0:
+                    buf.clear()
+                    break
+                if sof_idx > 0:
+                    del buf[:sof_idx]
+                if len(buf) < 10:
+                    break
+
+                _, _, ver, msg_type, seq, payload_len = struct.unpack_from("<BBBBHH", buf, 0)
+                frame_len = 8 + payload_len + 2
+                if len(buf) < frame_len:
+                    break
+
+                payload = bytes(buf[8:8 + payload_len])
+                crc_rx = struct.unpack_from("<H", buf, 8 + payload_len)[0]
+                crc_input = struct.pack("<BBHH", ver, msg_type, seq, payload_len) + payload
+                crc_calc = self._crc16_ccitt(crc_input)
+
+                del buf[:frame_len]
+                if ver != self.VER or crc_rx != crc_calc:
+                    continue
+
+                if msg_type == self.MSG_CMD and payload_len >= 2:
+                    cmd, arg = struct.unpack_from("<BB", payload, 0)
+                    self._handle_cmd(cmd, arg)
+
+
 def broadcast(snapshot):
     if OLED_DISPLAY is not None:
         OLED_DISPLAY.update(snapshot)
@@ -1136,6 +1337,9 @@ def broadcast(snapshot):
                     client.put_nowait(companion_data)
                 except queue.Full:
                     pass
+
+    if COMPANION_UART_BRIDGE is not None:
+        COMPANION_UART_BRIDGE.send_companion_state(companion_state)
 
 
 def handle_voltage_monitor_update(monitor_snapshot):
@@ -1568,7 +1772,7 @@ class GroundStationHandler(BaseHTTPRequestHandler):
 
 
 def main():
-    global OLED_DISPLAY
+    global OLED_DISPLAY, COMPANION_UART_BRIDGE
 
     if not STATIC_DIR.exists():
         raise SystemExit("Static assets not found at %s" % STATIC_DIR)
@@ -1585,6 +1789,11 @@ def main():
     worker = threading.Thread(target=lora_worker, daemon=True)
     worker.start()
 
+    if COMPANION_UART_ENABLED:
+        bridge = CompanionUartBridge(COMPANION_UART_PORT, COMPANION_UART_BAUD)
+        if bridge.start():
+            COMPANION_UART_BRIDGE = bridge
+
     try:
         server = ThreadingHTTPServer((HOST, PORT), GroundStationHandler)
         print("Ground station running at http://%s:%d" % (HOST, PORT))
@@ -1597,6 +1806,9 @@ def main():
             voltage_monitor.stop()
         if OLED_DISPLAY is not None:
             OLED_DISPLAY.stop()
+        if COMPANION_UART_BRIDGE is not None:
+            COMPANION_UART_BRIDGE.stop()
+            COMPANION_UART_BRIDGE = None
         if server is not None:
             server.shutdown()
             server.server_close()

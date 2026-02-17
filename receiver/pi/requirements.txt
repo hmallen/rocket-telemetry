@@ -3,3 +3,4 @@ adafruit-blinka
 smbus2
 adafruit-circuitpython-ssd1306
 Pillow
+pyserial
