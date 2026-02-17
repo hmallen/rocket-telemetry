@@ -13,10 +13,13 @@ void MainScreen::begin() {
 }
 
 void MainScreen::render(const CompanionState& state) {
-  if (millis() - lastRenderMs_ < 100) return;  // 10 fps
+  if (millis() - lastRenderMs_ < 200) return;  // 5 fps to reduce visible tearing/flicker
   lastRenderMs_ = millis();
 
-  tft_.fillScreen(TFT_BLACK);
+  if (firstRender_) {
+    tft_.fillScreen(TFT_BLACK);
+    firstRender_ = false;
+  }
   drawHeader(state);
   drawPrimary(state);
   drawAlertStrip(state);
@@ -71,6 +74,9 @@ void MainScreen::drawHeader(const CompanionState& state) {
 }
 
 void MainScreen::drawPrimary(const CompanionState& state) {
+  // Clear only the primary content area instead of full-screen clear each frame.
+  tft_.fillRect(0, 28, 320, 142, TFT_BLACK);
+
   tft_.setTextColor(TFT_CYAN, TFT_BLACK);
   tft_.setTextFont(4);
   tft_.drawString("PHASE: " + state.flight.phase, 8, 40);

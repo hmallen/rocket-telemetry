@@ -24,6 +24,7 @@ class MainScreen {
   TFT_eSPI& tft_;
   ButtonRects buttons_;
   uint32_t lastRenderMs_ = 0;
+  bool firstRender_ = true;
   void drawHeader(const CompanionState& state);
   void drawPrimary(const CompanionState& state);
   void drawAlertStrip(const CompanionState& state);
