@@ -1,13 +1,18 @@
-# Companion UART Protocol (Teensy ↔ ESP32)
+# Companion UART Protocol (Pi Ground Station ↔ ESP32)
 
-This defines the direct wired fallback/primary transport for the companion display.
+This defines the direct wired fallback/primary transport for the companion display
+when the **ground station host is the Raspberry Pi**.
 
 ## Wiring
 
-- Teensy TX -> ESP32 RX (UART)
-- Teensy RX <- ESP32 TX (UART)
+- Pi TX -> ESP32 RX (UART)
+- Pi RX <- ESP32 TX (UART)
 - GND -> GND
 - 3.3V logic levels only on UART signal lines
+
+Pi note:
+- Use the Pi UART on GPIO14/15 (`/dev/serial0` preferred).
+- Disable Linux serial console on that UART if needed, so your app has exclusive access.
 
 ## Frame format
 
@@ -20,11 +25,11 @@ CRC16 is CCITT over: `VER..PAYLOAD`.
 
 ## Message types
 
-- `0x01` `MSG_TELEM_SNAPSHOT` (Teensy -> ESP32)
-- `0x02` `MSG_ALERT_EVENT` (Teensy -> ESP32)
+- `0x01` `MSG_TELEM_SNAPSHOT` (Pi -> ESP32)
+- `0x02` `MSG_ALERT_EVENT` (Pi -> ESP32)
 - `0x03` `MSG_HEARTBEAT` (both)
-- `0x10` `MSG_CMD` (ESP32 -> Teensy)
-- `0x11` `MSG_CMD_ACK` (Teensy -> ESP32)
+- `0x10` `MSG_CMD` (ESP32 -> Pi)
+- `0x11` `MSG_CMD_ACK` (Pi -> ESP32)
 
 ## Transport selection
 
@@ -45,30 +50,14 @@ Set `COMPANION_LINK_UART 0` to use Wi-Fi API/SSE instead.
 - UART state bridge: `src/serial/uart_link.*`
 - Controller auto-switches between UART and Wi-Fi using `COMPANION_LINK_UART`.
 
-## Teensy skeleton
+## Host-side implementation guidance (Pi)
 
-Drop-in helper:
+Run a small UART bridge process on the Pi that:
 
-- `src/companion_uart.h`
-- `src/companion_uart.cpp`
+1. Encodes telemetry into `MSG_TELEM_SNAPSHOT` frames at ~10 Hz
+2. Parses incoming `MSG_CMD` from ESP32
+3. Executes command actions in ground-station code (`buzzer`, `sd_start`, `sd_stop`)
+4. Replies with `MSG_CMD_ACK`
 
-Usage pattern:
-
-```cpp
-companion_uart::init(Serial4, 115200);
-
-// 10 Hz
-companion_uart::Snapshot s{};
-// fill fields
-companion_uart::send_snapshot(s);
-
-// poll commands in loop
-auto c = companion_uart::poll_cmd();
-if (c.available) {
-  // execute c.cmd/c.arg
-  companion_uart::send_cmd_ack(c.cmd, true);
-}
-```
-
-Note: `poll_cmd()` is a minimal skeleton parser in this commit. Replace with a full
-resynchronizing state machine + CRC validation for production flight use.
+If you still want a direct Teensy↔ESP32 mode later, the Teensy helper skeleton files
+(`src/companion_uart.*`) remain available as an optional path.

@@ -8,7 +8,7 @@ This is a first-pass firmware scaffold for the 3.2" ESP32 touchscreen companion 
 - Wi-Fi connection + auto-reconnect
 - Initial snapshot fetch from Pi: `GET /api/companion/state`
 - Live telemetry stream from Pi: `GET /api/companion/events` (SSE)
-- Optional direct UART transport to Teensy (bypass Wi-Fi)
+- Optional direct UART transport to the Pi ground station host (bypass Wi-Fi)
 - Minimal dashboard UI on TFT:
   - Link status / RSSI / SNR / packet age
   - Flight phase
@@ -81,7 +81,7 @@ Start with the defaults in `config.h.example`, then calibrate and update:
 
 Set `COMPANION_LINK_UART` to `1` in `config.h` to use direct UART instead of Wi-Fi.
 
-See `UART_PROTOCOL.md` for frame format and Teensy integration skeleton.
+See `UART_PROTOCOL.md` for frame format and Pi-ground-station integration notes.
 
 ## Next steps (Phase 4)
 
