@@ -3,15 +3,22 @@
 #include "config.h"
 
 Controller::Controller(TFT_eSPI& tft, const String& host, uint16_t port)
-    : api_(host, port), screen_(tft), touch_(TOUCH_CS_PIN, TOUCH_IRQ_PIN) {}
+    : api_(host, port),
+      uart_(Serial2, UART_BAUD, UART_RX_PIN, UART_TX_PIN),
+      screen_(tft),
+      touch_(TOUCH_CS_PIN, TOUCH_IRQ_PIN) {}
 
 void Controller::begin() {
   screen_.begin();
   touch_.begin();
   touch_.setRotation(1);
 
-  if (api_.fetchInitialState(state_)) {
-    lastRxMs_ = millis();
+  if (COMPANION_LINK_UART) {
+    uart_.begin();
+  } else {
+    if (api_.fetchInitialState(state_)) {
+      lastRxMs_ = millis();
+    }
   }
 
   lastPhase_ = state_.flight.phase;
@@ -19,10 +26,13 @@ void Controller::begin() {
   lastStale_ = state_.stale;
   lastPrimaryAlert_ = state_.primaryAlert;
 
-  sseConnected_ = api_.openEventStream();
+  if (!COMPANION_LINK_UART) {
+    sseConnected_ = api_.openEventStream();
+  }
 }
 
 bool Controller::ensureConnected() {
+  if (COMPANION_LINK_UART) return true;
   if (sseConnected_) return true;
 
   uint32_t now = millis();
@@ -55,20 +65,24 @@ void Controller::updateStaleness() {
 void Controller::tick() {
   ensureConnected();
 
-  if (sseConnected_) {
-    bool updated = api_.pollEventStream(state_);
-    if (updated) {
-      lastRxMs_ = millis();
+  bool updated = false;
+  if (COMPANION_LINK_UART) {
+    updated = uart_.poll(state_);
+  } else if (sseConnected_) {
+    updated = api_.pollEventStream(state_);
+  }
 
-      if (state_.flight.phase != lastPhase_ && state_.flight.phase.length()) {
-        screen_.pushAlert("PHASE -> " + state_.flight.phase);
-        lastPhase_ = state_.flight.phase;
-      }
+  if (updated) {
+    lastRxMs_ = millis();
 
-      if (state_.primaryAlert.length() && state_.primaryAlert != lastPrimaryAlert_) {
-        screen_.pushAlert(state_.primaryAlert);
-        lastPrimaryAlert_ = state_.primaryAlert;
-      }
+    if (state_.flight.phase != lastPhase_ && state_.flight.phase.length()) {
+      screen_.pushAlert("PHASE -> " + state_.flight.phase);
+      lastPhase_ = state_.flight.phase;
+    }
+
+    if (state_.primaryAlert.length() && state_.primaryAlert != lastPrimaryAlert_) {
+      screen_.pushAlert(state_.primaryAlert);
+      lastPrimaryAlert_ = state_.primaryAlert;
     }
   }
 
@@ -127,13 +141,15 @@ void Controller::handleTouch() {
   bool sent = false;
 
   if (inside(x, y, b.buzz1X, b.buzz1Y, b.buzz1W, b.buzz1H)) {
-    sent = api_.sendCommand("buzzer", 1);
+    sent = COMPANION_LINK_UART ? uart_.sendCommand("buzzer", 1) : api_.sendCommand("buzzer", 1);
     screen_.setCommandStatus(sent ? "BUZZ 1s sent" : "BUZZ 1s failed", sent);
   } else if (inside(x, y, b.buzz5X, b.buzz5Y, b.buzz5W, b.buzz5H)) {
-    sent = api_.sendCommand("buzzer", 5);
+    sent = COMPANION_LINK_UART ? uart_.sendCommand("buzzer", 5) : api_.sendCommand("buzzer", 5);
     screen_.setCommandStatus(sent ? "BUZZ 5s sent" : "BUZZ 5s failed", sent);
   } else if (inside(x, y, b.sdX, b.sdY, b.sdW, b.sdH)) {
-    sent = api_.sendCommand(sdLoggingEnabled_ ? "sd_stop" : "sd_start", 0);
+    sent = COMPANION_LINK_UART
+               ? uart_.sendCommand(sdLoggingEnabled_ ? "sd_stop" : "sd_start", 0)
+               : api_.sendCommand(sdLoggingEnabled_ ? "sd_stop" : "sd_start", 0);
     if (sent) sdLoggingEnabled_ = !sdLoggingEnabled_;
     screen_.setCommandStatus(
         sent ? (sdLoggingEnabled_ ? "SD start sent" : "SD stop sent") : "SD cmd failed", sent);

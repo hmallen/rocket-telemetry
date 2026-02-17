@@ -4,8 +4,11 @@
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
 
+#include "config.h"
+
 #include "../model/telemetry_state.h"
 #include "../net/api_client.h"
+#include "../serial/uart_link.h"
 #include "../ui/screen_main.h"
 
 class Controller {
@@ -18,6 +21,7 @@ class Controller {
   enum class UiMode { DASHBOARD, CALIBRATION };
 
   ApiClient api_;
+  UartLink uart_;
   MainScreen screen_;
   CompanionState state_;
   XPT2046_Touchscreen touch_;

@@ -9,12 +9,22 @@
 #define GS_HOST "192.168.1.200"
 #define GS_PORT 8000
 
+// Companion transport mode:
+// 0 = Wi-Fi API/SSE (default)
+// 1 = direct UART link to Teensy
+#define COMPANION_LINK_UART 0
+
 // Optional auth token for /api/companion/cmd.
 // Keep empty if not configured on ground station.
 #define GS_AUTH_TOKEN ""
 
 // TLS is not used in this first-pass local-field setup.
 #define GS_USE_TLS 0
+
+// UART link settings (used when COMPANION_LINK_UART=1)
+#define UART_BAUD 115200
+#define UART_RX_PIN 16
+#define UART_TX_PIN 17
 
 // XPT2046 touch controller pins (adjust to your wiring)
 #define TOUCH_CS_PIN 33
