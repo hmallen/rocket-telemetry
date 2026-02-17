@@ -19,6 +19,55 @@ try:
 except Exception:  # pylint: disable=broad-except
     serial = None
 
+
+def _load_env_file():
+    """Load environment variables from .env files if present.
+
+    Search order:
+    1) Path in GS_ENV_FILE (if set)
+    2) receiver/pi/ground_station/.env
+    3) receiver/pi/.env
+
+    Existing environment variables are not overwritten.
+    """
+
+    candidates = []
+    env_override = os.environ.get("GS_ENV_FILE")
+    if env_override:
+        candidates.append(Path(env_override).expanduser())
+
+    here = Path(__file__).resolve().parent
+    candidates.append(here / ".env")
+    candidates.append(here.parent / ".env")
+
+    for env_path in candidates:
+        try:
+            if not env_path.exists() or not env_path.is_file():
+                continue
+            for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("export "):
+                    line = line[7:].strip()
+                if "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+                if not key:
+                    continue
+                if value and ((value[0] == value[-1]) and value[0] in ("'", '"')):
+                    value = value[1:-1]
+                os.environ.setdefault(key, value)
+            print(f"Loaded env from {env_path}")
+            return
+        except Exception as exc:  # pylint: disable=broad-except
+            print(f"Warning: failed loading env file {env_path}: {exc}")
+
+
+_load_env_file()
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.append(str(PROJECT_ROOT))
@@ -33,8 +82,8 @@ except ImportError as exc:  # pylint: disable=import-error
 
 # FIX: Bind to localhost only for security. Use SSH tunnel or firewall for remote access.
 # To allow remote access, set HOST="0.0.0.0" AND configure AUTH_TOKEN below.
-HOST = "127.0.0.1"
-PORT = 8000
+HOST = os.environ.get("HOST", "127.0.0.1")
+PORT = int(os.environ.get("PORT", "8000"))
 
 # FIX: Simple shared-secret authentication for command endpoints.
 # Set to None to disable auth (not recommended if HOST="0.0.0.0").
