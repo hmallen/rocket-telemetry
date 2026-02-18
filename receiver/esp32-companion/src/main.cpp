@@ -1,3 +1,5 @@
+#if !defined(TOUCH_ECHO_TEST) && !defined(TTY_ECHO_TEST)
+
 #include <Arduino.h>
 #include <WiFi.h>
 #include <TFT_eSPI.h>
@@ -93,3 +95,5 @@ void loop() {
 
   delay(10);
 }
+
+#endif  // !TOUCH_ECHO_TEST && !TTY_ECHO_TEST

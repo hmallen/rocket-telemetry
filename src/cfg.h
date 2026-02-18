@@ -153,11 +153,6 @@ constexpr int32_t  LORA_FLIGHT_PRESS_DELTA_PA_X10 = 5000;
 #define ENABLE_SENSORS 1
 #define ENABLE_LORA 1
 
-// ---------- ESP32 Companion UART ----------
-#define ENABLE_COMPANION_UART 1
-#define COMPANION_UART_SERIAL Serial3
-constexpr uint32_t COMPANION_UART_BAUD = 115200;
-
 #ifndef DEBUG_MODE
 #define DEBUG_MODE 0
 #endif

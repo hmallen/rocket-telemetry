@@ -11,7 +11,6 @@
 #include "gnss_ubx.h"
 #include "sensors.h"
 #include "lora_link.h"
-#include "companion_uart.h"
 
 // Internal fast ring
 DMAMEM static uint8_t ring_mem[RING_BYTES];
@@ -739,10 +738,6 @@ void setup() {
     }
   }
 #endif
-
-#if ENABLE_COMPANION_UART
-  companion_uart::init(COMPANION_UART_SERIAL, COMPANION_UART_BAUD);
-#endif
 }
 
 void loop() {
@@ -758,7 +753,6 @@ void loop() {
 
   static float vbat_filt_v = 0.0f;
   static uint32_t vbat_last_sample_ms = 0;
-  static uint32_t last_companion_tx_ms = 0;
   static uint32_t shed_below_start_ms = 0;
   static uint32_t cutoff_below_start_ms = 0;
 
@@ -1094,67 +1088,6 @@ void loop() {
       }
       lora.enable_tx(sd_logging_enabled);
       lora.queue_command_ack(cmd, sd_logging_enabled);
-    }
-  }
-#endif
-
-#if ENABLE_COMPANION_UART
-  // Bridge core telemetry to the ESP32 companion over UART at ~10 Hz.
-  if ((uint32_t)(now_ms - last_companion_tx_ms) >= 100) {
-    companion_uart::Snapshot s{};
-    s.t_ms = now_ms;
-    if (lora_gps) {
-      s.lat_e7 = lora_gps->lat_e7;
-      s.lon_e7 = lora_gps->lon_e7;
-      s.alt_mm = lora_gps->height_mm;
-    }
-    s.vs_cms = 0;  // TODO: wire vertical speed estimator output
-    s.rssi_dbm = -120;  // N/A on rocket-side TX computer
-    s.snr_db_x4 = 0;    // N/A on rocket-side TX computer
-    s.phase = 0;        // TODO: map recovery/downlink phase enum
-    s.packet_count_lsb = (uint16_t)(block_seq & 0xFFFFu);
-    s.vbat_mv = g_vbat_mv;
-    s.flags = 0x01;     // link_ok (Teensy alive)
-
-    companion_uart::send_snapshot(s);
-    last_companion_tx_ms = now_ms;
-  }
-
-  // Receive commands from ESP32 companion and execute them.
-  {
-    companion_uart::Command c = companion_uart::poll_cmd();
-    if (c.available) {
-      bool ok = true;
-      switch (c.cmd) {
-        case companion_uart::CMD_SD_START:
-          if (!buzzer_busy()) buzzer_start_seq(60, 0, 1, now_ms);
-          sd_logging_start();
-          break;
-        case companion_uart::CMD_SD_STOP:
-          if (!buzzer_busy()) buzzer_start_seq(60, 0, 1, now_ms);
-          sd_logging_stop();
-          break;
-        case companion_uart::CMD_BUZZER: {
-          uint16_t duration_ms = 0;
-          switch (c.arg) {
-            case 1: duration_ms = 1000; break;
-            case 5: duration_ms = 5000; break;
-            case 10: duration_ms = 10000; break;
-            case 30: duration_ms = 30000; break;
-            default: duration_ms = 0; break;
-          }
-          if (duration_ms != 0) {
-            buzzer_start_seq(duration_ms, 0, 1, now_ms);
-          } else {
-            ok = false;
-          }
-          break;
-        }
-        default:
-          ok = false;
-          break;
-      }
-      companion_uart::send_cmd_ack(c.cmd, ok, ok ? 0 : 1);
     }
   }
 #endif
