@@ -440,6 +440,8 @@ CMD_ACK = 0x10
 CMD_SD_START = 0x01
 CMD_SD_STOP = 0x02
 CMD_BUZZER = 0x03
+CMD_TELEM_ENABLE = 0x04
+CMD_TELEM_DISABLE = 0x05
 
 RECOVERY_PHASE_LABELS = {
     0: "idle",
@@ -628,13 +630,22 @@ def decode_payload(payload):
             return "CMD type=0x%02X" % payload[1]
         cmd = payload[2]
         enabled = "on" if payload[3] else "off"
+        state_label = "state"
         if cmd == CMD_SD_START:
             cmd_label = "sd_start"
+            state_label = "logging"
         elif cmd == CMD_SD_STOP:
             cmd_label = "sd_stop"
+            state_label = "logging"
+        elif cmd == CMD_TELEM_ENABLE:
+            cmd_label = "telemetry_enable"
+            state_label = "telemetry"
+        elif cmd == CMD_TELEM_DISABLE:
+            cmd_label = "telemetry_disable"
+            state_label = "telemetry"
         else:
             cmd_label = "0x%02X" % cmd
-        return "ACK %s logging=%s" % (cmd_label, enabled)
+        return "ACK %s %s=%s" % (cmd_label, state_label, enabled)
     if payload[0] != 0xA1:
         return None
     typ = payload[1]
@@ -750,13 +761,23 @@ def parse_payload(payload):
             cmd_label = "sd_stop"
         elif cmd == CMD_BUZZER:
             cmd_label = "buzzer"
+        elif cmd == CMD_TELEM_ENABLE:
+            cmd_label = "telemetry_enable"
+        elif cmd == CMD_TELEM_DISABLE:
+            cmd_label = "telemetry_disable"
         else:
             cmd_label = "unknown"
-        return {
+        enabled = bool(payload[3])
+        parsed = {
             "type": "cmd_ack",
             "command": cmd_label,
-            "logging_enabled": bool(payload[3]),
+            "enabled": enabled,
         }
+        if cmd_label in ("sd_start", "sd_stop"):
+            parsed["logging_enabled"] = enabled
+        elif cmd_label in ("telemetry_enable", "telemetry_disable"):
+            parsed["telemetry_enabled"] = enabled
+        return parsed
     if payload[0] != 0xA1:
         return None
     typ = payload[1]

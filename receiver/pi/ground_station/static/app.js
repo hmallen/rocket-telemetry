@@ -57,6 +57,9 @@ const elements = {
   sdStart: document.getElementById("sd-start"),
   sdStop: document.getElementById("sd-stop"),
   sdStatus: document.getElementById("sd-status"),
+  telemEnable: document.getElementById("telem-enable"),
+  telemDisable: document.getElementById("telem-disable"),
+  telemStatus: document.getElementById("telem-status"),
   buzzerDuration: document.getElementById("buzzer-duration"),
   buzzerActivate: document.getElementById("buzzer-activate"),
   buzzerStatus: document.getElementById("buzzer-status"),
@@ -86,6 +89,9 @@ const state = {
   sdLoggingAckTs: null,
   sdLoggingEnabled: null,
   sdCommandPending: false,
+  telemetryTxAckTs: null,
+  telemetryEnabled: null,
+  telemetryCommandPending: false,
   buzzerCommandPending: false,
 };
 
@@ -292,6 +298,18 @@ if (elements.sdStop) {
   });
 }
 
+if (elements.telemEnable) {
+  elements.telemEnable.addEventListener("click", () => {
+    postTelemetryCommand("telemetry_enable", "enable telemetry");
+  });
+}
+
+if (elements.telemDisable) {
+  elements.telemDisable.addEventListener("click", () => {
+    postTelemetryCommand("telemetry_disable", "disable telemetry");
+  });
+}
+
 if (elements.buzzerActivate) {
   elements.buzzerActivate.addEventListener("click", () => {
     const duration = elements.buzzerDuration ? Number(elements.buzzerDuration.value) : 0;
@@ -365,6 +383,75 @@ function postSdCommand(action, label) {
     .finally(() => {
       state.sdCommandPending = false;
       updateSdControlState();
+    });
+}
+
+function setTelemetryStatus(message, statusClass) {
+  if (!elements.telemStatus) {
+    return;
+  }
+  elements.telemStatus.textContent = message;
+  elements.telemStatus.classList.remove("ok", "pending", "error");
+  if (statusClass) {
+    elements.telemStatus.classList.add(statusClass);
+  }
+}
+
+function toggleTelemetryButtons(disabled) {
+  if (elements.telemEnable) {
+    elements.telemEnable.disabled = disabled;
+  }
+  if (elements.telemDisable) {
+    elements.telemDisable.disabled = disabled;
+  }
+}
+
+function updateTelemetryControlState() {
+  if (state.telemetryCommandPending) {
+    toggleTelemetryButtons(true);
+    return;
+  }
+  if (state.telemetryEnabled === true) {
+    if (elements.telemEnable) {
+      elements.telemEnable.disabled = true;
+    }
+    if (elements.telemDisable) {
+      elements.telemDisable.disabled = false;
+    }
+  } else if (state.telemetryEnabled === false) {
+    if (elements.telemEnable) {
+      elements.telemEnable.disabled = false;
+    }
+    if (elements.telemDisable) {
+      elements.telemDisable.disabled = true;
+    }
+  } else {
+    toggleTelemetryButtons(false);
+  }
+}
+
+function postTelemetryCommand(action, label) {
+  setTelemetryStatus(`Sending ${label}…`, "pending");
+  state.telemetryCommandPending = true;
+  toggleTelemetryButtons(true);
+  fetch("/api/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+  })
+    .then((res) => res.json())
+    .then((payload) => {
+      if (!payload.ok) {
+        throw new Error(payload.error || "Command failed");
+      }
+      setTelemetryStatus(`Command sent: ${label}. Awaiting ack…`, "pending");
+    })
+    .catch((err) => {
+      setTelemetryStatus(err.message || "Command failed", "error");
+    })
+    .finally(() => {
+      state.telemetryCommandPending = false;
+      updateTelemetryControlState();
     });
 }
 
@@ -454,7 +541,7 @@ function updateFromTelemetry(snapshot) {
 
   const packetCount = snapshot.packet_count || 0;
   if (elements.telemetryWaiting) {
-    const waiting = packetCount === 0 && state.sdLoggingEnabled !== true;
+    const waiting = packetCount === 0;
     elements.telemetryWaiting.classList.toggle("visible", waiting);
   }
 
@@ -586,6 +673,19 @@ function updateFromTelemetry(snapshot) {
     if (elements.telemetryWaiting && enabled === true) {
       elements.telemetryWaiting.classList.remove("visible");
     }
+  }
+
+  const telemetryTx = snapshot.telemetry_tx || {};
+  if (telemetryTx.ack_timestamp && telemetryTx.ack_timestamp !== state.telemetryTxAckTs) {
+    state.telemetryTxAckTs = telemetryTx.ack_timestamp;
+    state.telemetryEnabled = telemetryTx.enabled;
+    const enabled = telemetryTx.enabled;
+    const statusText = enabled === null || enabled === undefined
+      ? "Telemetry TX ack received"
+      : (enabled ? "Telemetry TX enabled" : "Telemetry TX disabled");
+    const timeLabel = formatTimestamp(telemetryTx.ack_timestamp);
+    setTelemetryStatus(`${statusText} (${timeLabel})`, "ok");
+    updateTelemetryControlState();
   }
 
   const attitude = snapshot.attitude || {};
