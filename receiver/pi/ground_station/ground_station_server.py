@@ -1698,6 +1698,11 @@ def main():
         bridge = CompanionUartBridge(COMPANION_UART_PORT, COMPANION_UART_BAUD)
         if bridge.start():
             COMPANION_UART_BRIDGE = bridge
+    else:
+        print(
+            "Companion UART bridge disabled (GS_COMPANION_UART=0). "
+            "Set GS_COMPANION_UART=1 in .env to enable Pi <-> ESP32 serial link."
+        )
 
     try:
         server = ThreadingHTTPServer((HOST, PORT), GroundStationHandler)

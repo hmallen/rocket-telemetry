@@ -11,7 +11,7 @@
 
 // Companion transport mode:
 // 0 = Wi-Fi API/SSE (default)
-// 1 = direct UART link to Teensy
+// 1 = direct UART link to Pi ground station
 #define COMPANION_LINK_UART 0
 
 // Optional auth token for /api/companion/cmd.

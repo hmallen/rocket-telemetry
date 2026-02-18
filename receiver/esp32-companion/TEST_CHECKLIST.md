@@ -24,7 +24,7 @@ Use this checklist before field deployment.
 
 ## Bench Test: UART Mode (`COMPANION_LINK_UART=1`)
 
-- [ ] Wiring verified: Teensy TX -> ESP32 RX, Teensy RX <- ESP32 TX, GND common
+- [ ] Wiring verified: Pi TX -> ESP32 RX, Pi RX <- ESP32 TX, GND common
 - [ ] Logic level verified: UART signals are 3.3V (no 5V on RX/TX)
 - [ ] UART config matches both sides (baud + pins)
 - [ ] ESP32 receives telemetry over UART and updates phase/altitude/packet count
@@ -42,8 +42,8 @@ Use this checklist before field deployment.
 ## UART Robustness (Recommended)
 
 - [ ] 30+ minute run with continuous UART telemetry has no parser lockup
-- [ ] Power cycle ESP32 while Teensy runs: link recovers automatically
-- [ ] Power cycle Teensy while ESP32 runs: stale alarm then recovery
+- [ ] Power cycle ESP32 while Pi ground station runs: link recovers automatically
+- [ ] Restart/power cycle Pi ground station while ESP32 runs: stale alarm then recovery
 - [ ] Cable wiggle test does not trigger false commands
 - [ ] Command retry/timeout behavior is acceptable for field use
 

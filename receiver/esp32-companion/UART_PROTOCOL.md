@@ -42,9 +42,12 @@ In `include/config.h`:
 ```cpp
 #define COMPANION_LINK_UART 1
 #define UART_BAUD 115200
-#define UART_RX_PIN 16
-#define UART_TX_PIN 17
+#define UART_RX_PIN 3
+#define UART_TX_PIN 1
 ```
+
+On LCDWiki E32R32P/E32N32P, these map to UART0 (`RXD0=IO3`, `TXD0=IO1`) on the
+exposed UART header.
 
 Set `COMPANION_LINK_UART 0` to use Wi-Fi API/SSE instead.
 
