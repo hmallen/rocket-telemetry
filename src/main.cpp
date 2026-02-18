@@ -1099,7 +1099,9 @@ void loop() {
           buzzer_start_seq(duration_ms, 0, 1, now_ms);
         }
       }
-      lora.queue_command_ack(cmd, ack_enabled_state);
+      if (cmd != LoraCommand::kBuzzer) {
+        lora.queue_command_ack(cmd, ack_enabled_state);
+      }
     }
   }
 #endif
