@@ -34,6 +34,11 @@ constexpr uint8_t BUZZER_PIN = 28;
 
 // ---------- Battery monitoring ----------
 constexpr int VBAT_PIN = A2;
+constexpr float VBAT_DIVIDER_R_TOP_OHM = 220000.0f;
+constexpr float VBAT_DIVIDER_R_BOTTOM_OHM = 100000.0f;
+constexpr float VBAT_DIVIDER_SCALE =
+    (VBAT_DIVIDER_R_TOP_OHM + VBAT_DIVIDER_R_BOTTOM_OHM) / VBAT_DIVIDER_R_BOTTOM_OHM;
+// 2S full charge (8.4V) -> ADC pin ~= 2.625V with 220k/100k divider (safe for 3.3V ADC).
 constexpr float VBAT_CAL_SCALE = 1.0f;
 constexpr uint8_t VBAT_AVG_SAMPLES = 16;
 constexpr float VBAT_LP_ALPHA = 0.1f;

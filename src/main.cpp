@@ -796,7 +796,7 @@ void loop() {
     }
     const float counts = (float)sum / (float)VBAT_AVG_SAMPLES;
     const float vadc = counts * (3.3f / 4095.0f);
-    const float vbat = vadc * 2.0f * VBAT_CAL_SCALE;
+    const float vbat = vadc * VBAT_DIVIDER_SCALE * VBAT_CAL_SCALE;
 
     if (vbat_filt_v == 0.0f) vbat_filt_v = vbat;
     else vbat_filt_v = vbat_filt_v + VBAT_LP_ALPHA * (vbat - vbat_filt_v);
