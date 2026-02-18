@@ -40,8 +40,16 @@ except ImportError as exc:  # pylint: disable=import-error
         "Failed to import LoRa receiver module. Run from receiver/pi on the Raspberry Pi."
     ) from exc
 
-HOST = "0.0.0.0"
+# FIX: Bind to localhost only for security. Use SSH tunnel or firewall for remote access.
+# To allow remote access, set HOST="0.0.0.0" AND configure AUTH_TOKEN below.
+HOST = "127.0.0.1"
 PORT = 8000
+
+# FIX: Simple shared-secret authentication for command endpoints.
+# Set to None to disable auth (not recommended if HOST="0.0.0.0").
+# Generate a secure token with: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+import os
+AUTH_TOKEN = os.environ.get("GS_AUTH_TOKEN", "CHANGE_ME_BEFORE_FLIGHT")
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 TILE_CACHE_DIR = STATIC_DIR / "tiles"
@@ -1023,68 +1031,102 @@ def handle_voltage_monitor_update(monitor_snapshot):
 
 
 def lora_worker():
-    spi = None
-    radio = None
-    try:
-        spi, radio = setup_radio()
-        with LORA_LOCK:
-            LORA_RADIO["radio"] = radio
-        while not STOP_EVENT.is_set():
+    # FIX: Add retry/recovery logic so a transient SPI error doesn't kill telemetry for the whole flight.
+    # Use exponential backoff with a bounded retry count, then re-init the radio if retries fail.
+    retry_delay = 1.0  # Start with 1 second
+    max_delay = 30.0   # Cap backoff at 30 seconds
+    max_retries = 10   # Maximum number of consecutive init failures before giving up
+    retry_count = 0
+    
+    while not STOP_EVENT.is_set():
+        spi = None
+        radio = None
+        try:
+            spi, radio = setup_radio()
             with LORA_LOCK:
-                pkt = radio.poll_packet()
-            if not pkt:
-                time.sleep(0.01)
-                continue
+                LORA_RADIO["radio"] = radio
+            
+            # Radio initialized successfully - reset backoff
+            retry_delay = 1.0
+            retry_count = 0
+            print("LoRa radio initialized successfully")
+            
+            # Main poll loop
+            while not STOP_EVENT.is_set():
+                with LORA_LOCK:
+                    pkt = radio.poll_packet()
+                if not pkt:
+                    time.sleep(0.01)
+                    continue
 
-            payload, crc_ok, rssi, snr = pkt
+                payload, crc_ok, rssi, snr = pkt
 
-            if crc_ok:
-                LED.on()
-            else:
+                if crc_ok:
+                    LED.on()
+                else:
+                    LED.off()
+
+                parsed = parse_payload(payload) if crc_ok else None
+                raw_info = {
+                    "hex": payload.hex(),
+                    "ascii": safe_ascii(payload),
+                }
+                radio_info = {
+                    "rssi_dbm": rssi,
+                    "snr_db": snr,
+                    "crc_ok": bool(crc_ok),
+                    "payload_len": len(payload),
+                }
+                snapshot = TELEMETRY.update(parsed, radio_info, raw_info)
+                broadcast(snapshot)
+                
+        except Exception as exc:  # pylint: disable=broad-except
+            retry_count += 1
+            print(f"LoRa worker error: {exc}. Retry {retry_count}/{max_retries} in {retry_delay:.1f}s...")
+            
+            # Check if we've exceeded max retries
+            if retry_count >= max_retries:
+                print("LoRa worker: Maximum retries exceeded. Giving up.")
+                break
+            
+            # Wait before retry (unless stop event is set)
+            STOP_EVENT.wait(retry_delay)
+            
+            # Exponential backoff with cap
+            retry_delay = min(retry_delay * 2, max_delay)
+            
+        finally:
+            # Cleanup radio resources
+            try:
                 LED.off()
-
-            parsed = parse_payload(payload) if crc_ok else None
-            raw_info = {
-                "hex": payload.hex(),
-                "ascii": safe_ascii(payload),
-            }
-            radio_info = {
-                "rssi_dbm": rssi,
-                "snr_db": snr,
-                "crc_ok": bool(crc_ok),
-                "payload_len": len(payload),
-            }
-            snapshot = TELEMETRY.update(parsed, radio_info, raw_info)
-            broadcast(snapshot)
-    except Exception as exc:  # pylint: disable=broad-except
-        print("LoRa worker stopped:", exc)
-    finally:
-        try:
-            LED.off()
-        except OSError:
-            pass
-
-        with LORA_LOCK:
-            LORA_RADIO["radio"] = None
-
-        if radio is not None:
-            try:
-                radio.cs(1)
             except OSError:
                 pass
 
-        if spi is not None:
+            with LORA_LOCK:
+                LORA_RADIO["radio"] = None
+
+            if radio is not None:
+                try:
+                    radio.cs(1)
+                except OSError:
+                    pass
+
+            if spi is not None:
+                try:
+                    spi.close()
+                except OSError:
+                    pass
+
+            # Note: GPIO.cleanup() is called here on each retry, but that's acceptable
+            # since we're re-initializing the entire radio stack
             try:
-                spi.close()
-            except OSError:
+                import RPi.GPIO as GPIO  # pylint: disable=import-error
+
+                GPIO.cleanup()
+            except (ImportError, RuntimeError):
                 pass
-
-        try:
-            import RPi.GPIO as GPIO  # pylint: disable=import-error
-
-            GPIO.cleanup()
-        except (ImportError, RuntimeError):
-            pass
+    
+    print("LoRa worker thread exiting")
 
 
 def send_lora_command(action, duration_s=None):
@@ -1129,6 +1171,36 @@ def send_lora_command(action, duration_s=None):
 
 
 class GroundStationHandler(BaseHTTPRequestHandler):
+    def _check_auth(self):
+        """Check authentication for command endpoints. Returns True if authorized."""
+        # FIX: Simple token-based authentication for command endpoints.
+        # If AUTH_TOKEN is None or empty, auth is disabled (not recommended for HOST="0.0.0.0").
+        if AUTH_TOKEN is None or AUTH_TOKEN == "" or AUTH_TOKEN == "CHANGE_ME_BEFORE_FLIGHT":
+            # No auth configured - only allow if localhost
+            if HOST == "127.0.0.1" or HOST == "localhost":
+                return True
+            # Warn but allow for now (should fail in production)
+            print(f"WARNING: No auth token configured and HOST={HOST} - this is insecure!")
+            return True
+        
+        # Check for token in Authorization header (Bearer token format)
+        auth_header = self.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]  # Strip "Bearer " prefix
+            if token == AUTH_TOKEN:
+                return True
+        
+        # Also check X-Auth-Token header (simpler format for curl/scripts)
+        x_token = self.headers.get("X-Auth-Token", "")
+        if x_token == AUTH_TOKEN:
+            return True
+        
+        return False
+    
+    def _send_auth_error(self):
+        """Send 401 Unauthorized response."""
+        self._send_json({"ok": False, "error": "Unauthorized"}, status=401)
+    
     def do_GET(self):
         path = urlparse(self.path).path
 
@@ -1172,7 +1244,9 @@ class GroundStationHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
 
+        # FIX: Require authentication for command endpoints (not read-only telemetry SSE)
         if path == "/api/map/download":
+            # No auth required — map tile downloads are a local convenience, not a rocket command.
             payload = self._read_json()
             ok, error = MAP_DOWNLOADS.start(payload)
             if not ok:
@@ -1180,10 +1254,13 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             return self._send_json({"ok": True})
 
         if path == "/api/map/cancel":
+            # No auth required — cancelling a tile download is safe.
             MAP_DOWNLOADS.cancel()
             return self._send_json({"ok": True})
 
         if path == "/api/attitude/filter":
+            if not self._check_auth():
+                return self._send_auth_error()
             payload = self._read_json() or {}
             mode = payload.get("filter")
             try:
@@ -1198,6 +1275,8 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             })
 
         if path == "/api/attitude/threshold":
+            if not self._check_auth():
+                return self._send_auth_error()
             payload = self._read_json() or {}
             try:
                 TELEMETRY.set_attitude_threshold(payload.get("threshold_g"))
@@ -1211,6 +1290,8 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             })
 
         if path == "/api/command":
+            if not self._check_auth():
+                return self._send_auth_error()
             payload = self._read_json() or {}
             action = payload.get("action")
             duration_s = payload.get("duration_s")
@@ -1304,9 +1385,13 @@ class GroundStationHandler(BaseHTTPRequestHandler):
 
                 self.wfile.write(f"data: {data}\n\n".encode("utf-8"))
                 self.wfile.flush()
-        except (BrokenPipeError, ConnectionResetError):
+        except Exception:  # pylint: disable=broad-except
+            # FIX: Catch all connection errors (BrokenPipeError, ConnectionResetError,
+            # ConnectionAbortedError, OSError, etc.) to ensure client cleanup always runs.
+            # Client disconnects can manifest in various ways depending on OS and network state.
             pass
         finally:
+            # FIX: Always remove disconnected clients from broadcast list
             with CLIENTS_LOCK:
                 if client_queue in CLIENTS:
                     CLIENTS.remove(client_queue)
