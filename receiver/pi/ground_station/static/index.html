@@ -47,6 +47,14 @@
           <p class="control-status" id="sd-status">Idle</p>
         </div>
         <div class="control-panel">
+          <span class="label">Telemetry TX</span>
+          <div class="control-buttons">
+            <button class="control-button" id="telem-enable" type="button">Enable telemetry</button>
+            <button class="control-button danger" id="telem-disable" type="button">Disable telemetry</button>
+          </div>
+          <p class="control-status" id="telem-status">Idle</p>
+        </div>
+        <div class="control-panel">
           <span class="label">Buzzer</span>
           <div class="control-buttons">
             <div class="control-input">
@@ -161,7 +169,7 @@
         </div>
 
         <div class="telemetry-waiting visible" id="telemetry-waiting">
-          Waiting for the start signal. Telemetry will appear after the rocket receives the logging command.
+          Waiting for telemetry frames. If TX starts disabled, use the telemetry enable control.
         </div>
 
         <div class="telemetry-grid">

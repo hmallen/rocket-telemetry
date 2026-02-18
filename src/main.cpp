@@ -1063,6 +1063,7 @@ void loop() {
     LoraCommand cmd = LoraCommand::kNone;
     uint8_t cmd_arg = 0;
     if (lora.pop_command(cmd, &cmd_arg)) {
+      bool ack_enabled_state = sd_logging_enabled;
       if (cmd == LoraCommand::kSdStart) {
         if (!buzzer_busy()) {
           buzzer_start_seq(60, 0, 1, now_ms);
@@ -1073,6 +1074,18 @@ void loop() {
           buzzer_start_seq(60, 0, 1, now_ms);
         }
         sd_logging_stop();
+      } else if (cmd == LoraCommand::kTelemEnable) {
+        if (!buzzer_busy()) {
+          buzzer_start_seq(60, 0, 1, now_ms);
+        }
+        lora.enable_tx(true);
+        ack_enabled_state = lora.tx_enabled();
+      } else if (cmd == LoraCommand::kTelemDisable) {
+        if (!buzzer_busy()) {
+          buzzer_start_seq(60, 0, 1, now_ms);
+        }
+        lora.enable_tx(false);
+        ack_enabled_state = lora.tx_enabled();
       } else if (cmd == LoraCommand::kBuzzer) {
         uint16_t duration_ms = 0;
         switch (cmd_arg) {
@@ -1086,8 +1099,7 @@ void loop() {
           buzzer_start_seq(duration_ms, 0, 1, now_ms);
         }
       }
-      lora.enable_tx(sd_logging_enabled);
-      lora.queue_command_ack(cmd, sd_logging_enabled);
+      lora.queue_command_ack(cmd, ack_enabled_state);
     }
   }
 #endif

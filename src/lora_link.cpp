@@ -60,6 +60,8 @@ static constexpr uint8_t LORA_CMD_ACK = 0x10;
 static constexpr uint8_t LORA_CMD_SD_START = 0x01;
 static constexpr uint8_t LORA_CMD_SD_STOP = 0x02;
 static constexpr uint8_t LORA_CMD_BUZZER = 0x03;
+static constexpr uint8_t LORA_CMD_TELEM_ENABLE = 0x04;
+static constexpr uint8_t LORA_CMD_TELEM_DISABLE = 0x05;
 static constexpr uint16_t LORA_RX_DONE_FLAG = 0x40;
 static constexpr uint8_t LORA_ACK_REPEAT_COUNT = 3;
 static constexpr uint32_t LORA_ACK_REPEAT_MS = 400;
@@ -219,12 +221,16 @@ bool LoraLink::start_recovery_tx_(uint32_t now_ms) {
   return true;
 }
 
-void LoraLink::queue_command_ack(LoraCommand cmd, bool logging_enabled) {
+void LoraLink::queue_command_ack(LoraCommand cmd, bool enabled_state) {
   uint8_t cmd_byte = 0;
   if (cmd == LoraCommand::kSdStart) {
     cmd_byte = LORA_CMD_SD_START;
   } else if (cmd == LoraCommand::kSdStop) {
     cmd_byte = LORA_CMD_SD_STOP;
+  } else if (cmd == LoraCommand::kTelemEnable) {
+    cmd_byte = LORA_CMD_TELEM_ENABLE;
+  } else if (cmd == LoraCommand::kTelemDisable) {
+    cmd_byte = LORA_CMD_TELEM_DISABLE;
   } else {
     return;
   }
@@ -232,7 +238,7 @@ void LoraLink::queue_command_ack(LoraCommand cmd, bool logging_enabled) {
   ack_buf_[0] = LORA_CMD_MAGIC;
   ack_buf_[1] = LORA_CMD_ACK;
   ack_buf_[2] = cmd_byte;
-  ack_buf_[3] = logging_enabled ? 1u : 0u;
+  ack_buf_[3] = enabled_state ? 1u : 0u;
   ack_len_ = 4;
   ack_pending_ = true;
   ack_retry_after_ms_ = millis() + LORA_ACK_REPEAT_MS;
@@ -845,7 +851,10 @@ bool LoraLink::handle_command_(const uint8_t* data, size_t len) {
   const uint8_t cmd = data[1];
   if (cmd == LORA_CMD_BUZZER) {
     if (len < 3) return false;
-  } else if (cmd != LORA_CMD_SD_START && cmd != LORA_CMD_SD_STOP) {
+  } else if (cmd != LORA_CMD_SD_START &&
+             cmd != LORA_CMD_SD_STOP &&
+             cmd != LORA_CMD_TELEM_ENABLE &&
+             cmd != LORA_CMD_TELEM_DISABLE) {
     return false;
   }
 #if DEBUG_MODE

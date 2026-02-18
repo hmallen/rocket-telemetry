@@ -87,6 +87,8 @@ LORA_CMD_MAGIC = 0xB1
 LORA_CMD_SD_START = 0x01
 LORA_CMD_SD_STOP = 0x02
 LORA_CMD_BUZZER = 0x03
+LORA_CMD_TELEM_ENABLE = 0x04
+LORA_CMD_TELEM_DISABLE = 0x05
 LORA_CMD_REPEAT_COUNT = 3
 LORA_CMD_REPEAT_DELAY_S = 0.1
 
@@ -601,6 +603,11 @@ class TelemetryStore:
                 "last_command": None,
                 "ack_timestamp": None,
             },
+            "telemetry_tx": {
+                "enabled": None,
+                "last_command": None,
+                "ack_timestamp": None,
+            },
             "voltage_monitor": {
                 "timestamp": None,
                 "enabled": False,
@@ -798,11 +805,20 @@ class TelemetryStore:
                         "rules": None,
                     })
                 elif payload_type == "cmd_ack":
-                    self._state["sd_logging"].update({
-                        "enabled": parsed.get("logging_enabled"),
-                        "last_command": parsed.get("command"),
-                        "ack_timestamp": self._state["timestamp"],
-                    })
+                    cmd = parsed.get("command")
+                    ack_ts = self._state["timestamp"]
+                    if cmd in ("sd_start", "sd_stop"):
+                        self._state["sd_logging"].update({
+                            "enabled": parsed.get("logging_enabled", parsed.get("enabled")),
+                            "last_command": cmd,
+                            "ack_timestamp": ack_ts,
+                        })
+                    elif cmd in ("telemetry_enable", "telemetry_disable"):
+                        self._state["telemetry_tx"].update({
+                            "enabled": parsed.get("telemetry_enabled", parsed.get("enabled")),
+                            "last_command": cmd,
+                            "ack_timestamp": ack_ts,
+                        })
 
             return copy.deepcopy(self._state)
 
@@ -1134,6 +1150,10 @@ def send_lora_command(action, duration_s=None):
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_START])
     elif action == "sd_stop":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_STOP])
+    elif action == "telemetry_enable":
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_TELEM_ENABLE])
+    elif action == "telemetry_disable":
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_TELEM_DISABLE])
     elif action == "buzzer":
         try:
             duration = int(duration_s)
