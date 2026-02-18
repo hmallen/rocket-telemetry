@@ -9,6 +9,8 @@ enum class LoraCommand : uint8_t {
   kSdStart = 0x01,
   kSdStop = 0x02,
   kBuzzer = 0x03,
+  kTelemEnable = 0x04,
+  kTelemDisable = 0x05,
 };
 
 class LoraLink {
@@ -22,7 +24,7 @@ public:
   bool ready() const;
   bool tx_enabled() const;
   bool pop_command(LoraCommand& cmd, uint8_t* arg = nullptr);
-  void queue_command_ack(LoraCommand cmd, bool logging_enabled);
+  void queue_command_ack(LoraCommand cmd, bool enabled_state);
 
   // Cleartext telemetry payload (ASCII, human-decodable):
   //   ID=<CALLSIGN>;t_ms=<uint32>;
