@@ -97,6 +97,10 @@ bool UartLink::sendCommand(const String& action, int durationS) {
 
 void UartLink::debugTick() {
 #if COMPANION_UART_DEBUG
+#if (COMPANION_LINK_UART && (UART_RX_PIN == 3) && (UART_TX_PIN == 1))
+  // UART0 is being used as the binary companion link; don't print debug logs here.
+  return;
+#endif
   uint32_t now = millis();
   if (now - lastDbgMs_ < 2000) return;
   Serial.printf("[UART] rx_frames=%lu tx_frames=%lu\n", (unsigned long)rxFrames_, (unsigned long)txFrames_);

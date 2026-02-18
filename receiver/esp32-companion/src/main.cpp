@@ -57,8 +57,12 @@ static void connectWifi() {
 }
 
 void setup() {
+  // Avoid using UART0 for debug when UART companion link is on RXD0/TXD0 (IO3/IO1),
+  // otherwise debug logs can corrupt binary protocol frames.
+#if !(COMPANION_LINK_UART && (UART_RX_PIN == 3) && (UART_TX_PIN == 1))
   Serial.begin(115200);
   delay(100);
+#endif
 
   // LCDWiki E32R32P/E32N32P backlight control (IO27): high = backlight on.
   pinMode(27, OUTPUT);
