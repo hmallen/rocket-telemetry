@@ -13,49 +13,18 @@ void MainScreen::begin() {
 }
 
 void MainScreen::render(const CompanionState& state) {
-  if (millis() - lastRenderMs_ < 250) return;  // ~4 fps, easy to see live updates.
+  if (millis() - lastRenderMs_ < 100) return;
   lastRenderMs_ = millis();
 
-  static uint32_t renderCount = 0;
-  renderCount++;
+  if (firstRender_) {
+    tft_.fillScreen(TFT_BLACK);
+  }
 
-  const char spinner[] = {'|', '/', '-', '\\'};
-  const char spinnerChar = spinner[renderCount & 0x03];
-
-  String linkStatus = state.stale ? "STALE" : (state.link.connected ? "LIVE" : "NO LINK");
-  String altText = isnan(state.alt.altitudeAglM) ? "---" : String(state.alt.altitudeAglM, 1);
-  String vsText = isnan(state.alt.verticalSpeedMps) ? "---" : String(state.alt.verticalSpeedMps, 1);
-  String battText = isnan(state.battery.vbatV) ? "--.--" : String(state.battery.vbatV, 2);
-  String alertText = state.primaryAlert.length() ? state.primaryAlert : "(none)";
-
-  tft_.fillScreen(TFT_BLACK);
-  tft_.setTextFont(2);
-  tft_.setTextColor(TFT_WHITE, TFT_BLACK);
-
-  int y = 6;
-  tft_.drawString("Companion UART Debug", 6, y);
-  y += 18;
-  tft_.drawString("Render: " + String(renderCount) + "  " + String(spinnerChar), 6, y);
-  y += 18;
-  tft_.drawString("Uptime(ms): " + String(millis()), 6, y);
-  y += 18;
-  tft_.drawString("RX seq: " + String(state.seq), 6, y);
-  y += 18;
-  tft_.drawString("Link: " + linkStatus, 6, y);
-  y += 18;
-  tft_.drawString("RSSI: " + String(state.link.rssi) + "  SNR: " + String(state.link.snr, 1), 6, y);
-  y += 18;
-  tft_.drawString("Age(ms): " + String(state.link.lastPacketAgeMs), 6, y);
-  y += 18;
-  tft_.drawString("Phase: " + state.flight.phase, 6, y);
-  y += 18;
-  tft_.drawString("Alt(m): " + altText + "  VS: " + vsText, 6, y);
-  y += 18;
-  tft_.drawString("VBAT: " + battText + "V", 6, y);
-  y += 18;
-  tft_.drawString("Pkt: " + String(state.flight.packetCount), 6, y);
-  y += 18;
-  tft_.drawString("Alert: " + alertText, 6, y);
+  drawHeader(state);
+  drawPrimary(state);
+  drawAlertStrip(state);
+  drawFooter(state);
+  drawButtons(state);
 
   firstRender_ = false;
 }

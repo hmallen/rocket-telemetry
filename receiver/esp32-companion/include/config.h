@@ -24,8 +24,8 @@
 
 // UART link settings (used when COMPANION_LINK_UART=1)
 #define UART_BAUD 115200
-#define UART_RX_PIN 3
-#define UART_TX_PIN 1
+#define UART_RX_PIN 32
+#define UART_TX_PIN 25
 
 // XPT2046 touch controller pins (adjust to your wiring)
 #define TOUCH_CS_PIN 33
