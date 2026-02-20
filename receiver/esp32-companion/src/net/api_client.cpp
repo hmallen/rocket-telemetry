@@ -174,7 +174,8 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
   ioState.alt.verticalSpeedMps = recovery["vertical_speed_mps"].isNull() ? NAN : (float)recovery["vertical_speed_mps"].as<float>();
 
   JsonObject battery = state["battery"];
-  ioState.battery.vbatV = battery["vbat_v"].isNull() ? NAN : (float)battery["vbat_v"].as<float>();
+  ioState.battery.telemetryVbatV =
+      battery["vbat_v"].isNull() ? NAN : (float)battery["vbat_v"].as<float>();
   ioState.battery.label = String((const char*)(battery["bat_state_label"] | ""));
 
   ioState.primaryAlert = "";

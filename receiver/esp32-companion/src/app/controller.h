@@ -30,6 +30,7 @@ class Controller {
   bool sseConnected_ = false;
   uint32_t lastRxMs_ = 0;
   uint32_t lastReconnectAttemptMs_ = 0;
+  uint32_t lastCompanionBatSampleMs_ = 0;
   uint32_t lastTouchMs_ = 0;
   UiMode mode_ = UiMode::DASHBOARD;
   String lastPhase_;
@@ -38,6 +39,7 @@ class Controller {
   String lastPrimaryAlert_;
 
   void updateStaleness();
+  void updateCompanionBattery();
   bool ensureConnected();
   void handleTouch();
   bool inside(int x, int y, int bx, int by, int bw, int bh);

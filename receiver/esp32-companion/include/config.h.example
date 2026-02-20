@@ -35,6 +35,17 @@
 #define TOUCH_CS_PIN 33
 #define TOUCH_IRQ_PIN 36
 
+// Local companion battery ADC input.
+// LCDWiki E32R32P/E32N32P BAT_ADC is typically GPIO34.
+#define COMPANION_BAT_ADC_PIN 34
+// Hardware divider scale: Vbat = Vadc * scale (2.0 for 100k/100k divider).
+#define COMPANION_BAT_ADC_DIVIDER_SCALE 2.0f
+// Optional calibration multiplier after divider scaling.
+#define COMPANION_BAT_ADC_CAL_SCALE 1.0f
+// ADC averaging and polling period.
+#define COMPANION_BAT_ADC_SAMPLES 16
+#define COMPANION_BAT_SAMPLE_INTERVAL_MS 1000
+
 // Touch calibration bounds (raw ADC values from your panel)
 // Update after calibration for accurate button taps.
 #define TOUCH_X_MIN 200

@@ -126,10 +126,16 @@ void MainScreen::drawFooter(const CompanionState& state) {
   }
   tft_.drawString(leftText, 6, 219);
 
-  String batt = isnan(state.battery.vbatV) ? "--.-" : String(state.battery.vbatV, 2);
+  String telemetryBatt =
+      isnan(state.battery.telemetryVbatV) ? "--.-" : String(state.battery.telemetryVbatV, 2);
+  String companionBatt =
+      isnan(state.battery.companionVbatV) ? "--.-" : String(state.battery.companionVbatV, 2);
   tft_.setTextColor(TFT_WHITE, TFT_DARKGREY);
-  tft_.drawString("VBAT " + batt + "V", 140, 219);
+  tft_.setTextFont(1);
+  tft_.drawString("TX_VBAT " + telemetryBatt + "V", 130, 212);
+  tft_.drawString("BAT_ADC " + companionBatt + "V", 130, 223);
 
+  tft_.setTextFont(2);
   tft_.drawString("PKT " + String(state.flight.packetCount), 245, 219);
 }
 

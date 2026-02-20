@@ -21,7 +21,10 @@ struct AltState {
 };
 
 struct BatteryState {
-  float vbatV = NAN;
+  // Battery voltage reported by the remote telemetry transmitter over LoRa.
+  float telemetryVbatV = NAN;
+  // Local companion display board battery voltage sampled from BAT_ADC.
+  float companionVbatV = NAN;
   String label;
 };
 

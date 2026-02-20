@@ -48,7 +48,6 @@ String pendingHex;
 String pendingAscii;
 uint8_t pendingCount = 0;
 bool bodyNeedsFullRedraw = true;
-int dirtyLineIndex = -1;
 
 void drawHeader() {
   renderCount++;
@@ -85,7 +84,6 @@ void pushLine() {
   lines[kMaxLines - 1] = "";
   currentLine = kMaxLines - 1;
   bodyNeedsFullRedraw = true;
-  dirtyLineIndex = -1;
 }
 
 void appendTerminalLine(const String& text) {
@@ -93,11 +91,9 @@ void appendTerminalLine(const String& text) {
     pushLine();
   } else {
     currentLine++;
+    bodyNeedsFullRedraw = true;
   }
   lines[currentLine] = text;
-  if (!bodyNeedsFullRedraw) {
-    dirtyLineIndex = currentLine;
-  }
 }
 
 void flushPendingDumpLine() {
@@ -142,27 +138,12 @@ void drawBodyFull() {
   }
 
   bodyNeedsFullRedraw = false;
-  dirtyLineIndex = -1;
-}
-
-void drawBodyLine(int lineIndex) {
-  if (lineIndex < 0 || lineIndex >= kMaxLines) {
-    return;
-  }
-
-  const int y = kHeaderH + (lineIndex * kLineH);
-  tft.fillRect(0, y, kScreenW, kLineH, TFT_BLACK);
-  tft.setCursor(4, y);
-  tft.print(lines[lineIndex]);
 }
 
 void renderScreen() {
   drawHeader();
   if (bodyNeedsFullRedraw) {
     drawBodyFull();
-  } else {
-    drawBodyLine(dirtyLineIndex);
-    dirtyLineIndex = -1;
   }
 }
 
@@ -187,7 +168,6 @@ void setup() {
   lines[3] = "Waiting for Pi tty data...";
   currentLine = 3;
   bodyNeedsFullRedraw = true;
-  dirtyLineIndex = -1;
 
   if (kEchoBackToPi) {
     const char* banner = "\r\nESP32 tty echo ready\r\n";

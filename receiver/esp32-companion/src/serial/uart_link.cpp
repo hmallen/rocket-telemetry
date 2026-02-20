@@ -27,8 +27,8 @@ void UartLink::applyTelemetry(const TelemetryV1& t, CompanionState& ioState) {
   ioState.alt.altitudeAglM = static_cast<float>(t.alt_mm) / 1000.0f;
   ioState.alt.verticalSpeedMps = static_cast<float>(t.vs_cms) / 100.0f;
 
-  ioState.battery.vbatV = static_cast<float>(t.vbat_mv) / 1000.0f;
-  ioState.battery.label = ioState.battery.vbatV < 3.5f ? "LOW" : "OK";
+  ioState.battery.telemetryVbatV = static_cast<float>(t.vbat_mv) / 1000.0f;
+  ioState.battery.label = ioState.battery.telemetryVbatV < 3.5f ? "LOW" : "OK";
 
   ioState.stale = false;
 }

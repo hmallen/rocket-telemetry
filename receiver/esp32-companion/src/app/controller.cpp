@@ -2,16 +2,61 @@
 
 #include "config.h"
 
+#ifndef COMPANION_BAT_ADC_PIN
+#define COMPANION_BAT_ADC_PIN 34
+#endif
+
+#ifndef COMPANION_BAT_ADC_DIVIDER_SCALE
+#define COMPANION_BAT_ADC_DIVIDER_SCALE 2.0f
+#endif
+
+#ifndef COMPANION_BAT_ADC_CAL_SCALE
+#define COMPANION_BAT_ADC_CAL_SCALE 1.0f
+#endif
+
+#ifndef COMPANION_BAT_ADC_SAMPLES
+#define COMPANION_BAT_ADC_SAMPLES 16
+#endif
+
+#ifndef COMPANION_BAT_SAMPLE_INTERVAL_MS
+#define COMPANION_BAT_SAMPLE_INTERVAL_MS 1000
+#endif
+
+namespace {
+constexpr float kCompanionBatAdcRefV = 3.3f;
+constexpr float kCompanionBatAdcMaxCounts = 4095.0f;
+}
+
 Controller::Controller(TFT_eSPI& tft, const String& host, uint16_t port)
     : api_(host, port),
       uart_(Serial2, UART_BAUD, UART_RX_PIN, UART_TX_PIN),
       screen_(tft),
       touch_(TOUCH_CS_PIN, TOUCH_IRQ_PIN) {}
 
+void Controller::updateCompanionBattery() {
+  uint32_t now = millis();
+  if (lastCompanionBatSampleMs_ != 0 &&
+      (now - lastCompanionBatSampleMs_) < COMPANION_BAT_SAMPLE_INTERVAL_MS) {
+    return;
+  }
+  lastCompanionBatSampleMs_ = now;
+
+  uint32_t sum = 0;
+  for (uint8_t i = 0; i < COMPANION_BAT_ADC_SAMPLES; ++i) {
+    sum += static_cast<uint32_t>(analogRead(COMPANION_BAT_ADC_PIN));
+  }
+
+  float counts = static_cast<float>(sum) / static_cast<float>(COMPANION_BAT_ADC_SAMPLES);
+  float vadc = counts * (kCompanionBatAdcRefV / kCompanionBatAdcMaxCounts);
+  state_.battery.companionVbatV =
+      vadc * COMPANION_BAT_ADC_DIVIDER_SCALE * COMPANION_BAT_ADC_CAL_SCALE;
+}
+
 void Controller::begin() {
   screen_.begin();
   touch_.begin();
   touch_.setRotation(1);
+  pinMode(COMPANION_BAT_ADC_PIN, INPUT);
 
   if (COMPANION_LINK_UART) {
     uart_.begin();
@@ -64,6 +109,7 @@ void Controller::updateStaleness() {
 
 void Controller::tick() {
   ensureConnected();
+  updateCompanionBattery();
 
   bool updated = false;
   if (COMPANION_LINK_UART) {
