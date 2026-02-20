@@ -34,6 +34,10 @@ Controller::Controller(TFT_eSPI& tft, const String& host, uint16_t port)
       touch_(TOUCH_CS_PIN, TOUCH_IRQ_PIN) {}
 
 void Controller::updateCompanionBattery() {
+#if !COMPANION_LINK_UART
+  return;
+#endif
+
   uint32_t now = millis();
   if (lastCompanionBatSampleMs_ != 0 &&
       (now - lastCompanionBatSampleMs_) < COMPANION_BAT_SAMPLE_INTERVAL_MS) {
@@ -56,7 +60,9 @@ void Controller::begin() {
   screen_.begin();
   touch_.begin();
   touch_.setRotation(1);
+#if COMPANION_LINK_UART
   pinMode(COMPANION_BAT_ADC_PIN, INPUT);
+#endif
 
   if (COMPANION_LINK_UART) {
     uart_.begin();
