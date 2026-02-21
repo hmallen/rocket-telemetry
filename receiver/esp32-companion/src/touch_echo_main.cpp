@@ -1,6 +1,7 @@
 #if defined(TOUCH_ECHO_TEST)
 
 #include <Arduino.h>
+#include <SPI.h>
 #include <TFT_eSPI.h>
 #include <XPT2046_Touchscreen.h>
 
@@ -144,6 +145,10 @@ void setup() {
   tft.setTextDatum(TL_DATUM);
 
   touch.begin();
+#if defined(ESP32)
+  // XPT2046_Touchscreen::begin() calls SPI.begin() with default pins.
+  SPI.begin(TFT_SCLK, TFT_MISO, TFT_MOSI, TOUCH_CS_PIN);
+#endif
   touch.setRotation(1);
 
   drawStatus();

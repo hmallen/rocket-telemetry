@@ -10,7 +10,14 @@ using namespace companion_proto;
 UartLink::UartLink(HardwareSerial& serial, uint32_t baud, int rxPin, int txPin)
     : serial_(serial), baud_(baud), rxPin_(rxPin), txPin_(txPin) {}
 
-void UartLink::begin() { serial_.begin(baud_, SERIAL_8N1, rxPin_, txPin_); }
+void UartLink::begin() {
+  if (&serial_ == &Serial) {
+    // UART0 is fixed on GPIO3/GPIO1; do not pass remap pins.
+    serial_.begin(baud_);
+    return;
+  }
+  serial_.begin(baud_, SERIAL_8N1, rxPin_, txPin_);
+}
 
 void UartLink::applyTelemetry(const TelemetryV1& t, CompanionState& ioState) {
   ioState.tsMs = millis();

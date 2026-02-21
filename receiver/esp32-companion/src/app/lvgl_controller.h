@@ -2,8 +2,8 @@
 
 #include <Arduino.h>
 #include <Preferences.h>
+#include <SPI.h>
 #include <TFT_eSPI.h>
-#include <XPT2046_Touchscreen.h>
 #include <lvgl.h>
 
 #include "config.h"
@@ -36,7 +36,6 @@ class LvglController {
   UartLink uart_;
   CompanionState state_;
   TFT_eSPI& tft_;
-  XPT2046_Touchscreen touch_;
   Preferences prefs_;
 
   bool sdLoggingEnabled_ = false;
@@ -71,6 +70,16 @@ class LvglController {
   int32_t calibrationRawX_[4] = {0, 0, 0, 0};
   int32_t calibrationRawY_[4] = {0, 0, 0, 0};
 
+  bool touchDebugPressed_ = false;
+  bool touchDebugIrqPressed_ = false;
+  bool touchDebugMapOk_ = false;
+  int32_t touchDebugRawX_ = -1;
+  int32_t touchDebugRawY_ = -1;
+  int32_t touchDebugRawZ_ = -1;
+  int32_t touchDebugMapX_ = -1;
+  int32_t touchDebugMapY_ = -1;
+  uint32_t touchDebugTs_ = 0;
+
   String cmdMsg_;
   bool cmdOk_ = true;
   uint32_t cmdTs_ = 0;
@@ -96,6 +105,7 @@ class LvglController {
   lv_obj_t* companionBatteryLabel_ = nullptr;
   lv_obj_t* cmdStatusLabel_ = nullptr;
   lv_obj_t* alertLabel_ = nullptr;
+  lv_obj_t* touchDebugLabel_ = nullptr;
 
   lv_obj_t* calibrationOverlay_ = nullptr;
   lv_obj_t* calibrationInstrLabel_ = nullptr;
@@ -117,6 +127,7 @@ class LvglController {
 
   void loadTouchCalibration();
   void saveTouchCalibration();
+  bool readTouchRaw(int32_t& rawX, int32_t& rawY, int32_t& rawZ);
   bool mapTouchToScreen(int rawX, int rawY, int& outX, int& outY) const;
 
   void startCalibration();

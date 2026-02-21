@@ -2,6 +2,7 @@
 
 #include <esp_heap_caps.h>
 #include <math.h>
+#include <SPI.h>
 
 namespace {
 
@@ -73,8 +74,7 @@ static lv_obj_t* makeActionButton(lv_obj_t* parent, const char* text, lv_event_c
 LvglController::LvglController(TFT_eSPI& tft, const String& host, uint16_t port)
     : api_(host, port),
       uart_(companionUartPort(), UART_BAUD, UART_RX_PIN, UART_TX_PIN),
-      tft_(tft),
-      touch_(TOUCH_CS_PIN, TOUCH_IRQ_PIN) {}
+      tft_(tft) {}
 
 void LvglController::initLvgl() {
   lv_init();
@@ -178,6 +178,18 @@ void LvglController::buildUi() {
   alertLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(alertLabel_, lv_color_hex(0xff8181), 0);
   lv_obj_align(alertLabel_, LV_ALIGN_BOTTOM_RIGHT, 0, -8);
+
+  touchDebugLabel_ = lv_label_create(telemetryPanel_);
+  lv_obj_set_width(touchDebugLabel_, 162);
+  lv_label_set_long_mode(touchDebugLabel_, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_text_align(touchDebugLabel_, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_set_style_bg_opa(touchDebugLabel_, LV_OPA_70, 0);
+  lv_obj_set_style_bg_color(touchDebugLabel_, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_radius(touchDebugLabel_, 6, 0);
+  lv_obj_set_style_pad_all(touchDebugLabel_, 4, 0);
+  lv_obj_set_style_text_color(touchDebugLabel_, lv_color_hex(0x9aa8c5), 0);
+  lv_obj_align(touchDebugLabel_, LV_ALIGN_TOP_RIGHT, 0, 0);
+  lv_label_set_text(touchDebugLabel_, "TOUCH init");
 
   panelQuickToggle_ = lv_btn_create(telemetryPanel_);
   lv_obj_set_size(panelQuickToggle_, 44, 34);
@@ -342,9 +354,6 @@ void LvglController::begin() {
   tft_.setRotation(1);
   tft_.fillScreen(TFT_BLACK);
 
-  touch_.begin();
-  touch_.setRotation(1);
-
 #if COMPANION_LINK_UART
   pinMode(COMPANION_BAT_ADC_PIN, INPUT);
 #endif
@@ -434,8 +443,23 @@ bool LvglController::mapTouchToScreen(int rawX, int rawY, int& outX, int& outY) 
   const long sy = map(rawY, touchCal_.yMin, touchCal_.yMax, 0, kScreenHeight - 1);
 
   outX = constrain(static_cast<int>(sx), 0, kScreenWidth - 1);
-  outY = constrain(static_cast<int>(sy), 0, kScreenHeight - 1);
+  outY = constrain(sy, 0, kScreenHeight - 1);
   return true;
+}
+
+bool LvglController::readTouchRaw(int32_t& rawX, int32_t& rawY, int32_t& rawZ) {
+  uint16_t x = 0;
+  uint16_t y = 0;
+  rawZ = static_cast<int32_t>(tft_.getTouchRawZ());
+  if (rawZ < 600) {
+    return false;
+  }
+  if (!tft_.getTouchRaw(&x, &y)) {
+    return false;
+  }
+  rawX = static_cast<int32_t>(x);
+  rawY = static_cast<int32_t>(y);
+  return (rawX >= 0 && rawY >= 0 && rawX <= 4095 && rawY <= 4095);
 }
 
 void LvglController::setCommandStatus(const String& msg, bool ok) {
@@ -541,6 +565,10 @@ void LvglController::startCalibration() {
   calibrationActive_ = true;
   calibrationTouchLatch_ = false;
   calibrationStep_ = 0;
+  touchDebugPressed_ = false;
+  touchDebugIrqPressed_ = false;
+  touchDebugMapOk_ = false;
+  touchDebugRawZ_ = -1;
   lv_obj_clear_flag(calibrationOverlay_, LV_OBJ_FLAG_HIDDEN);
   lv_label_set_text(calibrationRawLabel_, "Waiting for touch...");
   advanceCalibrationTarget();
@@ -595,8 +623,16 @@ void LvglController::handleCalibrationTouch() {
     return;
   }
 
-  if (!touch_.touched()) {
+  int32_t rawX = -1;
+  int32_t rawY = -1;
+  int32_t rawZ = -1;
+  if (!readTouchRaw(rawX, rawY, rawZ)) {
     calibrationTouchLatch_ = false;
+    touchDebugPressed_ = false;
+    touchDebugMapOk_ = false;
+    touchDebugRawX_ = -1;
+    touchDebugRawY_ = -1;
+    touchDebugRawZ_ = -1;
     return;
   }
 
@@ -604,12 +640,21 @@ void LvglController::handleCalibrationTouch() {
     return;
   }
 
-  TS_Point p = touch_.getPoint();
+  touchDebugPressed_ = true;
+  touchDebugRawX_ = rawX;
+  touchDebugRawY_ = rawY;
+  touchDebugRawZ_ = rawZ;
+#if TOUCH_IRQ_PIN >= 0
+  touchDebugIrqPressed_ = (digitalRead(TOUCH_IRQ_PIN) == LOW);
+#else
+  touchDebugIrqPressed_ = false;
+#endif
+  touchDebugTs_ = millis();
   if (calibrationStep_ < kCalPointCount) {
-    calibrationRawX_[calibrationStep_] = p.x;
-    calibrationRawY_[calibrationStep_] = p.y;
+    calibrationRawX_[calibrationStep_] = rawX;
+    calibrationRawY_[calibrationStep_] = rawY;
 
-    lv_label_set_text_fmt(calibrationRawLabel_, "Raw sample: %d,%d", p.x, p.y);
+    lv_label_set_text_fmt(calibrationRawLabel_, "Raw sample: %d,%d", static_cast<int>(rawX), static_cast<int>(rawY));
 
     calibrationStep_++;
     if (calibrationStep_ >= kCalPointCount) {
@@ -673,6 +718,25 @@ void LvglController::refreshUi() {
     alert = "Nominal";
   }
   lv_label_set_text(alertLabel_, alert.c_str());
+
+  const uint32_t touchAgeMs = (touchDebugTs_ == 0) ? 0 : (millis() - touchDebugTs_);
+  String raw = "--,--";
+  if (touchDebugRawX_ >= 0 && touchDebugRawY_ >= 0) {
+    raw = String(touchDebugRawX_) + "," + String(touchDebugRawY_);
+  }
+  const String rawZ = (touchDebugRawZ_ >= 0) ? String(touchDebugRawZ_) : String("--");
+  String mapped = "n/a";
+  if (touchDebugMapOk_) {
+    mapped = String(touchDebugMapX_) + "," + String(touchDebugMapY_);
+  }
+#if TOUCH_IRQ_PIN >= 0
+  const char* irqText = touchDebugIrqPressed_ ? "DOWN" : "UP";
+#else
+  const char* irqText = "NA";
+#endif
+  lv_label_set_text_fmt(touchDebugLabel_, "TOUCH %s IRQ %s\nRAW %s Z %s\nMAP %s\nAGE %lums",
+                        touchDebugPressed_ ? "DOWN" : "UP", irqText, raw.c_str(), rawZ.c_str(),
+                        mapped.c_str(), static_cast<unsigned long>(touchAgeMs));
 
   lv_timer_handler();
 }
@@ -738,22 +802,50 @@ void LvglController::readTouchCb(lv_indev_drv_t* indev, lv_indev_data_t* data) {
   LvglController* self = static_cast<LvglController*>(indev->user_data);
 
   if (self->calibrationActive_) {
+    self->touchDebugPressed_ = false;
+    self->touchDebugMapOk_ = false;
+    self->touchDebugRawZ_ = -1;
     data->state = LV_INDEV_STATE_REL;
     return;
   }
 
-  if (!self->touch_.touched()) {
+#if TOUCH_IRQ_PIN >= 0
+  self->touchDebugIrqPressed_ = (digitalRead(TOUCH_IRQ_PIN) == LOW);
+#else
+  self->touchDebugIrqPressed_ = false;
+#endif
+
+  int32_t rawX = -1;
+  int32_t rawY = -1;
+  int32_t rawZ = -1;
+  const bool touched = self->readTouchRaw(rawX, rawY, rawZ);
+  self->touchDebugRawX_ = rawX;
+  self->touchDebugRawY_ = rawY;
+  self->touchDebugRawZ_ = rawZ;
+  self->touchDebugTs_ = millis();
+
+  if (!touched) {
+    self->touchDebugPressed_ = false;
+    self->touchDebugMapOk_ = false;
+    self->touchDebugRawX_ = -1;
+    self->touchDebugRawY_ = -1;
+    self->touchDebugRawZ_ = -1;
     data->state = LV_INDEV_STATE_REL;
     return;
   }
+  self->touchDebugPressed_ = true;
 
-  TS_Point p = self->touch_.getPoint();
   int x = 0;
   int y = 0;
-  if (!self->mapTouchToScreen(p.x, p.y, x, y)) {
+  if (!self->mapTouchToScreen(rawX, rawY, x, y)) {
+    self->touchDebugMapOk_ = false;
     data->state = LV_INDEV_STATE_REL;
     return;
   }
+
+  self->touchDebugMapOk_ = true;
+  self->touchDebugMapX_ = x;
+  self->touchDebugMapY_ = y;
 
   data->state = LV_INDEV_STATE_PR;
   data->point.x = x;

@@ -1,4 +1,4 @@
-#if !defined(TOUCH_ECHO_TEST) && !defined(TTY_ECHO_TEST)
+#if !defined(TOUCH_ECHO_TEST) && !defined(TTY_ECHO_TEST) && !defined(TOUCH_PROBE_TEST)
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -100,4 +100,4 @@ void loop() {
   delay(10);
 }
 
-#endif  // !TOUCH_ECHO_TEST && !TTY_ECHO_TEST
+#endif  // !TOUCH_ECHO_TEST && !TTY_ECHO_TEST && !TOUCH_PROBE_TEST

@@ -1,6 +1,7 @@
 #include "controller.h"
 
 #include "config.h"
+#include <SPI.h>
 
 #ifndef COMPANION_BAT_ADC_PIN
 #define COMPANION_BAT_ADC_PIN 34
@@ -67,6 +68,10 @@ void Controller::updateCompanionBattery() {
 void Controller::begin() {
   screen_.begin();
   touch_.begin();
+#if defined(ESP32)
+  // XPT2046_Touchscreen::begin() resets SPI to default pins.
+  SPI.begin(TFT_SCLK, TFT_MISO, TFT_MOSI, TOUCH_CS_PIN);
+#endif
   touch_.setRotation(1);
 #if COMPANION_LINK_UART
   pinMode(COMPANION_BAT_ADC_PIN, INPUT);

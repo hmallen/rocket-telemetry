@@ -24,12 +24,17 @@
 
 // UART link settings (used when COMPANION_LINK_UART=1)
 #define UART_BAUD 115200
-#define UART_RX_PIN 32
-#define UART_TX_PIN 25
+#define UART_RX_PIN 3
+#define UART_TX_PIN 1
 
 // XPT2046 touch controller pins (adjust to your wiring)
-#define TOUCH_CS_PIN 33
-#define TOUCH_IRQ_PIN 36
+#define TOUCH_CS_PIN 12
+//#define TOUCH_CS_PIN 33
+//#define TOUCH_IRQ_PIN 36
+#define TOUCH_IRQ_PIN -1
+#define TOUCH_SCLK_PIN TFT_SCLK
+#define TOUCH_MISO_PIN TFT_MISO
+#define TOUCH_MOSI_PIN TFT_MOSI
 
 // Touch calibration bounds (raw ADC values from your panel)
 // Update after calibration for accurate button taps.
