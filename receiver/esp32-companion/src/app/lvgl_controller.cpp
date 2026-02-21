@@ -190,6 +190,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_text_color(touchDebugLabel_, lv_color_hex(0x9aa8c5), 0);
   lv_obj_align(touchDebugLabel_, LV_ALIGN_TOP_RIGHT, 0, 0);
   lv_label_set_text(touchDebugLabel_, "TOUCH init");
+  lv_obj_add_flag(touchDebugLabel_, LV_OBJ_FLAG_HIDDEN);
 
   panelQuickToggle_ = lv_btn_create(telemetryPanel_);
   lv_obj_set_size(panelQuickToggle_, 44, 34);
@@ -443,7 +444,7 @@ bool LvglController::mapTouchToScreen(int rawX, int rawY, int& outX, int& outY) 
   const long sy = map(rawY, touchCal_.yMin, touchCal_.yMax, 0, kScreenHeight - 1);
 
   outX = constrain(static_cast<int>(sx), 0, kScreenWidth - 1);
-  outY = constrain(sy, 0, kScreenHeight - 1);
+  outY = constrain(static_cast<int>(sy), 0, kScreenHeight - 1);
   return true;
 }
 
@@ -718,25 +719,6 @@ void LvglController::refreshUi() {
     alert = "Nominal";
   }
   lv_label_set_text(alertLabel_, alert.c_str());
-
-  const uint32_t touchAgeMs = (touchDebugTs_ == 0) ? 0 : (millis() - touchDebugTs_);
-  String raw = "--,--";
-  if (touchDebugRawX_ >= 0 && touchDebugRawY_ >= 0) {
-    raw = String(touchDebugRawX_) + "," + String(touchDebugRawY_);
-  }
-  const String rawZ = (touchDebugRawZ_ >= 0) ? String(touchDebugRawZ_) : String("--");
-  String mapped = "n/a";
-  if (touchDebugMapOk_) {
-    mapped = String(touchDebugMapX_) + "," + String(touchDebugMapY_);
-  }
-#if TOUCH_IRQ_PIN >= 0
-  const char* irqText = touchDebugIrqPressed_ ? "DOWN" : "UP";
-#else
-  const char* irqText = "NA";
-#endif
-  lv_label_set_text_fmt(touchDebugLabel_, "TOUCH %s IRQ %s\nRAW %s Z %s\nMAP %s\nAGE %lums",
-                        touchDebugPressed_ ? "DOWN" : "UP", irqText, raw.c_str(), rawZ.c_str(),
-                        mapped.c_str(), static_cast<unsigned long>(touchAgeMs));
 
   lv_timer_handler();
 }
