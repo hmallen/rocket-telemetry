@@ -35,6 +35,14 @@ constexpr uint32_t kBatterySampleIntervalMs = COMPANION_BAT_SAMPLE_INTERVAL_MS;
 constexpr float kCompanionBatAdcRefV = 3.3f;
 constexpr float kCompanionBatAdcMaxCounts = 4095.0f;
 
+static HardwareSerial& companionUartPort() {
+#if (UART_RX_PIN == 3) && (UART_TX_PIN == 1)
+  return Serial;
+#else
+  return Serial2;
+#endif
+}
+
 static String formatFloat(float value, uint8_t decimals, const char* fallback = "---") {
   if (isnan(value)) {
     return String(fallback);
@@ -64,7 +72,7 @@ static lv_obj_t* makeActionButton(lv_obj_t* parent, const char* text, lv_event_c
 
 LvglController::LvglController(TFT_eSPI& tft, const String& host, uint16_t port)
     : api_(host, port),
-      uart_(Serial2, UART_BAUD, UART_RX_PIN, UART_TX_PIN),
+      uart_(companionUartPort(), UART_BAUD, UART_RX_PIN, UART_TX_PIN),
       tft_(tft),
       touch_(TOUCH_CS_PIN, TOUCH_IRQ_PIN) {}
 
