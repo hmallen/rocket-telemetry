@@ -21,6 +21,8 @@ enum CmdType : uint8_t {
   CMD_SD_START = 0x01,
   CMD_SD_STOP = 0x02,
   CMD_BUZZER = 0x03,
+  CMD_TELEM_ENABLE = 0x04,
+  CMD_TELEM_DISABLE = 0x05,
 };
 
 #pragma pack(push, 1)

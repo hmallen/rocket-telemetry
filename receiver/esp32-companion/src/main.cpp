@@ -10,26 +10,30 @@
 #error "Missing include/config.h. Copy include/config.h.example to include/config.h and set values."
 #endif
 
-#include "app/controller.h"
+#include "app/lvgl_controller.h"
 
 TFT_eSPI tft = TFT_eSPI();
-Controller* controller = nullptr;
+LvglController* controller = nullptr;
 
 static void runDisplaySelfTest() {
 #if DISPLAY_TEST_SCREEN
   tft.init();
   tft.setRotation(1);
 
-  // RGB bars for quick visual verification.
-  tft.fillRect(0, 0, 106, 160, TFT_RED);
-  tft.fillRect(106, 0, 106, 160, TFT_GREEN);
-  tft.fillRect(212, 0, 108, 160, TFT_BLUE);
+  const int w = tft.width();
+  const int h = tft.height();
+  const int barW = w / 3;
 
-  tft.fillRect(0, 160, 320, 80, TFT_BLACK);
+  // RGB bars for quick visual verification.
+  tft.fillRect(0, 0, barW, h / 2, TFT_RED);
+  tft.fillRect(barW, 0, barW, h / 2, TFT_GREEN);
+  tft.fillRect(2 * barW, 0, w - (2 * barW), h / 2, TFT_BLUE);
+
+  tft.fillRect(0, h / 2, w, h / 2, TFT_BLACK);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.setTextFont(2);
-  tft.drawString("ESP32 Companion Display Test", 8, 172);
-  tft.drawString("If you can read this, LCD+BL are OK", 8, 194);
+  tft.drawString("ESP32 Companion Display Test", 8, (h / 2) + 12);
+  tft.drawString("If you can read this, LCD+BL are OK", 8, (h / 2) + 34);
 
   delay(2000);
 #endif
@@ -76,7 +80,7 @@ void setup() {
     connectWifi();
   }
 
-  controller = new Controller(tft, String(GS_HOST), static_cast<uint16_t>(GS_PORT));
+  controller = new LvglController(tft, String(GS_HOST), static_cast<uint16_t>(GS_PORT));
   controller->begin();
 }
 

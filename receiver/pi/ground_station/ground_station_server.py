@@ -1029,6 +1029,8 @@ class CompanionUartBridge:
     CMD_SD_START = 0x01
     CMD_SD_STOP = 0x02
     CMD_BUZZER = 0x03
+    CMD_TELEM_ENABLE = 0x04
+    CMD_TELEM_DISABLE = 0x05
 
     def __init__(self, port, baud):
         self._port = port
@@ -1163,6 +1165,10 @@ class CompanionUartBridge:
             ok, error = send_lora_command("sd_stop")
         elif cmd == self.CMD_BUZZER:
             ok, error = send_lora_command("buzzer", int(arg))
+        elif cmd == self.CMD_TELEM_ENABLE:
+            ok, error = send_lora_command("telemetry_enable")
+        elif cmd == self.CMD_TELEM_DISABLE:
+            ok, error = send_lora_command("telemetry_disable")
         else:
             ok, error = False, "Unknown UART command"
 

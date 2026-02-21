@@ -75,6 +75,12 @@ bool UartLink::sendCommand(const String& action, int durationS) {
   } else if (action == "buzzer") {
     cmd.cmd = CMD_BUZZER;
     cmd.arg = static_cast<uint8_t>(durationS);
+  } else if (action == "telemetry_enable") {
+    cmd.cmd = CMD_TELEM_ENABLE;
+    cmd.arg = 0;
+  } else if (action == "telemetry_disable") {
+    cmd.cmd = CMD_TELEM_DISABLE;
+    cmd.arg = 0;
   } else {
     return false;
   }
