@@ -27,39 +27,35 @@ constexpr float kCompanionBatAdcRefV = 3.3f;
 constexpr float kCompanionBatAdcMaxCounts = 4095.0f;
 }
 
+// ── Static member definitions ──────────────────────────────────────────────
+Controller* Controller::instance_ = nullptr;
+
+// ── Command callback (called by MainScreen LVGL button handlers) ───────────
+
+bool Controller::sendCommandCb(const char* action, int durationS) {
+  if (!instance_) return false;
+  if (COMPANION_LINK_UART) {
+    return instance_->uart_.sendCommand(action, durationS);
+  } else {
+    return instance_->api_.sendCommand(action, durationS);
+  }
+}
+
+// ── Construction ───────────────────────────────────────────────────────────
+
 Controller::Controller(TFT_eSPI& tft, const String& host, uint16_t port)
     : api_(host, port),
       uart_(Serial2, UART_BAUD, UART_RX_PIN, UART_TX_PIN),
-      screen_(tft),
-      touch_(TOUCH_CS_PIN, TOUCH_IRQ_PIN) {}
+      screen_(tft) {}
 
-void Controller::updateCompanionBattery() {
-#if !COMPANION_LINK_UART
-  return;
-#endif
-
-  uint32_t now = millis();
-  if (lastCompanionBatSampleMs_ != 0 &&
-      (now - lastCompanionBatSampleMs_) < COMPANION_BAT_SAMPLE_INTERVAL_MS) {
-    return;
-  }
-  lastCompanionBatSampleMs_ = now;
-
-  uint32_t sum = 0;
-  for (uint8_t i = 0; i < COMPANION_BAT_ADC_SAMPLES; ++i) {
-    sum += static_cast<uint32_t>(analogRead(COMPANION_BAT_ADC_PIN));
-  }
-
-  float counts = static_cast<float>(sum) / static_cast<float>(COMPANION_BAT_ADC_SAMPLES);
-  float vadc = counts * (kCompanionBatAdcRefV / kCompanionBatAdcMaxCounts);
-  state_.battery.companionVbatV =
-      vadc * COMPANION_BAT_ADC_DIVIDER_SCALE * COMPANION_BAT_ADC_CAL_SCALE;
-}
+// ── begin() ────────────────────────────────────────────────────────────────
 
 void Controller::begin() {
-  screen_.begin();
-  touch_.begin();
-  touch_.setRotation(1);
+  instance_ = this;
+
+  screen_.setCommandCallback(sendCommandCb);
+  screen_.begin();  // inits TFT, LVGL drivers, and builds the full UI
+
 #if COMPANION_LINK_UART
   pinMode(COMPANION_BAT_ADC_PIN, INPUT);
 #endif
@@ -81,6 +77,8 @@ void Controller::begin() {
     sseConnected_ = api_.openEventStream();
   }
 }
+
+// ── Helpers ────────────────────────────────────────────────────────────────
 
 bool Controller::ensureConnected() {
   if (COMPANION_LINK_UART) return true;
@@ -113,6 +111,31 @@ void Controller::updateStaleness() {
   }
 }
 
+void Controller::updateCompanionBattery() {
+#if !COMPANION_LINK_UART
+  return;
+#endif
+
+  uint32_t now = millis();
+  if (lastCompanionBatSampleMs_ != 0 &&
+      (now - lastCompanionBatSampleMs_) < COMPANION_BAT_SAMPLE_INTERVAL_MS) {
+    return;
+  }
+  lastCompanionBatSampleMs_ = now;
+
+  uint32_t sum = 0;
+  for (uint8_t i = 0; i < COMPANION_BAT_ADC_SAMPLES; ++i) {
+    sum += static_cast<uint32_t>(analogRead(COMPANION_BAT_ADC_PIN));
+  }
+
+  float counts = static_cast<float>(sum) / static_cast<float>(COMPANION_BAT_ADC_SAMPLES);
+  float vadc = counts * (kCompanionBatAdcRefV / kCompanionBatAdcMaxCounts);
+  state_.battery.companionVbatV =
+      vadc * COMPANION_BAT_ADC_DIVIDER_SCALE * COMPANION_BAT_ADC_CAL_SCALE;
+}
+
+// ── tick() ─────────────────────────────────────────────────────────────────
+
 void Controller::tick() {
   ensureConnected();
   updateCompanionBattery();
@@ -138,76 +161,6 @@ void Controller::tick() {
     }
   }
 
-  handleTouch();
   updateStaleness();
-  if (mode_ == UiMode::DASHBOARD) {
-    screen_.render(state_);
-  }
-}
-
-bool Controller::inside(int x, int y, int bx, int by, int bw, int bh) {
-  return x >= bx && x <= (bx + bw) && y >= by && y <= (by + bh);
-}
-
-bool Controller::mapTouchToScreen(int rawX, int rawY, int& outX, int& outY) {
-  if (TOUCH_X_MAX <= TOUCH_X_MIN || TOUCH_Y_MAX <= TOUCH_Y_MIN) return false;
-  if (TOUCH_SWAP_XY) {
-    int tmp = rawX;
-    rawX = rawY;
-    rawY = tmp;
-  }
-  long sx = map(rawX, TOUCH_X_MIN, TOUCH_X_MAX, 0, 319);
-  long sy = map(rawY, TOUCH_Y_MIN, TOUCH_Y_MAX, 0, 239);
-  outX = constrain((int)sx, 0, 319);
-  outY = constrain((int)sy, 0, 239);
-  return true;
-}
-
-void Controller::handleTouch() {
-  if (!touch_.touched()) return;
-  uint32_t now = millis();
-  if (now - lastTouchMs_ < 250) return;  // debounce
-
-  TS_Point p = touch_.getPoint();
-  int x = 0, y = 0;
-  if (!mapTouchToScreen(p.x, p.y, x, y)) return;
-
-  if (mode_ == UiMode::CALIBRATION) {
-    screen_.renderCalibration(p.x, p.y, x, y, true);
-    if (x > 280 && y < 40) {
-      mode_ = UiMode::DASHBOARD;
-      lastTouchMs_ = now;
-    }
-    return;
-  }
-
-  // Enter calibration mode from top-left corner.
-  if (x < 40 && y < 40) {
-    mode_ = UiMode::CALIBRATION;
-    screen_.renderCalibration(p.x, p.y, x, y, true);
-    lastTouchMs_ = now;
-    return;
-  }
-
-  const auto& b = screen_.buttons();
-  bool sent = false;
-
-  if (inside(x, y, b.buzz1X, b.buzz1Y, b.buzz1W, b.buzz1H)) {
-    sent = COMPANION_LINK_UART ? uart_.sendCommand("buzzer", 1) : api_.sendCommand("buzzer", 1);
-    screen_.setCommandStatus(sent ? "BUZZ 1s sent" : "BUZZ 1s failed", sent);
-  } else if (inside(x, y, b.buzz5X, b.buzz5Y, b.buzz5W, b.buzz5H)) {
-    sent = COMPANION_LINK_UART ? uart_.sendCommand("buzzer", 5) : api_.sendCommand("buzzer", 5);
-    screen_.setCommandStatus(sent ? "BUZZ 5s sent" : "BUZZ 5s failed", sent);
-  } else if (inside(x, y, b.sdX, b.sdY, b.sdW, b.sdH)) {
-    sent = COMPANION_LINK_UART
-               ? uart_.sendCommand(sdLoggingEnabled_ ? "sd_stop" : "sd_start", 0)
-               : api_.sendCommand(sdLoggingEnabled_ ? "sd_stop" : "sd_start", 0);
-    if (sent) sdLoggingEnabled_ = !sdLoggingEnabled_;
-    screen_.setCommandStatus(
-        sent ? (sdLoggingEnabled_ ? "SD start sent" : "SD stop sent") : "SD cmd failed", sent);
-  }
-
-  if (sent) {
-    lastTouchMs_ = now;
-  }
+  screen_.update(state_);
 }
