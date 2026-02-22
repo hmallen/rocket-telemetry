@@ -149,8 +149,8 @@ constexpr int32_t  LORA_FLIGHT_PRESS_DELTA_PA_X10 = 5000;
 #define LORA_TX_ENABLE_AT_BOOT 0
 
 // ---------- Build toggles ----------
-#define ENABLE_SD_LOGGER 1
-#define ENABLE_SD_DUMP 1
+#define ENABLE_SD_LOGGER 0
+#define ENABLE_SD_DUMP 0
 #define ENABLE_PSRAM_SPOOL 1
 #define ENABLE_GNSS 1
 #define ENABLE_SENSORS 1
