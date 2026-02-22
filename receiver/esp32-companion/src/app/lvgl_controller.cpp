@@ -122,10 +122,11 @@ void LvglController::initLvgl() {
   lv_init();
 
   const size_t pixelCount = static_cast<size_t>(kScreenWidth) * kDrawBufferLines;
-  drawBufPixels_ = static_cast<lv_color_t*>(
-      heap_caps_malloc(pixelCount * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+  const size_t drawBufSize = pixelCount * sizeof(uint16_t);
+  drawBufPixels_ = static_cast<uint8_t*>(
+      heap_caps_malloc(drawBufSize, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
   if (drawBufPixels_ == nullptr) {
-    drawBufPixels_ = static_cast<lv_color_t*>(malloc(pixelCount * sizeof(lv_color_t)));
+    drawBufPixels_ = static_cast<uint8_t*>(malloc(drawBufSize));
   }
 
   if (drawBufPixels_ == nullptr) {
@@ -134,21 +135,23 @@ void LvglController::initLvgl() {
     }
   }
 
-  lv_disp_draw_buf_init(&drawBuf_, drawBufPixels_, nullptr, pixelCount);
+  display_ = lv_display_create(kScreenWidth, kScreenHeight);
+  if (display_ == nullptr) {
+    while (true) {
+      delay(1000);
+    }
+  }
 
-  lv_disp_drv_init(&dispDrv_);
-  dispDrv_.hor_res = kScreenWidth;
-  dispDrv_.ver_res = kScreenHeight;
-  dispDrv_.flush_cb = flushDisplayCb;
-  dispDrv_.draw_buf = &drawBuf_;
-  dispDrv_.user_data = this;
-  lv_disp_drv_register(&dispDrv_);
+  lv_display_set_color_format(display_, LV_COLOR_FORMAT_RGB565);
+  lv_display_set_buffers(display_, drawBufPixels_, nullptr, drawBufSize, LV_DISPLAY_RENDER_MODE_PARTIAL);
+  lv_display_set_flush_cb(display_, flushDisplayCb);
+  lv_display_set_user_data(display_, this);
 
-  lv_indev_drv_init(&indevDrv_);
-  indevDrv_.type = LV_INDEV_TYPE_POINTER;
-  indevDrv_.read_cb = readTouchCb;
-  indevDrv_.user_data = this;
-  touchIndev_ = lv_indev_drv_register(&indevDrv_);
+  touchIndev_ = lv_indev_create();
+  lv_indev_set_type(touchIndev_, LV_INDEV_TYPE_POINTER);
+  lv_indev_set_read_cb(touchIndev_, readTouchCb);
+  lv_indev_set_user_data(touchIndev_, this);
+  lv_indev_set_display(touchIndev_, display_);
   (void)touchIndev_;
 }
 
@@ -1107,21 +1110,32 @@ void LvglController::tick() {
   }
 }
 
-void LvglController::flushDisplayCb(lv_disp_drv_t* disp, const lv_area_t* area, lv_color_t* colorP) {
-  LvglController* self = static_cast<LvglController*>(disp->user_data);
+void LvglController::flushDisplayCb(lv_display_t* disp, const lv_area_t* area, uint8_t* pxMap) {
+  LvglController* self = static_cast<LvglController*>(lv_display_get_user_data(disp));
+  if (self == nullptr) {
+    lv_display_flush_ready(disp);
+    return;
+  }
   const uint32_t w = static_cast<uint32_t>(area->x2 - area->x1 + 1);
   const uint32_t h = static_cast<uint32_t>(area->y2 - area->y1 + 1);
 
   self->tft_.startWrite();
   self->tft_.setAddrWindow(area->x1, area->y1, w, h);
-  self->tft_.pushColors(reinterpret_cast<uint16_t*>(&colorP->full), w * h, true);
+  self->tft_.pushColors(reinterpret_cast<uint16_t*>(pxMap), w * h, true);
   self->tft_.endWrite();
 
-  lv_disp_flush_ready(disp);
+  lv_display_flush_ready(disp);
 }
 
-void LvglController::readTouchCb(lv_indev_drv_t* indev, lv_indev_data_t* data) {
-  LvglController* self = static_cast<LvglController*>(indev->user_data);
+void LvglController::readTouchCb(lv_indev_t* indev, lv_indev_data_t* data) {
+  LvglController* self = static_cast<LvglController*>(lv_indev_get_user_data(indev));
+  if (self == nullptr) {
+    data->state = LV_INDEV_STATE_REL;
+    data->point.x = 0;
+    data->point.y = 0;
+    data->continue_reading = false;
+    return;
+  }
   data->continue_reading = false;
 
   if (self->calibrationActive_) {

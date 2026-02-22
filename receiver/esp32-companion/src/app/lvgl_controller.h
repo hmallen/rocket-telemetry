@@ -64,10 +64,8 @@ class LvglController {
   bool lastStale_ = true;
   String lastPrimaryAlert_;
 
-  lv_disp_draw_buf_t drawBuf_{};
-  lv_color_t* drawBufPixels_ = nullptr;
-  lv_disp_drv_t dispDrv_{};
-  lv_indev_drv_t indevDrv_{};
+  uint8_t* drawBufPixels_ = nullptr;
+  lv_display_t* display_ = nullptr;
   lv_indev_t* touchIndev_ = nullptr;
 
   TouchCalibration touchCal_{};
@@ -160,8 +158,8 @@ class LvglController {
   void advanceCalibrationTarget();
   bool completeCalibration();
 
-  static void flushDisplayCb(lv_disp_drv_t* disp, const lv_area_t* area, lv_color_t* colorP);
-  static void readTouchCb(lv_indev_drv_t* indev, lv_indev_data_t* data);
+  static void flushDisplayCb(lv_display_t* disp, const lv_area_t* area, uint8_t* pxMap);
+  static void readTouchCb(lv_indev_t* indev, lv_indev_data_t* data);
 
   static void onPanelToggleEvent(lv_event_t* e);
   static void onSettingsToggleEvent(lv_event_t* e);
