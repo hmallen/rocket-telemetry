@@ -1,6 +1,7 @@
 #include "controller.h"
 
 #include "config.h"
+#include <SPI.h>
 
 #ifndef COMPANION_BAT_ADC_PIN
 #define COMPANION_BAT_ADC_PIN 34
@@ -25,11 +26,19 @@
 namespace {
 constexpr float kCompanionBatAdcRefV = 3.3f;
 constexpr float kCompanionBatAdcMaxCounts = 4095.0f;
+
+static HardwareSerial& companionUartPort() {
+#if (UART_RX_PIN == 3) && (UART_TX_PIN == 1)
+  return Serial;
+#else
+  return Serial2;
+#endif
+}
 }
 
 Controller::Controller(TFT_eSPI& tft, const String& host, uint16_t port)
     : api_(host, port),
-      uart_(Serial2, UART_BAUD, UART_RX_PIN, UART_TX_PIN),
+      uart_(companionUartPort(), UART_BAUD, UART_RX_PIN, UART_TX_PIN),
       screen_(tft),
       touch_(TOUCH_CS_PIN, TOUCH_IRQ_PIN) {}
 
@@ -59,6 +68,10 @@ void Controller::updateCompanionBattery() {
 void Controller::begin() {
   screen_.begin();
   touch_.begin();
+#if defined(ESP32)
+  // XPT2046_Touchscreen::begin() resets SPI to default pins.
+  SPI.begin(TFT_SCLK, TFT_MISO, TFT_MOSI, TOUCH_CS_PIN);
+#endif
   touch_.setRotation(1);
 #if COMPANION_LINK_UART
   pinMode(COMPANION_BAT_ADC_PIN, INPUT);

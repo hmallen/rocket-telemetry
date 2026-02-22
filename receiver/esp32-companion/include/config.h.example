@@ -10,9 +10,9 @@
 #define GS_PORT 8000
 
 // Companion transport mode:
-// 0 = Wi-Fi API/SSE (default)
-// 1 = direct UART link to Pi ground station
-#define COMPANION_LINK_UART 0
+// 0 = Wi-Fi API/SSE
+// 1 = direct UART link to Pi ground station (default for CrowPanel ground station)
+#define COMPANION_LINK_UART 1
 
 // Optional auth token for /api/companion/cmd.
 // Keep empty if not configured on ground station.
@@ -23,15 +23,15 @@
 
 // UART link settings (used when COMPANION_LINK_UART=1)
 #define UART_BAUD 115200
-// LCDWiki E32R32P UART header is wired to ESP32 UART0: RXD0(IO3), TXD0(IO1)
-// (per LCDWiki pin assignment table).
+// CrowPanel 3.5 HMI UART header is routed to ESP32 UART0 on most revisions.
+// Keep RX/TX at 3/1 unless your hardware docs specify different pins.
 #define UART_RX_PIN 3
 #define UART_TX_PIN 1
 
 // Set to 1 for periodic UART debug logs on USB serial monitor.
 #define COMPANION_UART_DEBUG 0
 
-// XPT2046 touch controller pins (adjust to your wiring)
+// XPT2046 touch controller pins (CrowPanel 3.5 defaults shown)
 #define TOUCH_CS_PIN 33
 #define TOUCH_IRQ_PIN 36
 
@@ -47,7 +47,8 @@
 #define COMPANION_BAT_SAMPLE_INTERVAL_MS 1000
 
 // Touch calibration bounds (raw ADC values from your panel)
-// Update after calibration for accurate button taps.
+// Bootstrap values only: the LVGL settings menu can run calibration and
+// persists measured bounds to NVS automatically.
 #define TOUCH_X_MIN 200
 #define TOUCH_X_MAX 3900
 #define TOUCH_Y_MIN 200

@@ -10,7 +10,14 @@ using namespace companion_proto;
 UartLink::UartLink(HardwareSerial& serial, uint32_t baud, int rxPin, int txPin)
     : serial_(serial), baud_(baud), rxPin_(rxPin), txPin_(txPin) {}
 
-void UartLink::begin() { serial_.begin(baud_, SERIAL_8N1, rxPin_, txPin_); }
+void UartLink::begin() {
+  if (&serial_ == &Serial) {
+    // UART0 is fixed on GPIO3/GPIO1; do not pass remap pins.
+    serial_.begin(baud_);
+    return;
+  }
+  serial_.begin(baud_, SERIAL_8N1, rxPin_, txPin_);
+}
 
 void UartLink::applyTelemetry(const TelemetryV1& t, CompanionState& ioState) {
   ioState.tsMs = millis();
@@ -29,6 +36,11 @@ void UartLink::applyTelemetry(const TelemetryV1& t, CompanionState& ioState) {
 
   ioState.battery.telemetryVbatV = static_cast<float>(t.vbat_mv) / 1000.0f;
   ioState.battery.label = ioState.battery.telemetryVbatV < 3.5f ? "LOW" : "OK";
+
+  ioState.hasSdLoggingState = true;
+  ioState.sdLoggingEnabled = (t.flags & 0x08) != 0;
+  ioState.hasTelemetryTxState = true;
+  ioState.telemetryTxEnabled = (t.flags & 0x10) != 0;
 
   ioState.stale = false;
 }
@@ -75,6 +87,12 @@ bool UartLink::sendCommand(const String& action, int durationS) {
   } else if (action == "buzzer") {
     cmd.cmd = CMD_BUZZER;
     cmd.arg = static_cast<uint8_t>(durationS);
+  } else if (action == "telemetry_enable") {
+    cmd.cmd = CMD_TELEM_ENABLE;
+    cmd.arg = 0;
+  } else if (action == "telemetry_disable") {
+    cmd.cmd = CMD_TELEM_DISABLE;
+    cmd.arg = 0;
   } else {
     return false;
   }
