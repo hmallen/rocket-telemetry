@@ -2,7 +2,9 @@ import copy
 import json
 import math
 import mimetypes
+import os
 import queue
+import struct
 import sys
 import threading
 import time
@@ -13,20 +15,58 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 try:
-    import adafruit_ssd1306
-    import board
-    import busio
+    import serial  # pyserial
 except Exception:  # pylint: disable=broad-except
-    adafruit_ssd1306 = None
-    board = None
-    busio = None
+    serial = None
 
-try:
-    from PIL import Image, ImageDraw, ImageFont
-except Exception:  # pylint: disable=broad-except
-    Image = None
-    ImageDraw = None
-    ImageFont = None
+
+def _load_env_file():
+    """Load environment variables from .env files if present.
+
+    Search order:
+    1) Path in GS_ENV_FILE (if set)
+    2) receiver/pi/ground_station/.env
+    3) receiver/pi/.env
+
+    Existing environment variables are not overwritten.
+    """
+
+    candidates = []
+    env_override = os.environ.get("GS_ENV_FILE")
+    if env_override:
+        candidates.append(Path(env_override).expanduser())
+
+    here = Path(__file__).resolve().parent
+    candidates.append(here / ".env")
+    candidates.append(here.parent / ".env")
+
+    for env_path in candidates:
+        try:
+            if not env_path.exists() or not env_path.is_file():
+                continue
+            for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("export "):
+                    line = line[7:].strip()
+                if "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+                if not key:
+                    continue
+                if value and ((value[0] == value[-1]) and value[0] in ("'", '"')):
+                    value = value[1:-1]
+                os.environ.setdefault(key, value)
+            print(f"Loaded env from {env_path}")
+            return
+        except Exception as exc:  # pylint: disable=broad-except
+            print(f"Warning: failed loading env file {env_path}: {exc}")
+
+
+_load_env_file()
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -42,14 +82,19 @@ except ImportError as exc:  # pylint: disable=import-error
 
 # FIX: Bind to localhost only for security. Use SSH tunnel or firewall for remote access.
 # To allow remote access, set HOST="0.0.0.0" AND configure AUTH_TOKEN below.
-HOST = "127.0.0.1"
-PORT = 8000
+HOST = os.environ.get("HOST", "127.0.0.1")
+PORT = int(os.environ.get("PORT", "8000"))
 
 # FIX: Simple shared-secret authentication for command endpoints.
 # Set to None to disable auth (not recommended if HOST="0.0.0.0").
 # Generate a secure token with: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
-import os
 AUTH_TOKEN = os.environ.get("GS_AUTH_TOKEN", "CHANGE_ME_BEFORE_FLIGHT")
+
+# Optional direct UART bridge for ESP32 companion display (Pi <-> ESP32).
+COMPANION_UART_ENABLED = os.environ.get("GS_COMPANION_UART", "0") in ("1", "true", "TRUE", "yes")
+COMPANION_UART_PORT = os.environ.get("GS_COMPANION_UART_PORT", "/dev/serial0")
+COMPANION_UART_BAUD = int(os.environ.get("GS_COMPANION_UART_BAUD", "115200"))
+COMPANION_UART_DEBUG = os.environ.get("GS_COMPANION_UART_DEBUG", "0") in ("1", "true", "TRUE", "yes")
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 TILE_CACHE_DIR = STATIC_DIR / "tiles"
@@ -57,15 +102,6 @@ TILE_SOURCE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
 TILE_USER_AGENT = "RocketTelemetryGroundStation/1.0"
 TILE_REQUEST_TIMEOUT = 10
 MAX_TILE_REQUEST = 50000
-
-OLED_WIDTH = 128
-OLED_HEIGHT = 32
-OLED_I2C_ADDR = 0x3C
-OLED_LINE_HEIGHT = 8
-OLED_CHARS_PER_LINE = OLED_WIDTH // 6
-OLED_UPDATE_INTERVAL_S = 0.5
-OLED_FONT_SIZE = 8
-OLED_FONT_PATH = Path(__file__).resolve().parent / "resources" / "slkscr.ttf"
 
 mimetypes.add_type("text/css", ".css")
 mimetypes.add_type("text/javascript", ".js")
@@ -102,142 +138,6 @@ def _quat_to_euler(q0, q1, q2, q3):
     pitch = math.asin(_clamp(2.0 * (q0 * q2 - q3 * q1), -1.0, 1.0))
     yaw = math.atan2(2.0 * (q0 * q3 + q1 * q2), 1.0 - 2.0 * (q2 * q2 + q3 * q3))
     return roll * RAD_TO_DEG, pitch * RAD_TO_DEG, yaw * RAD_TO_DEG
-
-
-class OledStatusDisplay:
-    def __init__(self, width=OLED_WIDTH, height=OLED_HEIGHT, address=OLED_I2C_ADDR):
-        self._lock = threading.Lock()
-        self._enabled = False
-        self._display = None
-        self._i2c = None
-        self._font = None
-        self._disabled_reason = None
-        self._last_update_s = 0.0
-        self._update_interval_s = OLED_UPDATE_INTERVAL_S
-        self._chars_per_line = OLED_CHARS_PER_LINE
-        self._width = width
-        self._height = height
-
-        if "linux" not in sys.platform.lower():
-            self._disabled_reason = "Linux only"
-            return
-        if adafruit_ssd1306 is None or board is None or busio is None:
-            self._disabled_reason = "OLED dependencies missing"
-            return
-        if Image is None or ImageDraw is None or ImageFont is None:
-            self._disabled_reason = "Pillow not installed"
-            return
-
-        try:
-            self._i2c = busio.I2C(board.SCL, board.SDA)
-            self._display = adafruit_ssd1306.SSD1306_I2C(width, height, self._i2c, addr=address)
-            self._font = self._load_font()
-            self._display.fill(0)
-            self._display.show()
-            self._enabled = True
-            self._draw_lines(["Ground Station", "OLED ready", "Waiting data", ""])
-            print("OLED status display enabled")
-        except Exception as exc:  # pylint: disable=broad-except
-            self._disabled_reason = str(exc)
-            self._display = None
-            print("OLED status display disabled:", exc)
-
-    def _load_font(self):
-        if ImageFont is None:
-            return None
-        if OLED_FONT_PATH.exists():
-            try:
-                return ImageFont.truetype(str(OLED_FONT_PATH), OLED_FONT_SIZE)
-            except Exception as exc:  # pylint: disable=broad-except
-                print("OLED font load failed (%s): %s" % (OLED_FONT_PATH, exc))
-        else:
-            print("OLED font file not found at %s; falling back to default font" % OLED_FONT_PATH)
-
-        return ImageFont.load_default()
-
-    @staticmethod
-    def _fmt_voltage(value):
-        if value is None:
-            return "--"
-        return "%.2f" % value
-
-    def _build_lines(self, snapshot):
-        snapshot = snapshot or {}
-        radio = snapshot.get("radio") or {}
-        battery = snapshot.get("battery") or {}
-        monitor = snapshot.get("voltage_monitor") or {}
-        recovery = snapshot.get("recovery") or {}
-        gps = snapshot.get("gps") or {}
-
-        callsign = (snapshot.get("callsign") or "--")[:6]
-        packet_count = int(snapshot.get("packet_count") or 0)
-        rssi = radio.get("rssi_dbm")
-        rssi_text = "--" if rssi is None else "%d" % int(rssi)
-        line1 = "ID:%s P:%d R:%s" % (callsign, packet_count, rssi_text)
-
-        rocket_v = self._fmt_voltage(battery.get("vbat_v"))
-        rocket_state = (battery.get("bat_state_label") or "--")[:7]
-        line2 = "Rkt:%sV %s" % (rocket_v, rocket_state)
-
-        pi_batt_v = self._fmt_voltage(monitor.get("vbatt_v"))
-        pi_in_v = self._fmt_voltage(monitor.get("vin_v"))
-        line3 = "Pi:%sV In:%sV" % (pi_batt_v, pi_in_v)
-
-        if monitor.get("shutdown_triggered"):
-            line4 = "ALERT: PI SHUTDOWN"
-        elif monitor.get("last_error"):
-            line4 = "Err:%s" % monitor.get("last_error")
-        elif monitor.get("warning"):
-            line4 = "Warn:%s" % monitor.get("warning")
-        else:
-            phase = (recovery.get("phase") or "--")[:8]
-            altitude = recovery.get("altitude_agl_m")
-            if altitude is None:
-                altitude = gps.get("alt_m")
-            alt_text = "--" if altitude is None else "%dm" % int(round(altitude))
-            line4 = "Alt:%s Ph:%s" % (alt_text, phase)
-
-        return [line1, line2, line3, line4]
-
-    def _draw_lines(self, lines):
-        if not self._enabled or self._display is None:
-            return
-
-        image = Image.new("1", (self._width, self._height))
-        draw = ImageDraw.Draw(image)
-        for idx, line in enumerate(lines[:4]):
-            y = idx * OLED_LINE_HEIGHT
-            draw.text((0, y), (line or "")[:self._chars_per_line], font=self._font, fill=255)
-        self._display.image(image)
-        self._display.show()
-
-    def update(self, snapshot):
-        if not self._enabled:
-            return
-
-        now = time.time()
-        with self._lock:
-            if now - self._last_update_s < self._update_interval_s:
-                return
-            self._last_update_s = now
-            try:
-                self._draw_lines(self._build_lines(snapshot))
-            except Exception as exc:  # pylint: disable=broad-except
-                print("OLED update failed:", exc)
-
-    def stop(self):
-        if not self._enabled:
-            return
-        with self._lock:
-            try:
-                self._display.fill(0)
-                self._display.show()
-            except Exception:  # pylint: disable=broad-except
-                pass
-
-    @property
-    def disabled_reason(self):
-        return self._disabled_reason
 
 
 class ComplementaryFilter:
@@ -1015,16 +915,345 @@ TELEMETRY = TelemetryStore()
 MAP_DOWNLOADS = MapDownloadManager()
 CLIENTS = []
 CLIENTS_LOCK = threading.Lock()
+COMPANION_CLIENTS = []
+COMPANION_CLIENTS_LOCK = threading.Lock()
+COMPANION_SEQ = 0
+COMPANION_SEQ_LOCK = threading.Lock()
 STOP_EVENT = threading.Event()
 LORA_LOCK = threading.Lock()
 LORA_RADIO = {"radio": None}
-OLED_DISPLAY = None
+COMPANION_UART_BRIDGE = None
+
+
+def _next_companion_seq():
+    global COMPANION_SEQ
+    with COMPANION_SEQ_LOCK:
+        COMPANION_SEQ += 1
+        return COMPANION_SEQ
+
+
+def _build_companion_state(snapshot, seq=None):
+    now = time.time()
+    ts = snapshot.get("timestamp")
+    age_s = (now - ts) if isinstance(ts, (int, float)) else None
+    age_ms = int(age_s * 1000) if age_s is not None else None
+
+    radio = snapshot.get("radio", {})
+    recovery = snapshot.get("recovery", {})
+    gps = snapshot.get("gps", {})
+    navsat = snapshot.get("navsat", {})
+    imu = snapshot.get("imu", {})
+    alt = snapshot.get("alt", {})
+    battery = snapshot.get("battery", {})
+    attitude = snapshot.get("attitude", {})
+    sd_logging = snapshot.get("sd_logging", {})
+    telemetry_tx = snapshot.get("telemetry_tx", {})
+
+    connected = age_s is not None and age_s <= 2.0
+    phase = recovery.get("phase") or "unknown"
+
+    alerts = []
+    if age_s is None or age_s > 5.0:
+        alerts.append({"level": "critical", "code": "LINK_LOST", "message": "Telemetry link lost"})
+    elif age_s > 2.0:
+        alerts.append({"level": "warning", "code": "LINK_STALE", "message": "Telemetry stale"})
+
+    if battery.get("vbat_v") is not None and battery.get("vbat_v") < 3.5:
+        alerts.append({"level": "warning", "code": "LOW_BATTERY", "message": "Rocket battery low"})
+
+    return {
+        "ts": now,
+        "seq": seq,
+        "link": {
+            "connected": connected,
+            "rssi": radio.get("rssi_dbm"),
+            "snr": radio.get("snr_db"),
+            "crc_ok": radio.get("crc_ok"),
+            "last_packet_age_ms": age_ms,
+        },
+        "flight": {
+            "phase": phase,
+            "packet_count": snapshot.get("packet_count"),
+            "callsign": snapshot.get("callsign"),
+        },
+        "gps": {
+            "lat_deg": gps.get("lat_deg"),
+            "lon_deg": gps.get("lon_deg"),
+            "alt_m": gps.get("alt_m"),
+            "svs_used": navsat.get("svs_used"),
+            "svs_total": navsat.get("svs_total"),
+        },
+        "alt": {
+            "press_kpa": alt.get("press_kpa"),
+            "temp_c": alt.get("temp_c"),
+        },
+        "imu": {
+            "ax_g": imu.get("ax_g"),
+            "ay_g": imu.get("ay_g"),
+            "az_g": imu.get("az_g"),
+            "gx_dps": imu.get("gx_dps"),
+            "gy_dps": imu.get("gy_dps"),
+            "gz_dps": imu.get("gz_dps"),
+        },
+        "attitude": {
+            "roll": attitude.get("roll"),
+            "pitch": attitude.get("pitch"),
+            "yaw": attitude.get("yaw"),
+            "filter": attitude.get("filter"),
+        },
+        "battery": {
+            "vbat_v": battery.get("vbat_v"),
+            "bat_state_label": battery.get("bat_state_label"),
+        },
+        "sd_logging": {
+            "enabled": sd_logging.get("enabled"),
+            "last_command": sd_logging.get("last_command"),
+            "ack_timestamp": sd_logging.get("ack_timestamp"),
+        },
+        "telemetry_tx": {
+            "enabled": telemetry_tx.get("enabled"),
+            "last_command": telemetry_tx.get("last_command"),
+            "ack_timestamp": telemetry_tx.get("ack_timestamp"),
+        },
+        "recovery": {
+            "enabled": recovery.get("enabled"),
+            "phase": recovery.get("phase"),
+            "altitude_agl_m": recovery.get("altitude_agl_m"),
+            "max_altitude_agl_m": recovery.get("max_altitude_agl_m"),
+            "vertical_speed_mps": recovery.get("vertical_speed_mps"),
+            "drogue": {"deployed": recovery.get("drogue", {}).get("deployed")},
+            "main": {"deployed": recovery.get("main", {}).get("deployed")},
+        },
+        "alerts": alerts,
+    }
+
+
+class CompanionUartBridge:
+    SOF1 = 0xA5
+    SOF2 = 0x5A
+    VER = 0x01
+    MSG_TELEM_SNAPSHOT = 0x01
+    MSG_ALERT_EVENT = 0x02
+    MSG_HEARTBEAT = 0x03
+    MSG_CMD = 0x10
+    MSG_CMD_ACK = 0x11
+
+    CMD_SD_START = 0x01
+    CMD_SD_STOP = 0x02
+    CMD_BUZZER = 0x03
+    CMD_TELEM_ENABLE = 0x04
+    CMD_TELEM_DISABLE = 0x05
+
+    def __init__(self, port, baud):
+        self._port = port
+        self._baud = baud
+        self._ser = None
+        self._lock = threading.Lock()
+        self._rx_thread = None
+        self._running = False
+        self._tx_seq = 0
+        self._tx_frames = 0
+        self._rx_frames = 0
+        self._crc_fail = 0
+        self._last_dbg = time.time()
+
+    @staticmethod
+    def _crc16_ccitt(data):
+        crc = 0xFFFF
+        for byte in data:
+            crc ^= (byte << 8)
+            for _ in range(8):
+                if crc & 0x8000:
+                    crc = ((crc << 1) ^ 0x1021) & 0xFFFF
+                else:
+                    crc = (crc << 1) & 0xFFFF
+        return crc
+
+    def start(self):
+        if serial is None:
+            print("Companion UART disabled: pyserial not installed")
+            return False
+        try:
+            self._ser = serial.Serial(self._port, self._baud, timeout=0.05)
+        except Exception as exc:  # pylint: disable=broad-except
+            print(f"Companion UART disabled: open failed ({self._port} @ {self._baud}): {exc}")
+            return False
+
+        self._running = True
+        self._rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
+        self._rx_thread.start()
+        print(f"Companion UART enabled on {self._port} @ {self._baud}")
+        return True
+
+    def stop(self):
+        self._running = False
+        if self._rx_thread is not None:
+            self._rx_thread.join(timeout=1.0)
+        if self._ser is not None:
+            try:
+                self._ser.close()
+            except Exception:  # pylint: disable=broad-except
+                pass
+        self._ser = None
+
+    def _encode_frame(self, msg_type, payload):
+        seq = self._tx_seq & 0xFFFF
+        self._tx_seq = (self._tx_seq + 1) & 0xFFFF
+        header = struct.pack("<BBBBHH", self.SOF1, self.SOF2, self.VER, msg_type, seq, len(payload))
+        crc_input = struct.pack("<BBHH", self.VER, msg_type, seq, len(payload)) + payload
+        crc = self._crc16_ccitt(crc_input)
+        return header + payload + struct.pack("<H", crc)
+
+    def _phase_to_code(self, phase):
+        phase = (phase or "").lower()
+        mapping = {"idle": 0, "pad": 1, "boost": 2, "coast": 3, "descent": 4, "landed": 5}
+        return mapping.get(phase, 0)
+
+    def send_companion_state(self, state):
+        if self._ser is None:
+            return
+        recovery = state.get("recovery", {})
+        link = state.get("link", {})
+        gps = state.get("gps", {})
+        battery = state.get("battery", {})
+        flight = state.get("flight", {})
+        sd_logging = state.get("sd_logging", {})
+        telemetry_tx = state.get("telemetry_tx", {})
+
+        lat_deg = gps.get("lat_deg")
+        lon_deg = gps.get("lon_deg")
+        alt_m = gps.get("alt_m")
+        altitude_agl_m = recovery.get("altitude_agl_m")
+        if altitude_agl_m is None:
+            altitude_agl_m = alt_m
+
+        phase_code = self._phase_to_code(flight.get("phase"))
+        flags = 0
+        if link.get("connected"):
+            flags |= 0x01
+        if recovery.get("drogue", {}).get("deployed"):
+            flags |= 0x02
+        if recovery.get("main", {}).get("deployed"):
+            flags |= 0x04
+        if sd_logging.get("enabled") is True:
+            flags |= 0x08
+        if telemetry_tx.get("enabled") is True:
+            flags |= 0x10
+
+        payload = struct.pack(
+            "<IiiihhbBHHB",
+            int((state.get("ts") or time.time()) * 1000) & 0xFFFFFFFF,
+            int((lat_deg or 0.0) * 1e7),
+            int((lon_deg or 0.0) * 1e7),
+            int((altitude_agl_m or 0.0) * 1000),
+            int((recovery.get("vertical_speed_mps") or 0.0) * 100),
+            int(link.get("rssi") or -120),
+            int(float(link.get("snr") or 0.0) * 4),
+            int(phase_code),
+            int(flight.get("packet_count") or 0) & 0xFFFF,
+            int((battery.get("vbat_v") or 0.0) * 1000),
+            int(flags),
+        )
+        frame = self._encode_frame(self.MSG_TELEM_SNAPSHOT, payload)
+        with self._lock:
+            try:
+                self._ser.write(frame)
+                self._tx_frames += 1
+            except Exception:  # pylint: disable=broad-except
+                pass
+        self._debug_tick()
+
+    def _send_cmd_ack(self, cmd, ok, err=0):
+        if self._ser is None:
+            return
+        payload = struct.pack("<BBB", cmd, 1 if ok else 0, err & 0xFF)
+        frame = self._encode_frame(self.MSG_CMD_ACK, payload)
+        with self._lock:
+            try:
+                self._ser.write(frame)
+            except Exception:  # pylint: disable=broad-except
+                pass
+
+    def _handle_cmd(self, cmd, arg):
+        if COMPANION_UART_DEBUG:
+            print(f"Companion UART cmd rx: cmd={cmd} arg={arg}")
+        if cmd == self.CMD_SD_START:
+            ok, error = send_lora_command("sd_start")
+        elif cmd == self.CMD_SD_STOP:
+            ok, error = send_lora_command("sd_stop")
+        elif cmd == self.CMD_BUZZER:
+            ok, error = send_lora_command("buzzer", int(arg))
+        elif cmd == self.CMD_TELEM_ENABLE:
+            ok, error = send_lora_command("telemetry_enable")
+        elif cmd == self.CMD_TELEM_DISABLE:
+            ok, error = send_lora_command("telemetry_disable")
+        else:
+            ok, error = False, "Unknown UART command"
+
+        if not ok and error:
+            print(f"Companion UART cmd failed: cmd={cmd} arg={arg} err={error}")
+        self._send_cmd_ack(cmd, ok, 0 if ok else 1)
+
+    def _rx_loop(self):
+        buf = bytearray()
+        while self._running:
+            try:
+                chunk = self._ser.read(128)
+            except Exception:  # pylint: disable=broad-except
+                time.sleep(0.05)
+                continue
+
+            if chunk:
+                buf.extend(chunk)
+
+            while True:
+                if len(buf) < 10:
+                    break
+                sof_idx = buf.find(bytes([self.SOF1, self.SOF2]))
+                if sof_idx < 0:
+                    buf.clear()
+                    break
+                if sof_idx > 0:
+                    del buf[:sof_idx]
+                if len(buf) < 10:
+                    break
+
+                _, _, ver, msg_type, seq, payload_len = struct.unpack_from("<BBBBHH", buf, 0)
+                frame_len = 8 + payload_len + 2
+                if len(buf) < frame_len:
+                    break
+
+                payload = bytes(buf[8:8 + payload_len])
+                crc_rx = struct.unpack_from("<H", buf, 8 + payload_len)[0]
+                crc_input = struct.pack("<BBHH", ver, msg_type, seq, payload_len) + payload
+                crc_calc = self._crc16_ccitt(crc_input)
+
+                del buf[:frame_len]
+                if ver != self.VER or crc_rx != crc_calc:
+                    self._crc_fail += 1
+                    continue
+
+                self._rx_frames += 1
+
+                if msg_type == self.MSG_CMD and payload_len >= 2:
+                    cmd, arg = struct.unpack_from("<BB", payload, 0)
+                    self._handle_cmd(cmd, arg)
+                self._debug_tick()
+
+    def _debug_tick(self):
+        if not COMPANION_UART_DEBUG:
+            return
+        now = time.time()
+        if now - self._last_dbg < 2.0:
+            return
+        print(
+            "Companion UART stats: tx_frames=%d rx_frames=%d crc_fail=%d"
+            % (self._tx_frames, self._rx_frames, self._crc_fail)
+        )
+        self._last_dbg = now
 
 
 def broadcast(snapshot):
-    if OLED_DISPLAY is not None:
-        OLED_DISPLAY.update(snapshot)
-
     data = json.dumps({"state": snapshot})
     with CLIENTS_LOCK:
         for client in list(CLIENTS):
@@ -1039,6 +1268,27 @@ def broadcast(snapshot):
                     client.put_nowait(data)
                 except queue.Full:
                     pass
+
+    # Companion stream: lightweight, ESP32-friendly state payload
+    seq = _next_companion_seq()
+    companion_state = _build_companion_state(snapshot, seq=seq)
+    companion_data = json.dumps({"event": "telemetry", "state": companion_state})
+    with COMPANION_CLIENTS_LOCK:
+        for client in list(COMPANION_CLIENTS):
+            try:
+                client.put_nowait(companion_data)
+            except queue.Full:
+                try:
+                    client.get_nowait()
+                except queue.Empty:
+                    pass
+                try:
+                    client.put_nowait(companion_data)
+                except queue.Full:
+                    pass
+
+    if COMPANION_UART_BRIDGE is not None:
+        COMPANION_UART_BRIDGE.send_companion_state(companion_state)
 
 
 def handle_voltage_monitor_update(monitor_snapshot):
@@ -1238,6 +1488,11 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             return self._serve_static("map-setup.js")
         if path == "/api/state":
             return self._send_json({"state": TELEMETRY.snapshot()})
+        if path == "/api/companion/state":
+            seq = _next_companion_seq()
+            return self._send_json({"state": _build_companion_state(TELEMETRY.snapshot(), seq=seq)})
+        if path == "/api/companion/events":
+            return self._serve_companion_events()
         if path == "/api/map/status":
             return self._send_json({"status": MAP_DOWNLOADS.snapshot()})
         if path == "/api/attitude/filters":
@@ -1310,6 +1565,17 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             })
 
         if path == "/api/command":
+            if not self._check_auth():
+                return self._send_auth_error()
+            payload = self._read_json() or {}
+            action = payload.get("action")
+            duration_s = payload.get("duration_s")
+            ok, error = send_lora_command(action, duration_s)
+            if not ok:
+                return self._send_json({"ok": False, "error": error}, status=400)
+            return self._send_json({"ok": True})
+
+        if path == "/api/companion/cmd":
             if not self._check_auth():
                 return self._send_auth_error()
             payload = self._read_json() or {}
@@ -1416,27 +1682,71 @@ class GroundStationHandler(BaseHTTPRequestHandler):
                 if client_queue in CLIENTS:
                     CLIENTS.remove(client_queue)
 
+    def _serve_companion_events(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+        client_queue = queue.Queue(maxsize=1)
+        with COMPANION_CLIENTS_LOCK:
+            COMPANION_CLIENTS.append(client_queue)
+
+        try:
+            seq = _next_companion_seq()
+            state = _build_companion_state(TELEMETRY.snapshot(), seq=seq)
+            self.wfile.write(f"event: telemetry\ndata: {json.dumps({'event': 'telemetry', 'state': state})}\n\n".encode("utf-8"))
+            self.wfile.flush()
+
+            last_keepalive = time.time()
+            while True:
+                try:
+                    data = client_queue.get(timeout=1.0)
+                except queue.Empty:
+                    if time.time() - last_keepalive >= 1.0:
+                        hb = {"event": "hb", "ts": time.time()}
+                        self.wfile.write(f"event: hb\ndata: {json.dumps(hb)}\n\n".encode("utf-8"))
+                        self.wfile.flush()
+                        last_keepalive = time.time()
+                    continue
+
+                self.wfile.write(f"event: telemetry\ndata: {data}\n\n".encode("utf-8"))
+                self.wfile.flush()
+        except Exception:  # pylint: disable=broad-except
+            pass
+        finally:
+            with COMPANION_CLIENTS_LOCK:
+                if client_queue in COMPANION_CLIENTS:
+                    COMPANION_CLIENTS.remove(client_queue)
+
     def log_message(self, fmt, *args):  # pylint: disable=arguments-differ
         print("%s - - [%s] %s" % (self.client_address[0], self.log_date_time_string(), fmt % args))
 
 
 def main():
-    global OLED_DISPLAY
+    global COMPANION_UART_BRIDGE
 
     if not STATIC_DIR.exists():
         raise SystemExit("Static assets not found at %s" % STATIC_DIR)
 
     TILE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-    OLED_DISPLAY = OledStatusDisplay()
-    if OLED_DISPLAY.disabled_reason:
-        print("OLED status display unavailable:", OLED_DISPLAY.disabled_reason)
-
     voltage_monitor = lora_driver.start_voltage_monitor(on_sample=handle_voltage_monitor_update)
     server = None
 
     worker = threading.Thread(target=lora_worker, daemon=True)
     worker.start()
+
+    if COMPANION_UART_ENABLED:
+        bridge = CompanionUartBridge(COMPANION_UART_PORT, COMPANION_UART_BAUD)
+        if bridge.start():
+            COMPANION_UART_BRIDGE = bridge
+    else:
+        print(
+            "Companion UART bridge disabled (GS_COMPANION_UART=0). "
+            "Set GS_COMPANION_UART=1 in .env to enable Pi <-> ESP32 serial link."
+        )
 
     try:
         server = ThreadingHTTPServer((HOST, PORT), GroundStationHandler)
@@ -1448,8 +1758,9 @@ def main():
         STOP_EVENT.set()
         if voltage_monitor is not None:
             voltage_monitor.stop()
-        if OLED_DISPLAY is not None:
-            OLED_DISPLAY.stop()
+        if COMPANION_UART_BRIDGE is not None:
+            COMPANION_UART_BRIDGE.stop()
+            COMPANION_UART_BRIDGE = None
         if server is not None:
             server.shutdown()
             server.server_close()

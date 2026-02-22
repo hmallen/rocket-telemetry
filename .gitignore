@@ -49,3 +49,12 @@ receiver/pi/ground_station/static/tiles/
 LOG*
 **/*.FCBak
 **/__pycache__/
+
+# Local ESP32 companion runtime config (contains Wi-Fi/token values)
+receiver/esp32-companion/include/config.h
+
+# Ground station local runtime env
+receiver/pi/ground_station/.env
+receiver/esp32-companion/resources/libraries/
+receiver/esp32-companion/resources/figma/
+receiver/esp32-companion/resources/squareline/
