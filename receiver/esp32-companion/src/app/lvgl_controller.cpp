@@ -76,6 +76,8 @@ static int32_t mapLinearRange(int32_t value,
 #endif
 
 constexpr uint32_t kBatterySampleIntervalMs = COMPANION_BAT_SAMPLE_INTERVAL_MS;
+constexpr float kLipoCellEmptyV = 3.3f;
+constexpr float kLipoCellFullV = 4.2f;
 
 constexpr float kCompanionBatAdcRefV = 3.3f;
 constexpr float kCompanionBatAdcMaxCounts = 4095.0f;
@@ -93,6 +95,25 @@ static String formatFloat(float value, uint8_t decimals, const char* fallback = 
     return String(fallback);
   }
   return String(value, static_cast<unsigned int>(decimals));
+}
+
+static int batteryPercentFromVoltage(float voltage, uint8_t cells) {
+  if (isnan(voltage) || cells == 0) {
+    return -1;
+  }
+  const float emptyV = kLipoCellEmptyV * static_cast<float>(cells);
+  const float fullV = kLipoCellFullV * static_cast<float>(cells);
+  if (fullV <= emptyV) {
+    return -1;
+  }
+
+  float pct = ((voltage - emptyV) * 100.0f) / (fullV - emptyV);
+  if (pct < 0.0f) {
+    pct = 0.0f;
+  } else if (pct > 100.0f) {
+    pct = 100.0f;
+  }
+  return static_cast<int>(pct + 0.5f);
 }
 
 static lv_obj_t* makeActionButton(lv_obj_t* parent, const char* text, lv_event_cb_t cb, void* userData) {
@@ -225,6 +246,7 @@ void LvglController::buildUi() {
   companionBatteryDebugLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(companionBatteryDebugLabel_, lv_color_hex(0x9fb0cc), 0);
   lv_obj_align(companionBatteryDebugLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -8);
+  lv_obj_add_flag(companionBatteryDebugLabel_, LV_OBJ_FLAG_HIDDEN);
 
   cmdStatusLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(cmdStatusLabel_, lv_color_hex(0x6be7a4), 0);
@@ -1055,16 +1077,20 @@ void LvglController::refreshUi() {
 
   const String txVbat = formatFloat(state_.battery.telemetryVbatV, 2, "--.-");
   const String groundVbat = formatFloat(state_.battery.groundVbatV, 2, "--.-");
-  const String companionVbat = formatFloat(state_.battery.companionVbatV, 2, "--.-");
+  const int txPct = batteryPercentFromVoltage(state_.battery.telemetryVbatV, 2);
+  const int gsPct = batteryPercentFromVoltage(state_.battery.groundVbatV, 1);
 
-  lv_label_set_text_fmt(batteryLabel_, "TX_VBAT: %s V", txVbat.c_str());
-  lv_label_set_text_fmt(companionBatteryLabel_, "GS_VBAT: %s V", groundVbat.c_str());
-  lv_label_set_text_fmt(companionBatteryDebugLabel_,
-                        "BAT_ADC: %s V (%lu mV @ GPIO%d%s)",
-                        companionVbat.c_str(),
-                        static_cast<unsigned long>(lastCompanionBatRawMv_),
-                        static_cast<int>(COMPANION_BAT_ADC_PIN),
-                        lastCompanionBatRawValid_ ? "" : " (invalid)");
+  if (txPct >= 0) {
+    lv_label_set_text_fmt(batteryLabel_, "TX_VBAT: %s V (%d%%)", txVbat.c_str(), txPct);
+  } else {
+    lv_label_set_text_fmt(batteryLabel_, "TX_VBAT: %s V", txVbat.c_str());
+  }
+
+  if (gsPct >= 0) {
+    lv_label_set_text_fmt(companionBatteryLabel_, "GS_VBAT: %s V (%d%%)", groundVbat.c_str(), gsPct);
+  } else {
+    lv_label_set_text_fmt(companionBatteryLabel_, "GS_VBAT: %s V", groundVbat.c_str());
+  }
 
   String cmdStatus = "";
   if (cmdMsg_.length() > 0 && (now - cmdTs_) <= kCommandStatusShowMs) {
