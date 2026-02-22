@@ -23,6 +23,8 @@ struct AltState {
 struct BatteryState {
   // Battery voltage reported by the remote telemetry transmitter over LoRa.
   float telemetryVbatV = NAN;
+  // Ground-station battery voltage from Pi ADS1115 (A0 via divider).
+  float groundVbatV = NAN;
   // Local companion display board battery voltage sampled from BAT_ADC.
   float companionVbatV = NAN;
   String label;

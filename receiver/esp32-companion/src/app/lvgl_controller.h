@@ -56,6 +56,8 @@ class LvglController {
   uint32_t lastRxMs_ = 0;
   uint32_t lastReconnectAttemptMs_ = 0;
   uint32_t lastCompanionBatSampleMs_ = 0;
+  uint32_t lastCompanionBatRawMv_ = 0;
+  bool lastCompanionBatRawValid_ = false;
   uint32_t lastLvTickMs_ = 0;
   uint32_t lastUiRefreshMs_ = 0;
 
@@ -119,6 +121,7 @@ class LvglController {
   lv_obj_t* callsignLabel_ = nullptr;
   lv_obj_t* batteryLabel_ = nullptr;
   lv_obj_t* companionBatteryLabel_ = nullptr;
+  lv_obj_t* companionBatteryDebugLabel_ = nullptr;
   lv_obj_t* cmdStatusLabel_ = nullptr;
   lv_obj_t* alertLabel_ = nullptr;
   lv_obj_t* touchDebugLabel_ = nullptr;

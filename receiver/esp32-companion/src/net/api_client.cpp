@@ -176,6 +176,8 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
   JsonObject battery = state["battery"];
   ioState.battery.telemetryVbatV =
       battery["vbat_v"].isNull() ? NAN : (float)battery["vbat_v"].as<float>();
+  ioState.battery.groundVbatV =
+      battery["ground_vbat_v"].isNull() ? NAN : (float)battery["ground_vbat_v"].as<float>();
   ioState.battery.label = String((const char*)(battery["bat_state_label"] | ""));
 
   JsonObject sdLogging = state["sd_logging"];

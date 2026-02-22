@@ -71,7 +71,13 @@ static int32_t mapLinearRange(int32_t value,
 #define COMPANION_BAT_SAMPLE_INTERVAL_MS 1000
 #endif
 
+#ifndef COMPANION_BAT_ADC_MIN_VALID_MV
+#define COMPANION_BAT_ADC_MIN_VALID_MV 50
+#endif
+
 constexpr uint32_t kBatterySampleIntervalMs = COMPANION_BAT_SAMPLE_INTERVAL_MS;
+constexpr float kLipoCellEmptyV = 3.3f;
+constexpr float kLipoCellFullV = 4.2f;
 
 constexpr float kCompanionBatAdcRefV = 3.3f;
 constexpr float kCompanionBatAdcMaxCounts = 4095.0f;
@@ -89,6 +95,25 @@ static String formatFloat(float value, uint8_t decimals, const char* fallback = 
     return String(fallback);
   }
   return String(value, static_cast<unsigned int>(decimals));
+}
+
+static int batteryPercentFromVoltage(float voltage, uint8_t cells) {
+  if (isnan(voltage) || cells == 0) {
+    return -1;
+  }
+  const float emptyV = kLipoCellEmptyV * static_cast<float>(cells);
+  const float fullV = kLipoCellFullV * static_cast<float>(cells);
+  if (fullV <= emptyV) {
+    return -1;
+  }
+
+  float pct = ((voltage - emptyV) * 100.0f) / (fullV - emptyV);
+  if (pct < 0.0f) {
+    pct = 0.0f;
+  } else if (pct > 100.0f) {
+    pct = 100.0f;
+  }
+  return static_cast<int>(pct + 0.5f);
 }
 
 static lv_obj_t* makeActionButton(lv_obj_t* parent, const char* text, lv_event_cb_t cb, void* userData) {
@@ -204,19 +229,24 @@ void LvglController::buildUi() {
 
   packetLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(packetLabel_, lv_color_hex(0xd9e3f8), 0);
-  lv_obj_align(packetLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -68);
+  lv_obj_align(packetLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -88);
 
   callsignLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(callsignLabel_, lv_color_hex(0xd9e3f8), 0);
-  lv_obj_align(callsignLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -48);
+  lv_obj_align(callsignLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -68);
 
   batteryLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(batteryLabel_, lv_color_hex(0xd9e3f8), 0);
-  lv_obj_align(batteryLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -28);
+  lv_obj_align(batteryLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -48);
 
   companionBatteryLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(companionBatteryLabel_, lv_color_hex(0xd9e3f8), 0);
-  lv_obj_align(companionBatteryLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -8);
+  lv_obj_align(companionBatteryLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -28);
+
+  companionBatteryDebugLabel_ = lv_label_create(telemetryPanel_);
+  lv_obj_set_style_text_color(companionBatteryDebugLabel_, lv_color_hex(0x9fb0cc), 0);
+  lv_obj_align(companionBatteryDebugLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -8);
+  lv_obj_add_flag(companionBatteryDebugLabel_, LV_OBJ_FLAG_HIDDEN);
 
   cmdStatusLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(cmdStatusLabel_, lv_color_hex(0x6be7a4), 0);
@@ -482,6 +512,14 @@ void LvglController::begin() {
 
 #if COMPANION_LINK_UART
   pinMode(COMPANION_BAT_ADC_PIN, INPUT);
+#if defined(ESP32)
+  analogReadResolution(12);
+#if defined(ADC_11db)
+  analogSetPinAttenuation(COMPANION_BAT_ADC_PIN, ADC_11db);
+#elif defined(ADC_ATTEN_DB_12)
+  analogSetPinAttenuation(COMPANION_BAT_ADC_PIN, ADC_ATTEN_DB_12);
+#endif
+#endif
 #endif
 
   initLvgl();
@@ -520,13 +558,26 @@ void LvglController::updateCompanionBattery() {
   }
   lastCompanionBatSampleMs_ = now;
 
-  uint32_t sum = 0;
+  uint32_t mvSum = 0;
   for (uint8_t i = 0; i < COMPANION_BAT_ADC_SAMPLES; ++i) {
-    sum += static_cast<uint32_t>(analogRead(COMPANION_BAT_ADC_PIN));
+#if defined(ESP32)
+    mvSum += static_cast<uint32_t>(analogReadMilliVolts(COMPANION_BAT_ADC_PIN));
+#else
+    mvSum += static_cast<uint32_t>(analogRead(COMPANION_BAT_ADC_PIN) *
+                                   (kCompanionBatAdcRefV / kCompanionBatAdcMaxCounts) * 1000.0f);
+#endif
   }
 
-  const float counts = static_cast<float>(sum) / static_cast<float>(COMPANION_BAT_ADC_SAMPLES);
-  const float vadc = counts * (kCompanionBatAdcRefV / kCompanionBatAdcMaxCounts);
+  const float mvAvg = static_cast<float>(mvSum) / static_cast<float>(COMPANION_BAT_ADC_SAMPLES);
+  lastCompanionBatRawMv_ = static_cast<uint32_t>(mvAvg + 0.5f);
+  if (mvAvg < static_cast<float>(COMPANION_BAT_ADC_MIN_VALID_MV)) {
+    lastCompanionBatRawValid_ = false;
+    state_.battery.companionVbatV = NAN;
+    return;
+  }
+  lastCompanionBatRawValid_ = true;
+
+  const float vadc = mvAvg / 1000.0f;
   state_.battery.companionVbatV =
       vadc * COMPANION_BAT_ADC_DIVIDER_SCALE * COMPANION_BAT_ADC_CAL_SCALE;
 }
@@ -1025,10 +1076,21 @@ void LvglController::refreshUi() {
                         state_.flight.callsign.length() ? state_.flight.callsign.c_str() : "(none)");
 
   const String txVbat = formatFloat(state_.battery.telemetryVbatV, 2, "--.-");
-  const String companionVbat = formatFloat(state_.battery.companionVbatV, 2, "--.-");
+  const String groundVbat = formatFloat(state_.battery.groundVbatV, 2, "--.-");
+  const int txPct = batteryPercentFromVoltage(state_.battery.telemetryVbatV, 2);
+  const int gsPct = batteryPercentFromVoltage(state_.battery.groundVbatV, 1);
 
-  lv_label_set_text_fmt(batteryLabel_, "TX_VBAT: %s V", txVbat.c_str());
-  lv_label_set_text_fmt(companionBatteryLabel_, "BAT_ADC: %s V", companionVbat.c_str());
+  if (txPct >= 0) {
+    lv_label_set_text_fmt(batteryLabel_, "TX_VBAT: %s V (%d%%)", txVbat.c_str(), txPct);
+  } else {
+    lv_label_set_text_fmt(batteryLabel_, "TX_VBAT: %s V", txVbat.c_str());
+  }
+
+  if (gsPct >= 0) {
+    lv_label_set_text_fmt(companionBatteryLabel_, "GS_VBAT: %s V (%d%%)", groundVbat.c_str(), gsPct);
+  } else {
+    lv_label_set_text_fmt(companionBatteryLabel_, "GS_VBAT: %s V", groundVbat.c_str());
+  }
 
   String cmdStatus = "";
   if (cmdMsg_.length() > 0 && (now - cmdTs_) <= kCommandStatusShowMs) {

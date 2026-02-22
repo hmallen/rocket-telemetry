@@ -38,6 +38,7 @@ struct TelemetryV1 {
   uint16_t packet_count_lsb;
   uint16_t vbat_mv;
   uint8_t flags;
+  uint16_t ground_vbat_mv;
 };
 
 struct AlertV1 {

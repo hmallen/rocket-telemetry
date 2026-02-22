@@ -45,6 +45,8 @@
 // ADC averaging and polling period.
 #define COMPANION_BAT_ADC_SAMPLES 16
 #define COMPANION_BAT_SAMPLE_INTERVAL_MS 1000
+// Treat readings below this (in mV at ADC pin) as invalid/no battery present.
+#define COMPANION_BAT_ADC_MIN_VALID_MV 50
 
 // Touch calibration bounds (raw ADC values from your panel)
 // Bootstrap values only: the LVGL settings menu can run calibration and
