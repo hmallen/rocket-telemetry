@@ -10,10 +10,65 @@
 #error "Missing include/config.h. Copy include/config.h.example to include/config.h and set values."
 #endif
 
+#ifndef OTA_ENABLE
+#define OTA_ENABLE 0
+#endif
+
+#ifndef OTA_HOSTNAME
+#define OTA_HOSTNAME "esp32-companion"
+#endif
+
+#ifndef OTA_PASSWORD
+#define OTA_PASSWORD ""
+#endif
+
+#ifndef OTA_PORT
+#define OTA_PORT 3232
+#endif
+
+#if OTA_ENABLE
+#include <ArduinoOTA.h>
+#endif
+
 #include "app/lvgl_controller.h"
 
 TFT_eSPI tft = TFT_eSPI();
 LvglController* controller = nullptr;
+
+namespace {
+#if !(COMPANION_LINK_UART && (UART_RX_PIN == 3) && (UART_TX_PIN == 1))
+constexpr bool kDebugSerialAvailable = true;
+#else
+constexpr bool kDebugSerialAvailable = false;
+#endif
+
+constexpr uint32_t kWifiReconnectIntervalMs = 5000;
+uint32_t gLastWifiConnectAttemptMs = 0;
+
+#if OTA_ENABLE
+bool gOtaStarted = false;
+#endif
+
+bool shouldUseWifi() {
+  return (!COMPANION_LINK_UART) || OTA_ENABLE;
+}
+
+void startOtaIfReady() {
+#if OTA_ENABLE
+  if (gOtaStarted || WiFi.status() != WL_CONNECTED) {
+    return;
+  }
+
+  ArduinoOTA.setHostname(OTA_HOSTNAME);
+  ArduinoOTA.setPort(OTA_PORT);
+  if (OTA_PASSWORD[0] != '\0') {
+    ArduinoOTA.setPassword(OTA_PASSWORD);
+  }
+  ArduinoOTA.begin();
+  gOtaStarted = true;
+#endif
+}
+}  // namespace
 
 static void runDisplaySelfTest() {
 #if DISPLAY_TEST_SCREEN
@@ -40,25 +95,65 @@ static void runDisplaySelfTest() {
 }
 
 static void connectWifi() {
-  if (COMPANION_LINK_UART) {
+  if (!shouldUseWifi()) {
     return;
   }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    startOtaIfReady();
+    return;
+  }
+
+  uint32_t now = millis();
+  if (gLastWifiConnectAttemptMs != 0 &&
+      (now - gLastWifiConnectAttemptMs) < kWifiReconnectIntervalMs) {
+    return;
+  }
+
+  gLastWifiConnectAttemptMs = millis();
   WiFi.mode(WIFI_STA);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
 
-  Serial.print("Connecting WiFi");
+#if !(COMPANION_LINK_UART && (UART_RX_PIN == 3) && (UART_TX_PIN == 1))
+  if (kDebugSerialAvailable) {
+    Serial.print("Connecting WiFi");
+  }
+#endif
+
+  if (COMPANION_LINK_UART) {
+    return;
+  }
+
   uint32_t start = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - start < 20000) {
     delay(300);
-    Serial.print(".");
+#if !(COMPANION_LINK_UART && (UART_RX_PIN == 3) && (UART_TX_PIN == 1))
+    if (kDebugSerialAvailable) {
+      Serial.print(".");
+    }
+#endif
   }
-  Serial.println();
+
+#if !(COMPANION_LINK_UART && (UART_RX_PIN == 3) && (UART_TX_PIN == 1))
+  if (kDebugSerialAvailable) {
+    Serial.println();
+  }
+#endif
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("WiFi connected: ");
-    Serial.println(WiFi.localIP());
+    startOtaIfReady();
+#if !(COMPANION_LINK_UART && (UART_RX_PIN == 3) && (UART_TX_PIN == 1))
+    if (kDebugSerialAvailable) {
+      Serial.print("WiFi connected: ");
+      Serial.println(WiFi.localIP());
+    }
+#endif
   } else {
-    Serial.println("WiFi connect timeout");
+#if !(COMPANION_LINK_UART && (UART_RX_PIN == 3) && (UART_TX_PIN == 1))
+    if (kDebugSerialAvailable) {
+      Serial.println("WiFi connect timeout");
+    }
+#endif
   }
 }
 
@@ -76,22 +171,35 @@ void setup() {
 
   runDisplaySelfTest();
 
-  if (!COMPANION_LINK_UART) {
+  if (shouldUseWifi()) {
     connectWifi();
   }
 
   controller = new LvglController(tft, String(GS_HOST), static_cast<uint16_t>(GS_PORT));
   controller->begin();
+
+  startOtaIfReady();
 }
 
 void loop() {
-  if (!COMPANION_LINK_UART) {
-    if (WiFi.status() != WL_CONNECTED) {
-      connectWifi();
+  if (shouldUseWifi() && WiFi.status() != WL_CONNECTED) {
+#if OTA_ENABLE
+    gOtaStarted = false;
+#endif
+    connectWifi();
+
+    if (!COMPANION_LINK_UART) {
       delay(300);
       return;
     }
   }
+
+#if OTA_ENABLE
+  startOtaIfReady();
+  if (gOtaStarted) {
+    ArduinoOTA.handle();
+  }
+#endif
 
   if (controller != nullptr) {
     controller->tick();
