@@ -35,6 +35,8 @@ void UartLink::applyTelemetry(const TelemetryV1& t, CompanionState& ioState) {
   ioState.alt.verticalSpeedMps = static_cast<float>(t.vs_cms) / 100.0f;
 
   ioState.battery.telemetryVbatV = static_cast<float>(t.vbat_mv) / 1000.0f;
+  ioState.battery.groundVbatV =
+      (t.ground_vbat_mv == 0) ? NAN : (static_cast<float>(t.ground_vbat_mv) / 1000.0f);
   ioState.battery.label = ioState.battery.telemetryVbatV < 3.5f ? "LOW" : "OK";
 
   ioState.hasSdLoggingState = true;

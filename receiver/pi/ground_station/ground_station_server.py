@@ -495,6 +495,7 @@ class TelemetryStore:
                 "t_ms": None,
                 "vbat_mv": None,
                 "vbat_v": None,
+                "ground_vbat_v": None,
                 "bat_state": None,
                 "bat_state_label": None,
             },
@@ -517,6 +518,7 @@ class TelemetryStore:
                 "vin_v": None,
                 "vout_v": None,
                 "vbatt_v": None,
+                "ground_vbat_v": None,
                 "temp_v": None,
                 "temp_c": None,
                 "temp_f": None,
@@ -574,7 +576,9 @@ class TelemetryStore:
         with self._lock:
             self._state["timestamp"] = time.time()
             self._state["packet_count"] += 1
-            self._state["voltage_monitor"] = lora_driver.get_voltage_monitor_snapshot()
+            voltage_monitor = lora_driver.get_voltage_monitor_snapshot()
+            self._state["voltage_monitor"] = voltage_monitor
+            self._state["battery"]["ground_vbat_v"] = voltage_monitor.get("ground_vbat_v")
 
             radio_state = self._state["radio"]
             radio_state.update(radio_info)
@@ -724,12 +728,16 @@ class TelemetryStore:
 
     def update_voltage_monitor(self, monitor_snapshot):
         with self._lock:
-            self._state["voltage_monitor"] = dict(monitor_snapshot or {})
+            monitor = dict(monitor_snapshot or {})
+            self._state["voltage_monitor"] = monitor
+            self._state["battery"]["ground_vbat_v"] = monitor.get("ground_vbat_v")
             return copy.deepcopy(self._state)
 
     def snapshot(self):
         with self._lock:
-            self._state["voltage_monitor"] = lora_driver.get_voltage_monitor_snapshot()
+            voltage_monitor = lora_driver.get_voltage_monitor_snapshot()
+            self._state["voltage_monitor"] = voltage_monitor
+            self._state["battery"]["ground_vbat_v"] = voltage_monitor.get("ground_vbat_v")
             return copy.deepcopy(self._state)
 
 
@@ -945,6 +953,7 @@ def _build_companion_state(snapshot, seq=None):
     imu = snapshot.get("imu", {})
     alt = snapshot.get("alt", {})
     battery = snapshot.get("battery", {})
+    voltage_monitor = snapshot.get("voltage_monitor", {})
     attitude = snapshot.get("attitude", {})
     sd_logging = snapshot.get("sd_logging", {})
     telemetry_tx = snapshot.get("telemetry_tx", {})
@@ -1003,6 +1012,7 @@ def _build_companion_state(snapshot, seq=None):
         },
         "battery": {
             "vbat_v": battery.get("vbat_v"),
+            "ground_vbat_v": battery.get("ground_vbat_v", voltage_monitor.get("ground_vbat_v")),
             "bat_state_label": battery.get("bat_state_label"),
         },
         "sd_logging": {
@@ -1141,7 +1151,7 @@ class CompanionUartBridge:
             flags |= 0x10
 
         payload = struct.pack(
-            "<IiiihhbBHHB",
+            "<IiiihhbBHHBH",
             int((state.get("ts") or time.time()) * 1000) & 0xFFFFFFFF,
             int((lat_deg or 0.0) * 1e7),
             int((lon_deg or 0.0) * 1e7),
@@ -1153,6 +1163,7 @@ class CompanionUartBridge:
             int(flight.get("packet_count") or 0) & 0xFFFF,
             int((battery.get("vbat_v") or 0.0) * 1000),
             int(flags),
+            int((battery.get("ground_vbat_v") or 0.0) * 1000) & 0xFFFF,
         )
         frame = self._encode_frame(self.MSG_TELEM_SNAPSHOT, payload)
         with self._lock:

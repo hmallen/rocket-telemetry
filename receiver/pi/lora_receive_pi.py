@@ -30,7 +30,8 @@ if not hasattr(time, "sleep_ms"):
 @dataclass(frozen=True)
 class VoltageMonitorConfig:
     i2c_bus: int = 1
-    address: int = 0x48
+    # PiZ-UpTime 2.0 ADC address.
+    address: int = 0x49
 
     ch_vin: int = 0b11000001
     ch_vout: int = 0b11010001
@@ -51,6 +52,13 @@ class VoltageMonitorConfig:
     shutdown_cmd: str = "shutdown -h 2 &"
     temp_profile: str = "piz_uptime_2"
 
+    # External ADS1115 for ground battery sensing (A0 via 100k/100k divider).
+    ground_batt_address: int = 0x48
+    ground_batt_channel: int = 0b11000001
+    ground_batt_divider_scale: float = 2.0
+    ground_batt_cal_scale: float = 1.0
+    ground_batt_min_v: float = 0.2
+
 
 VOLTAGE_MONITOR_CFG = VoltageMonitorConfig()
 
@@ -64,6 +72,7 @@ _VOLTAGE_STATE = {
     "vin_v": None,
     "vout_v": None,
     "vbatt_v": None,
+    "ground_vbat_v": None,
     "temp_v": None,
     "temp_c": None,
     "temp_f": None,
@@ -174,7 +183,7 @@ class VoltageMonitor:
 
     def _run(self):
         cfg = self._cfg
-        print("Date & Time               Vin   Vout  Batt-V  Board Temperature")
+        print("Date & Time               Vin   Vout  Batt-V  GS-Batt  Board Temperature")
         sys.stdout.flush()
 
         try:
@@ -184,6 +193,24 @@ class VoltageMonitor:
                     vbatt = _read_adc_voltage(bus, cfg.address, cfg.ch_vbatt, cfg)
                     vout = _read_adc_voltage(bus, cfg.address, cfg.ch_vout, cfg)
                     temp_v = _read_adc_voltage(bus, cfg.address, cfg.ch_tempv, cfg)
+
+                    ground_vbat_v = None
+                    try:
+                        ground_adc_v = _read_adc_voltage(
+                            bus,
+                            cfg.ground_batt_address,
+                            cfg.ground_batt_channel,
+                            cfg,
+                        )
+                        scaled_ground_v = (
+                            ground_adc_v
+                            * cfg.ground_batt_divider_scale
+                            * cfg.ground_batt_cal_scale
+                        )
+                        if scaled_ground_v >= cfg.ground_batt_min_v:
+                            ground_vbat_v = scaled_ground_v
+                    except Exception:  # pylint: disable=broad-except
+                        ground_vbat_v = None
 
                     temp_c = _temp_c_from_tempv(temp_v, cfg.temp_profile)
                     temp_f = temp_c * 1.8 + 32.0
@@ -202,6 +229,7 @@ class VoltageMonitor:
                         vin_v=vin,
                         vout_v=vout,
                         vbatt_v=vbatt,
+                        ground_vbat_v=ground_vbat_v,
                         temp_v=temp_v,
                         temp_c=temp_c,
                         temp_f=temp_f,
@@ -210,9 +238,10 @@ class VoltageMonitor:
                     )
                     self._emit_update()
 
+                    ground_vbat_text = "--.--" if ground_vbat_v is None else "%.2f" % ground_vbat_v
                     print(
-                        "%s %5.2f %5.2f %5.2f %8.2fC %6.2fF"
-                        % (time.ctime(), vin, vout, vbatt, temp_c, temp_f)
+                        "%s %5.2f %5.2f %5.2f %7s %8.2fC %6.2fF"
+                        % (time.ctime(), vin, vout, vbatt, ground_vbat_text, temp_c, temp_f)
                     )
                     sys.stdout.flush()
 

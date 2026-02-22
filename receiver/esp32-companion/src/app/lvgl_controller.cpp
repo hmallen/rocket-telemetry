@@ -1054,12 +1054,14 @@ void LvglController::refreshUi() {
                         state_.flight.callsign.length() ? state_.flight.callsign.c_str() : "(none)");
 
   const String txVbat = formatFloat(state_.battery.telemetryVbatV, 2, "--.-");
+  const String groundVbat = formatFloat(state_.battery.groundVbatV, 2, "--.-");
   const String companionVbat = formatFloat(state_.battery.companionVbatV, 2, "--.-");
 
   lv_label_set_text_fmt(batteryLabel_, "TX_VBAT: %s V", txVbat.c_str());
-  lv_label_set_text_fmt(companionBatteryLabel_, "BAT_ADC: %s V", companionVbat.c_str());
+  lv_label_set_text_fmt(companionBatteryLabel_, "GS_VBAT: %s V", groundVbat.c_str());
   lv_label_set_text_fmt(companionBatteryDebugLabel_,
-                        "BAT raw: %lu mV @ GPIO%d%s",
+                        "BAT_ADC: %s V (%lu mV @ GPIO%d%s)",
+                        companionVbat.c_str(),
                         static_cast<unsigned long>(lastCompanionBatRawMv_),
                         static_cast<int>(COMPANION_BAT_ADC_PIN),
                         lastCompanionBatRawValid_ ? "" : " (invalid)");
