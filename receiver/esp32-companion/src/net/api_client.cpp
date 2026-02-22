@@ -170,7 +170,11 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
   ioState.flight.callsign = String((const char*)(flight["callsign"] | ""));
 
   JsonObject recovery = state["recovery"];
-  ioState.alt.altitudeAglM = recovery["altitude_agl_m"].isNull() ? NAN : (float)recovery["altitude_agl_m"].as<float>();
+  const float baroAlt = recovery["altitude_agl_m"].isNull() ? NAN : (float)recovery["altitude_agl_m"].as<float>();
+  JsonObject gps = state["gps"];
+  const float gpsAlt = gps["alt_m"].isNull() ? NAN : (float)gps["alt_m"].as<float>();
+  ioState.alt.altitudeAglM = isnan(baroAlt) ? gpsAlt : baroAlt;
+  ioState.alt.gpsAltitudeM = gpsAlt;
   ioState.alt.verticalSpeedMps = recovery["vertical_speed_mps"].isNull() ? NAN : (float)recovery["vertical_speed_mps"].as<float>();
 
   JsonObject battery = state["battery"];

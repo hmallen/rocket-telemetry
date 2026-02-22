@@ -87,6 +87,7 @@ class LvglController {
   bool touchDebugPressed_ = false;
   bool touchDebugIrqPressed_ = false;
   bool touchDebugMapOk_ = false;
+  bool touchDebugVisible_ = true;
   int32_t touchDebugRawX_ = -1;
   int32_t touchDebugRawY_ = -1;
   int32_t touchDebugRawZ_ = -1;
@@ -149,6 +150,7 @@ class LvglController {
   bool sendAction(const String& action, int durationS = 0);
   void togglePanel();
   void toggleSettings();
+  void setTouchDebugVisible(bool visible);
 
   void loadTouchCalibration();
   void saveTouchCalibration();
@@ -166,6 +168,7 @@ class LvglController {
 
   static void onPanelToggleEvent(lv_event_t* e);
   static void onSettingsToggleEvent(lv_event_t* e);
+  static void onTouchDebugToggleEvent(lv_event_t* e);
   static void onCalibrateEvent(lv_event_t* e);
   static void onBuzzerToggleEvent(lv_event_t* e);
   static void onBuzzerDurationChangedEvent(lv_event_t* e);

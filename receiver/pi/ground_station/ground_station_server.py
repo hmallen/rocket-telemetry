@@ -1136,6 +1136,7 @@ class CompanionUartBridge:
         altitude_agl_m = recovery.get("altitude_agl_m")
         if altitude_agl_m is None:
             altitude_agl_m = alt_m
+        gps_alt_mm = -2147483648 if alt_m is None else int(alt_m * 1000)
 
         phase_code = self._phase_to_code(flight.get("phase"))
         flags = 0
@@ -1151,7 +1152,7 @@ class CompanionUartBridge:
             flags |= 0x10
 
         payload = struct.pack(
-            "<IiiihhbBHHBH",
+            "<IiiihhbBHHBHi",
             int((state.get("ts") or time.time()) * 1000) & 0xFFFFFFFF,
             int((lat_deg or 0.0) * 1e7),
             int((lon_deg or 0.0) * 1e7),
@@ -1164,6 +1165,7 @@ class CompanionUartBridge:
             int((battery.get("vbat_v") or 0.0) * 1000),
             int(flags),
             int((battery.get("ground_vbat_v") or 0.0) * 1000) & 0xFFFF,
+            gps_alt_mm,
         )
         frame = self._encode_frame(self.MSG_TELEM_SNAPSHOT, payload)
         with self._lock:
