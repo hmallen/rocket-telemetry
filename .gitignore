@@ -58,3 +58,4 @@ receiver/pi/ground_station/.env
 receiver/esp32-companion/resources/libraries/
 receiver/esp32-companion/resources/figma/
 receiver/esp32-companion/resources/squareline/
+receiver/esp32-companion/include/config.h
