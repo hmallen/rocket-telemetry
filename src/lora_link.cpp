@@ -258,8 +258,16 @@ void LoraLink::poll_telem(uint32_t now_ms,
 
   // Hard failsafe: maximum mission transmit duration.
   if ((uint32_t)(now_ms - mission_start_ms_) >= LORA_MAX_MISSION_TX_MS) {
+#if LORA_HEARTBEAT_ENABLE
+    if (tx_enabled_) {
+      DBG_PRINTLN("lora: mission tx timeout -> heartbeat-only");
+      tx_enabled_ = false;
+      enter_silence_();
+    }
+#else
     shutdown();
     return;
+#endif
   }
 
   if (!allow_tx_()) {
@@ -282,9 +290,27 @@ void LoraLink::poll_telem(uint32_t now_ms,
         tx_active_ = false;
         tx_is_ack_ = false;
         schedule_ack_retry_(now_ms);
+      } else if (tx_is_id_) {
+        DBG_PRINTLN("lora: id tx watchdog -> retry");
+        tx_active_ = false;
+        tx_is_id_ = false;
+        if (id_retries_left_ == 0) id_retries_left_ = LORA_RETRY_LIMIT;
+        if (id_retries_left_ != 0) {
+          const uint8_t attempt = (uint8_t)(LORA_RETRY_LIMIT - id_retries_left_ + 1);
+          const uint32_t backoff = LORA_RETRY_BASE_MS * (uint32_t)attempt;
+          id_retries_left_--;
+          id_retry_after_ms_ = now_ms + backoff;
+        }
       } else {
+#if LORA_HEARTBEAT_ENABLE
+        DBG_PRINTLN("lora: tx watchdog -> heartbeat-only");
+        tx_active_ = false;
+        tx_enabled_ = false;
+        enter_silence_();
+#else
         DBG_PRINTLN("lora: tx watchdog -> shutdown");
         shutdown();
+#endif
       }
     }
     return;
@@ -348,21 +374,28 @@ void LoraLink::poll_telem(uint32_t now_ms,
     }
 
     if ((uint32_t)(now_ms - landing_stable_start_ms) >= LORA_LANDING_STABLE_MS) {
-      DBG_PRINTLN("lora: landing detected -> shutdown");
+      DBG_PRINTLN("lora: landing detected");
+#if LORA_HEARTBEAT_ENABLE
+      if (tx_enabled_) {
+        DBG_PRINTLN("lora: landing -> heartbeat-only");
+        tx_enabled_ = false;
+        enter_silence_();
+      }
+#else
       shutdown();
       return;
+#endif
     }
   }
 
-  if (!tx_enabled_) return;
+  if ((uint32_t)(now_ms - last_tx_ms_) < LORA_MIN_TX_INTERVAL_MS) return;
+  if (next_tx_ms_ != 0 && (int32_t)(now_ms - next_tx_ms_) < 0) return;
 
+  #if LORA_HEARTBEAT_ENABLE
   const bool id_due = (LORA_HEARTBEAT_MS != 0) &&
     ((last_id_tx_ms_ == 0) || ((uint32_t)(now_ms - last_id_tx_ms_) >= LORA_HEARTBEAT_MS));
   const bool id_retry_ready = (id_retry_after_ms_ != 0) && ((int32_t)(now_ms - id_retry_after_ms_) >= 0);
   const bool want_id = id_due || id_retry_ready;
-
-  if ((uint32_t)(now_ms - last_tx_ms_) < LORA_MIN_TX_INTERVAL_MS) return;
-  if (next_tx_ms_ != 0 && (int32_t)(now_ms - next_tx_ms_) < 0) return;
 
   if (want_id && !(id_retry_after_ms_ != 0 && (int32_t)(now_ms - id_retry_after_ms_) < 0)) {
     if (!start_id_tx_(now_ms)) {
@@ -376,6 +409,9 @@ void LoraLink::poll_telem(uint32_t now_ms,
     }
     return;
   }
+  #endif
+
+  if (!tx_enabled_) return;
 
   if (pending_valid_) {
     if (retry_after_ms_ != 0 && (int32_t)(now_ms - retry_after_ms_) < 0) return;
@@ -671,8 +707,9 @@ bool LoraLink::validate_config_() const {
   if (strcmp(LORA_CALLSIGN, "N0CALL") == 0) return false;
 
   if (LORA_MIN_TX_INTERVAL_MS < 100) return false;
-  if (!(LORA_HEARTBEAT_MS == 0 || LORA_HEARTBEAT_MS <= 30000)) return false;
+#if LORA_HEARTBEAT_ENABLE
   if (LORA_HEARTBEAT_MS != 0 && LORA_HEARTBEAT_MS < LORA_MIN_TX_INTERVAL_MS) return false;
+#endif
   if (LORA_RETRY_LIMIT > 5) return false;
   return true;
 }
@@ -866,7 +903,7 @@ bool LoraLink::handle_command_(const uint8_t* data, size_t len) {
 }
 
 bool LoraLink::start_id_tx_(uint32_t now_ms) {
-  if (!tx_enabled_) return false;
+  if (!allow_tx_()) return false;
 
   const size_t cs_len = strlen(LORA_CALLSIGN);
   if (cs_len == 0) return false;
@@ -1028,8 +1065,15 @@ void LoraLink::consume_pending_(uint32_t now_ms) {
 void LoraLink::schedule_retry_(uint32_t now_ms) {
   consec_fail_++;
   if (consec_fail_ >= LORA_MAX_CONSEC_TX_FAILS) {
+    DBG_PRINTLN("lora: too many tx failures");
+#if LORA_HEARTBEAT_ENABLE
+    tx_enabled_ = false;
+    consec_fail_ = 0;
+    enter_silence_();
+#else
     DBG_PRINTLN("lora: too many tx failures -> shutdown");
     shutdown();
+#endif
     return;
   }
 
