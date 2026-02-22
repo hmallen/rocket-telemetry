@@ -32,6 +32,7 @@ void UartLink::applyTelemetry(const TelemetryV1& t, CompanionState& ioState) {
   ioState.flight.packetCount = t.packet_count_lsb;
 
   ioState.alt.altitudeAglM = static_cast<float>(t.alt_mm) / 1000.0f;
+  ioState.alt.gpsAltitudeM = (t.gps_alt_mm == INT32_MIN) ? NAN : (static_cast<float>(t.gps_alt_mm) / 1000.0f);
   ioState.alt.verticalSpeedMps = static_cast<float>(t.vs_cms) / 100.0f;
 
   ioState.battery.telemetryVbatV = static_cast<float>(t.vbat_mv) / 1000.0f;
@@ -54,12 +55,46 @@ bool UartLink::poll(CompanionState& ioState) {
     Frame frame;
     if (!parser_.feed(b, frame)) continue;
 
-    if (frame.type == MSG_TELEM_SNAPSHOT && frame.len >= sizeof(TelemetryV1)) {
-      TelemetryV1 t{};
-      memcpy(&t, frame.payload, sizeof(TelemetryV1));
-      applyTelemetry(t, ioState);
-      updated = true;
-      rxFrames_++;
+    if (frame.type == MSG_TELEM_SNAPSHOT) {
+      if (frame.len >= sizeof(TelemetryV1)) {
+        TelemetryV1 t{};
+        memcpy(&t, frame.payload, sizeof(TelemetryV1));
+        applyTelemetry(t, ioState);
+        updated = true;
+        rxFrames_++;
+      } else if (frame.len >= sizeof(TelemetryV1Legacy)) {
+        TelemetryV1Legacy t{};
+        memcpy(&t, frame.payload, sizeof(TelemetryV1Legacy));
+
+        ioState.tsMs = millis();
+        ioState.seq++;
+
+        ioState.link.connected = (t.flags & 0x01) != 0;
+        ioState.link.rssi = t.rssi_dbm;
+        ioState.link.snr = static_cast<float>(t.snr_db_x4) / 4.0f;
+        ioState.link.lastPacketAgeMs = 0;
+
+        ioState.flight.phase = String(phaseToText(t.phase));
+        ioState.flight.packetCount = t.packet_count_lsb;
+
+        ioState.alt.altitudeAglM = static_cast<float>(t.alt_mm) / 1000.0f;
+        ioState.alt.gpsAltitudeM = NAN;
+        ioState.alt.verticalSpeedMps = static_cast<float>(t.vs_cms) / 100.0f;
+
+        ioState.battery.telemetryVbatV = static_cast<float>(t.vbat_mv) / 1000.0f;
+        ioState.battery.groundVbatV =
+            (t.ground_vbat_mv == 0) ? NAN : (static_cast<float>(t.ground_vbat_mv) / 1000.0f);
+        ioState.battery.label = ioState.battery.telemetryVbatV < 3.5f ? "LOW" : "OK";
+
+        ioState.hasSdLoggingState = true;
+        ioState.sdLoggingEnabled = (t.flags & 0x08) != 0;
+        ioState.hasTelemetryTxState = true;
+        ioState.telemetryTxEnabled = (t.flags & 0x10) != 0;
+
+        ioState.stale = false;
+        updated = true;
+        rxFrames_++;
+      }
     } else if (frame.type == MSG_ALERT_EVENT && frame.len >= sizeof(AlertV1)) {
       AlertV1 a{};
       memcpy(&a, frame.payload, sizeof(AlertV1));

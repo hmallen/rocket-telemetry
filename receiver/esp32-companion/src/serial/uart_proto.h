@@ -26,6 +26,21 @@ enum CmdType : uint8_t {
 };
 
 #pragma pack(push, 1)
+struct TelemetryV1Legacy {
+  uint32_t t_ms;
+  int32_t lat_e7;
+  int32_t lon_e7;
+  int32_t alt_mm;
+  int16_t vs_cms;
+  int16_t rssi_dbm;
+  int8_t snr_db_x4;
+  uint8_t phase;
+  uint16_t packet_count_lsb;
+  uint16_t vbat_mv;
+  uint8_t flags;
+  uint16_t ground_vbat_mv;
+};
+
 struct TelemetryV1 {
   uint32_t t_ms;
   int32_t lat_e7;
@@ -39,6 +54,7 @@ struct TelemetryV1 {
   uint16_t vbat_mv;
   uint8_t flags;
   uint16_t ground_vbat_mv;
+  int32_t gps_alt_mm;
 };
 
 struct AlertV1 {

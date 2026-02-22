@@ -95,7 +95,10 @@ constexpr int8_t  LORA_TX_POWER_DBM = 10; // conservative default; avoid max/PA_
 
 // Deterministic scheduling + duty-cycle restraint.
 constexpr uint32_t LORA_MIN_TX_INTERVAL_MS = (1000UL / LORA_HZ);
-constexpr uint32_t LORA_HEARTBEAT_MS = 30000; // max silence between ID-bearing telemetry (0 disables)
+// LoRa ID heartbeat ping (independent of telemetry enable/disable commands).
+// When enabled, this transmits for as long as the device remains powered.
+#define LORA_HEARTBEAT_ENABLE 1
+constexpr uint32_t LORA_HEARTBEAT_MS = 30000; // heartbeat interval (default 30s)
 
 // Telemetry packet type intervals (0 disables that packet type).
 // GPS: Lat/Lon/Elevation, Alt: BMP390 pressure/temp, IMU: gyro+accel.
@@ -146,8 +149,8 @@ constexpr int32_t  LORA_FLIGHT_PRESS_DELTA_PA_X10 = 5000;
 #define LORA_TX_ENABLE_AT_BOOT 0
 
 // ---------- Build toggles ----------
-#define ENABLE_SD_LOGGER 1
-#define ENABLE_SD_DUMP 1
+#define ENABLE_SD_LOGGER 0
+#define ENABLE_SD_DUMP 0
 #define ENABLE_PSRAM_SPOOL 1
 #define ENABLE_GNSS 1
 #define ENABLE_SENSORS 1

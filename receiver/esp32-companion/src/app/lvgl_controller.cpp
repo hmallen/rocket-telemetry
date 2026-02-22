@@ -220,12 +220,14 @@ void LvglController::buildUi() {
   lv_obj_align(phaseLabel_, LV_ALIGN_TOP_LEFT, 0, 64);
 
   altitudeLabel_ = lv_label_create(telemetryPanel_);
+  lv_obj_set_width(altitudeLabel_, 210);
+  lv_label_set_long_mode(altitudeLabel_, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_color(altitudeLabel_, lv_color_hex(0xffde6a), 0);
   lv_obj_align(altitudeLabel_, LV_ALIGN_TOP_LEFT, 0, 96);
 
   vsLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(vsLabel_, lv_color_hex(0x9df5b3), 0);
-  lv_obj_align(vsLabel_, LV_ALIGN_TOP_LEFT, 0, 150);
+  lv_obj_align(vsLabel_, LV_ALIGN_TOP_LEFT, 0, 164);
 
   packetLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(packetLabel_, lv_color_hex(0xd9e3f8), 0);
@@ -268,6 +270,9 @@ void LvglController::buildUi() {
   lv_obj_align(touchDebugLabel_, LV_ALIGN_TOP_RIGHT, 0, 44);
   lv_label_set_text(touchDebugLabel_, "TOUCH init");
   lv_obj_clear_flag(touchDebugLabel_, LV_OBJ_FLAG_CLICKABLE);
+  if (!touchDebugVisible_) {
+    lv_obj_add_flag(touchDebugLabel_, LV_OBJ_FLAG_HIDDEN);
+  }
 
   lv_obj_t* menuIconRow = lv_obj_create(telemetryPanel_);
   lv_obj_set_size(menuIconRow, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
@@ -442,6 +447,18 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(settingsActions, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_clear_flag(settingsActions, LV_OBJ_FLAG_CLICKABLE);
 
+  lv_obj_t* touchDebugCheckbox = lv_checkbox_create(settingsActions);
+  lv_checkbox_set_text(touchDebugCheckbox, "Show touch debug overlay");
+  lv_obj_set_width(touchDebugCheckbox, LV_PCT(100));
+  lv_obj_set_style_text_color(touchDebugCheckbox, lv_color_hex(0xeaf1ff), 0);
+  lv_obj_set_style_text_color(touchDebugCheckbox, lv_color_hex(0xeaf1ff), LV_STATE_CHECKED);
+  if (touchDebugVisible_) {
+    lv_obj_add_state(touchDebugCheckbox, LV_STATE_CHECKED);
+  } else {
+    lv_obj_clear_state(touchDebugCheckbox, LV_STATE_CHECKED);
+  }
+  lv_obj_add_event_cb(touchDebugCheckbox, onTouchDebugToggleEvent, LV_EVENT_VALUE_CHANGED, this);
+
   makeActionButton(settingsActions, "SCREEN CALIBRATION", onCalibrateEvent, this);
   lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
 
@@ -602,10 +619,16 @@ bool LvglController::ensureConnected() {
 void LvglController::updateStaleness() {
   const uint32_t now = millis();
   const uint32_t age = (lastRxMs_ == 0) ? UINT32_MAX : (now - lastRxMs_);
+  const int ageMs = (lastRxMs_ == 0) ? -1 : static_cast<int>(age);
   state_.stale = (age > 3000);
+
+  if (COMPANION_LINK_UART) {
+    state_.link.lastPacketAgeMs = ageMs;
+  }
+
   if (state_.stale) {
     state_.link.connected = false;
-    state_.link.lastPacketAgeMs = static_cast<int>(age);
+    state_.link.lastPacketAgeMs = ageMs;
   }
 }
 
@@ -875,6 +898,19 @@ void LvglController::togglePanel() {
   lv_obj_update_layout(telemetryPanel_);
 }
 
+void LvglController::setTouchDebugVisible(bool visible) {
+  touchDebugVisible_ = visible;
+  if (touchDebugLabel_ == nullptr) {
+    return;
+  }
+
+  if (touchDebugVisible_) {
+    lv_obj_clear_flag(touchDebugLabel_, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(touchDebugLabel_, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 void LvglController::toggleSettings() {
   settingsCollapsed_ = !settingsCollapsed_;
   if (settingsCollapsed_) {
@@ -1060,15 +1096,17 @@ void LvglController::refreshUi() {
                : (state_.stale ? lv_color_hex(0xffc369) : lv_color_hex(0xff6b6b)),
       0);
 
-  lv_label_set_text_fmt(linkMetaLabel_, "RSSI %d dBm   SNR %.1f   AGE %d ms", state_.link.rssi,
-                        state_.link.snr, state_.link.lastPacketAgeMs);
+  const String snrText = formatFloat(state_.link.snr, 1, "--.-");
+  lv_label_set_text_fmt(linkMetaLabel_, "RSSI %d dBm   SNR %s   AGE %d ms", state_.link.rssi,
+                        snrText.c_str(), state_.link.lastPacketAgeMs);
 
   lv_label_set_text_fmt(phaseLabel_, "PHASE: %s", state_.flight.phase.length() ? state_.flight.phase.c_str() : "unknown");
 
-  const String altText = formatFloat(state_.alt.altitudeAglM, 1);
+  const String baroAltText = formatFloat(state_.alt.altitudeAglM, 1);
+  const String gpsAltText = formatFloat(state_.alt.gpsAltitudeM, 1);
   const String vsText = formatFloat(state_.alt.verticalSpeedMps, 1);
 
-  lv_label_set_text_fmt(altitudeLabel_, "ALT %s m", altText.c_str());
+  lv_label_set_text_fmt(altitudeLabel_, "BARO %s m\nGPS  %s m", baroAltText.c_str(), gpsAltText.c_str());
   lv_label_set_text_fmt(vsLabel_, "VS  %s m/s", vsText.c_str());
 
   lv_label_set_text_fmt(packetLabel_, "Packets: %lu", static_cast<unsigned long>(state_.flight.packetCount));
@@ -1121,7 +1159,11 @@ void LvglController::refreshUi() {
                         static_cast<int>(touchDebugRawX_), static_cast<int>(touchDebugRawY_),
                         static_cast<int>(touchDebugRawZ_), static_cast<int>(touchDebugMapX_),
                         static_cast<int>(touchDebugMapY_), touchAgeMs);
-  lv_obj_clear_flag(touchDebugLabel_, LV_OBJ_FLAG_HIDDEN);
+  if (touchDebugVisible_) {
+    lv_obj_clear_flag(touchDebugLabel_, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(touchDebugLabel_, LV_OBJ_FLAG_HIDDEN);
+  }
 
   lv_timer_handler();
 }
@@ -1273,6 +1315,15 @@ void LvglController::onPanelToggleEvent(lv_event_t* e) {
 void LvglController::onSettingsToggleEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
   self->toggleSettings();
+}
+
+void LvglController::onTouchDebugToggleEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+  if (self == nullptr || target == nullptr) {
+    return;
+  }
+  self->setTouchDebugVisible(lv_obj_has_state(target, LV_STATE_CHECKED));
 }
 
 void LvglController::onCalibrateEvent(lv_event_t* e) {

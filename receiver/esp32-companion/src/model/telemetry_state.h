@@ -16,7 +16,10 @@ struct FlightState {
 };
 
 struct AltState {
+  // Altitude above ground level from recovery/barometer solution.
   float altitudeAglM = NAN;
+  // Absolute GPS altitude from GNSS solution.
+  float gpsAltitudeM = NAN;
   float verticalSpeedMps = NAN;
 };
 
