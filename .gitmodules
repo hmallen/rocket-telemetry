@@ -1,0 +1,6 @@
+[submodule "receiver/esp32-companion/resources/libraries/lvgl"]
+	path = receiver/esp32-companion/resources/libraries/lvgl
+	url = https://github.com/hmallen/lvgl.git
+[submodule "receiver/esp32-companion/resources/libraries/TFT_eSPI"]
+	path = receiver/esp32-companion/resources/libraries/TFT_eSPI
+	url = https://github.com/hmallen/TFT_eSPI.git

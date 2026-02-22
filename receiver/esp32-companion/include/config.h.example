@@ -59,3 +59,12 @@
 
 // Set to 1 to show a quick LCD bring-up test (RGB + text) at boot.
 #define DISPLAY_TEST_SCREEN 1
+
+// OTA update settings.
+// When enabled, firmware keeps Wi-Fi active even in UART transport mode.
+// First flash should be done over USB, then OTA can be used for updates.
+#define OTA_ENABLE 0
+#define OTA_HOSTNAME "esp32-companion"
+#define OTA_PORT 3232
+// Leave empty to disable OTA auth, or set to a strong shared password.
+#define OTA_PASSWORD ""

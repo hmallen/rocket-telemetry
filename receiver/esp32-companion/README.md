@@ -8,6 +8,7 @@ ground-station telemetry display.
 - Full LVGL-based UI (rebuilt from scratch)
 - UART-first companion transport to Pi ground station
 - Optional Wi-Fi API/SSE transport fallback
+- Optional Arduino OTA updates over Wi-Fi
 - Telemetry dashboard:
   - Link status, RSSI, SNR, packet age
   - Flight phase, altitude AGL, vertical speed
@@ -32,6 +33,12 @@ pio run -e esp32dev -t upload
 pio device monitor -b 115200
 ```
 
+OTA upload (after first USB flash and with OTA enabled in config):
+
+```bash
+pio run -e esp32dev-ota -t upload
+```
+
 ## Configuration
 
 1. Copy config template:
@@ -46,6 +53,10 @@ cp include/config.h.example include/config.h
 - UART pins/baud for your board revision
 - Wi-Fi + host settings if using API/SSE mode
 - auth token if `/api/companion/cmd` is protected
+- OTA settings (`OTA_ENABLE`, `OTA_HOSTNAME`, `OTA_PORT`, `OTA_PASSWORD`) if using OTA updates
+
+When `OTA_ENABLE=1`, firmware keeps Wi-Fi active even in UART transport mode so OTA
+updates remain available.
 
 ## CrowPanel pin notes
 
