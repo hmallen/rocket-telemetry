@@ -30,7 +30,7 @@ class LvglController {
   static constexpr int kScreenWidth = 480;
   static constexpr int kScreenHeight = 320;
   static constexpr int kDrawBufferLines = 28;
-  static constexpr int kActionPanelWidth = 172;
+  static constexpr int kActionPanelWidth = 210;
 
   ApiClient api_;
   UartLink uart_;
@@ -39,7 +39,18 @@ class LvglController {
   Preferences prefs_;
 
   bool sdLoggingEnabled_ = false;
-  bool telemetryTxEnabled_ = true;
+  bool telemetryTxEnabled_ = false;
+  bool sdCommandPending_ = false;
+  bool sdPendingTargetEnabled_ = false;
+  bool sdPendingPreviousEnabled_ = false;
+  uint32_t sdPendingSinceMs_ = 0;
+  bool txCommandPending_ = false;
+  bool txPendingTargetEnabled_ = false;
+  bool txPendingPreviousEnabled_ = false;
+  uint32_t txPendingSinceMs_ = 0;
+
+  uint8_t buzzerDurationS_ = 3;
+  bool buzzerConfigVisible_ = false;
 
   bool sseConnected_ = false;
   uint32_t lastRxMs_ = 0;
@@ -61,7 +72,7 @@ class LvglController {
 
   TouchCalibration touchCal_{};
 
-  bool panelCollapsed_ = false;
+  bool panelCollapsed_ = true;
   bool settingsCollapsed_ = true;
 
   bool calibrationActive_ = false;
@@ -69,6 +80,9 @@ class LvglController {
   uint8_t calibrationStep_ = 0;
   int32_t calibrationRawX_[4] = {0, 0, 0, 0};
   int32_t calibrationRawY_[4] = {0, 0, 0, 0};
+  int32_t calibrationLastRawX_ = -1;
+  int32_t calibrationLastRawY_ = -1;
+  uint32_t calibrationLastSampleMs_ = 0;
 
   bool touchDebugPressed_ = false;
   bool touchDebugIrqPressed_ = false;
@@ -79,6 +93,7 @@ class LvglController {
   int32_t touchDebugMapX_ = -1;
   int32_t touchDebugMapY_ = -1;
   uint32_t touchDebugTs_ = 0;
+  bool touchPressed_ = false;
 
   String cmdMsg_;
   bool cmdOk_ = true;
@@ -86,13 +101,16 @@ class LvglController {
 
   lv_obj_t* root_ = nullptr;
   lv_obj_t* telemetryPanel_ = nullptr;
+  lv_obj_t* sdToggleBtn_ = nullptr;
+  lv_obj_t* sdToggleLabel_ = nullptr;
+  lv_obj_t* txToggleBtn_ = nullptr;
+  lv_obj_t* txToggleLabel_ = nullptr;
   lv_obj_t* actionPanel_ = nullptr;
   lv_obj_t* actionContent_ = nullptr;
+  lv_obj_t* buzzerConfigRow_ = nullptr;
+  lv_obj_t* buzzerDurationSlider_ = nullptr;
+  lv_obj_t* buzzerDurationLabel_ = nullptr;
   lv_obj_t* settingsBody_ = nullptr;
-  lv_obj_t* settingsToggleLabel_ = nullptr;
-  lv_obj_t* panelToggleLabel_ = nullptr;
-  lv_obj_t* panelQuickToggle_ = nullptr;
-  lv_obj_t* panelQuickToggleLabel_ = nullptr;
 
   lv_obj_t* linkLabel_ = nullptr;
   lv_obj_t* linkMetaLabel_ = nullptr;
@@ -116,12 +134,18 @@ class LvglController {
   void buildUi();
   void refreshUi();
   void setCommandStatus(const String& msg, bool ok);
+  void updateDashboardActionButtons();
+  void setBuzzerConfigVisible(bool visible);
+  void syncCommandStateFromTelemetry();
+  void updatePendingCommandTimeouts(uint32_t now);
+  void requestSdToggle(bool enable);
+  void requestTxToggle(bool enable);
 
   void updateStaleness();
   void updateCompanionBattery();
   bool ensureConnected();
 
-  void sendAction(const String& action, int durationS = 0);
+  bool sendAction(const String& action, int durationS = 0);
   void togglePanel();
   void toggleSettings();
 
@@ -142,10 +166,9 @@ class LvglController {
   static void onPanelToggleEvent(lv_event_t* e);
   static void onSettingsToggleEvent(lv_event_t* e);
   static void onCalibrateEvent(lv_event_t* e);
-  static void onBuzz1Event(lv_event_t* e);
-  static void onBuzz5Event(lv_event_t* e);
-  static void onSdStartEvent(lv_event_t* e);
-  static void onSdStopEvent(lv_event_t* e);
-  static void onTelemEnableEvent(lv_event_t* e);
-  static void onTelemDisableEvent(lv_event_t* e);
+  static void onBuzzerToggleEvent(lv_event_t* e);
+  static void onBuzzerDurationChangedEvent(lv_event_t* e);
+  static void onBuzzerSendEvent(lv_event_t* e);
+  static void onSdToggleEvent(lv_event_t* e);
+  static void onTxToggleEvent(lv_event_t* e);
 };

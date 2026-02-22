@@ -178,6 +178,22 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
       battery["vbat_v"].isNull() ? NAN : (float)battery["vbat_v"].as<float>();
   ioState.battery.label = String((const char*)(battery["bat_state_label"] | ""));
 
+  JsonObject sdLogging = state["sd_logging"];
+  if (!sdLogging.isNull() && !sdLogging["enabled"].isNull()) {
+    ioState.hasSdLoggingState = true;
+    ioState.sdLoggingEnabled = sdLogging["enabled"].as<bool>();
+  } else {
+    ioState.hasSdLoggingState = false;
+  }
+
+  JsonObject telemetryTx = state["telemetry_tx"];
+  if (!telemetryTx.isNull() && !telemetryTx["enabled"].isNull()) {
+    ioState.hasTelemetryTxState = true;
+    ioState.telemetryTxEnabled = telemetryTx["enabled"].as<bool>();
+  } else {
+    ioState.hasTelemetryTxState = false;
+  }
+
   ioState.primaryAlert = "";
   JsonArray alerts = state["alerts"].as<JsonArray>();
   if (!alerts.isNull() && alerts.size() > 0) {

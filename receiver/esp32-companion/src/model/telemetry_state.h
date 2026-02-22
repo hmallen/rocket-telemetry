@@ -35,6 +35,10 @@ struct CompanionState {
   FlightState flight;
   AltState alt;
   BatteryState battery;
+  bool hasSdLoggingState = false;
+  bool sdLoggingEnabled = false;
+  bool hasTelemetryTxState = false;
+  bool telemetryTxEnabled = false;
   String primaryAlert;
   bool stale = true;
 };

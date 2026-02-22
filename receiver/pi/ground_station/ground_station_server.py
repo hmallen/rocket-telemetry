@@ -946,6 +946,8 @@ def _build_companion_state(snapshot, seq=None):
     alt = snapshot.get("alt", {})
     battery = snapshot.get("battery", {})
     attitude = snapshot.get("attitude", {})
+    sd_logging = snapshot.get("sd_logging", {})
+    telemetry_tx = snapshot.get("telemetry_tx", {})
 
     connected = age_s is not None and age_s <= 2.0
     phase = recovery.get("phase") or "unknown"
@@ -1002,6 +1004,16 @@ def _build_companion_state(snapshot, seq=None):
         "battery": {
             "vbat_v": battery.get("vbat_v"),
             "bat_state_label": battery.get("bat_state_label"),
+        },
+        "sd_logging": {
+            "enabled": sd_logging.get("enabled"),
+            "last_command": sd_logging.get("last_command"),
+            "ack_timestamp": sd_logging.get("ack_timestamp"),
+        },
+        "telemetry_tx": {
+            "enabled": telemetry_tx.get("enabled"),
+            "last_command": telemetry_tx.get("last_command"),
+            "ack_timestamp": telemetry_tx.get("ack_timestamp"),
         },
         "recovery": {
             "enabled": recovery.get("enabled"),
@@ -1105,6 +1117,8 @@ class CompanionUartBridge:
         gps = state.get("gps", {})
         battery = state.get("battery", {})
         flight = state.get("flight", {})
+        sd_logging = state.get("sd_logging", {})
+        telemetry_tx = state.get("telemetry_tx", {})
 
         lat_deg = gps.get("lat_deg")
         lon_deg = gps.get("lon_deg")
@@ -1121,6 +1135,10 @@ class CompanionUartBridge:
             flags |= 0x02
         if recovery.get("main", {}).get("deployed"):
             flags |= 0x04
+        if sd_logging.get("enabled") is True:
+            flags |= 0x08
+        if telemetry_tx.get("enabled") is True:
+            flags |= 0x10
 
         payload = struct.pack(
             "<IiiihhbBHHB",

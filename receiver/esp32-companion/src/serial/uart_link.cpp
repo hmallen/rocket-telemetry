@@ -37,6 +37,11 @@ void UartLink::applyTelemetry(const TelemetryV1& t, CompanionState& ioState) {
   ioState.battery.telemetryVbatV = static_cast<float>(t.vbat_mv) / 1000.0f;
   ioState.battery.label = ioState.battery.telemetryVbatV < 3.5f ? "LOW" : "OK";
 
+  ioState.hasSdLoggingState = true;
+  ioState.sdLoggingEnabled = (t.flags & 0x08) != 0;
+  ioState.hasTelemetryTxState = true;
+  ioState.telemetryTxEnabled = (t.flags & 0x10) != 0;
+
   ioState.stale = false;
 }
 
