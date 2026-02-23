@@ -240,9 +240,9 @@ void LvglController::buildUi() {
   lv_obj_set_style_text_color(altitudeLabel_, lv_color_hex(0xffde6a), 0);
   lv_obj_align(altitudeLabel_, LV_ALIGN_TOP_LEFT, 0, 96);
 
-  vsLabel_ = lv_label_create(telemetryPanel_);
-  lv_obj_set_style_text_color(vsLabel_, lv_color_hex(0x9df5b3), 0);
-  lv_obj_align(vsLabel_, LV_ALIGN_TOP_LEFT, 0, 164);
+  //vsLabel_ = lv_label_create(telemetryPanel_);
+  //lv_obj_set_style_text_color(vsLabel_, lv_color_hex(0x9df5b3), 0);
+  //lv_obj_align(vsLabel_, LV_ALIGN_TOP_LEFT, 0, 164);
 
   packetLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(packetLabel_, lv_color_hex(0xd9e3f8), 0);
@@ -1298,8 +1298,8 @@ void LvglController::refreshUi() {
   const String gpsAltText = formatFloat(state_.alt.gpsAltitudeM, 1);
   const String vsText = formatFloat(state_.alt.verticalSpeedMps, 1);
 
-  lv_label_set_text_fmt(altitudeLabel_, "BARO %s m\nGPS  %s m", baroAltText.c_str(), gpsAltText.c_str());
-  lv_label_set_text_fmt(vsLabel_, "VS  %s m/s", vsText.c_str());
+  lv_label_set_text_fmt(altitudeLabel_, "BARO %s m\nGPS  %s m\nVS  %s m/s", baroAltText.c_str(), gpsAltText.c_str(), vsText.c_str());
+  //lv_label_set_text_fmt(vsLabel_, "VS  %s m/s", vsText.c_str());
 
   lv_label_set_text_fmt(packetLabel_, "Packets: %lu", static_cast<unsigned long>(state_.flight.packetCount));
   lv_label_set_text_fmt(callsignLabel_, "Callsign: %s",
