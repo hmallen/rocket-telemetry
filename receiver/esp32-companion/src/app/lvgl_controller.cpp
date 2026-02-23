@@ -9,6 +9,7 @@ namespace {
 constexpr uint32_t kUiRefreshIntervalMs = 120;
 constexpr uint32_t kCommandStatusShowMs = 3000;
 constexpr uint32_t kCommandConfirmTimeoutMs = 5000;
+constexpr uint32_t kGroundStationOfflineDetectMs = 8000;
 constexpr uint8_t kCalPointCount = 4;
 constexpr uint8_t kTelemetryTxPowerMinDbm = 2;
 constexpr uint8_t kTelemetryTxPowerMaxDbm = 17;
@@ -1213,13 +1214,24 @@ void LvglController::handleCalibrationTouch() {
 
 void LvglController::refreshUi() {
   const uint32_t now = millis();
+  bool groundStationAppOffline = false;
+#if COMPANION_LINK_UART
+  groundStationAppOffline = (lastRxMs_ == 0) && (now > kGroundStationOfflineDetectMs);
+#else
+  groundStationAppOffline = !sseConnected_;
+#endif
+
   const bool linkLive = state_.link.connected && !state_.stale;
 
-  lv_label_set_text(linkLabel_, linkLive ? "LINK LIVE" : (state_.stale ? "LINK STALE" : "NO LINK"));
+  lv_label_set_text(linkLabel_, groundStationAppOffline
+                                    ? "GS APP OFFLINE"
+                                    : (linkLive ? "LINK LIVE" : (state_.stale ? "LINK STALE" : "NO LINK")));
   lv_obj_set_style_text_color(
       linkLabel_,
-      linkLive ? lv_color_hex(0x6cff95)
-               : (state_.stale ? lv_color_hex(0xffc369) : lv_color_hex(0xff6b6b)),
+      groundStationAppOffline
+          ? lv_color_hex(0xff6b6b)
+          : (linkLive ? lv_color_hex(0x6cff95)
+                      : (state_.stale ? lv_color_hex(0xffc369) : lv_color_hex(0xff6b6b))),
       0);
 
   const String snrText = formatFloat(state_.link.snr, 1, "--.-");
@@ -1264,7 +1276,9 @@ void LvglController::refreshUi() {
   lv_label_set_text(cmdStatusLabel_, cmdStatus.c_str());
 
   String alert;
-  if (state_.primaryAlert.length() > 0) {
+  if (groundStationAppOffline) {
+    alert = "Start ground_station_server.py on Pi";
+  } else if (state_.primaryAlert.length() > 0) {
     alert = state_.primaryAlert;
   } else if (state_.stale) {
     alert = "Telemetry stale";

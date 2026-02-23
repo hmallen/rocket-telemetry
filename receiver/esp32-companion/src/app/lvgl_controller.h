@@ -89,7 +89,7 @@ class LvglController {
   bool touchDebugPressed_ = false;
   bool touchDebugIrqPressed_ = false;
   bool touchDebugMapOk_ = false;
-  bool touchDebugVisible_ = true;
+  bool touchDebugVisible_ = false;
   int32_t touchDebugRawX_ = -1;
   int32_t touchDebugRawY_ = -1;
   int32_t touchDebugRawZ_ = -1;
