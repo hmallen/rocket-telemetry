@@ -1406,8 +1406,7 @@ function updateMap(gps) {
   if (!state.map && mapContainer && window.L) {
     state.map = L.map(mapContainer, { zoomControl: true });
     L.tileLayer("/tiles/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap contributors",
+      maxZoom: 18,
     }).addTo(state.map);
     state.map.setView([lat, lon], 13);
     state.mapMarker = L.circleMarker([lat, lon], {
