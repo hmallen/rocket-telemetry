@@ -464,7 +464,7 @@ void LoraLink::poll_telem(uint32_t now_ms,
   const bool want_id = id_due || id_retry_ready;
 
   if (want_id && !(id_retry_after_ms_ != 0 && (int32_t)(now_ms - id_retry_after_ms_) < 0)) {
-    if (!start_id_tx_(now_ms)) {
+    if (!start_id_tx_(now_ms, vbat_mv)) {
       if (id_retries_left_ == 0) id_retries_left_ = LORA_RETRY_LIMIT;
       if (id_retries_left_ != 0) {
         const uint8_t attempt = (uint8_t)(LORA_RETRY_LIMIT - id_retries_left_ + 1);
@@ -1021,18 +1021,19 @@ bool LoraLink::handle_command_(const uint8_t* data, size_t len) {
   return true;
 }
 
-bool LoraLink::start_id_tx_(uint32_t now_ms) {
+bool LoraLink::start_id_tx_(uint32_t now_ms, uint16_t vbat_mv) {
   if (!allow_tx_()) return false;
 
   const size_t cs_len = strlen(LORA_CALLSIGN);
   if (cs_len == 0) return false;
-  if (cs_len > (sizeof(tx_buf_) - 3)) return false;
+  if (cs_len > (sizeof(tx_buf_) - 5)) return false;
 
   tx_buf_[0] = 0xA1;
   tx_buf_[1] = 1;
   tx_buf_[2] = (uint8_t)cs_len;
   memcpy(&tx_buf_[3], LORA_CALLSIGN, cs_len);
-  const size_t n = 3 + cs_len;
+  write_u16_le(&tx_buf_[3 + cs_len], vbat_mv);
+  const size_t n = 5 + cs_len;
 
   lora_tx_done_isr = false;
   tx_start_ms_ = now_ms;

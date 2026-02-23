@@ -700,6 +700,9 @@ def decode_payload(payload):
         if len(payload) < 3 + n:
             return "PROTO A1 ID (short)"
         callsign = payload[3:3 + n].decode("ascii", errors="replace")
+        if len(payload) >= 5 + n:
+            vbat_mv = int.from_bytes(payload[3 + n:5 + n], "little", signed=False)
+            return "ID callsign=%s vbat_v=%.3f" % (callsign, vbat_mv / 1000.0)
         return "ID callsign=%s" % callsign
     if typ == 2:
         if len(payload) < 18:
@@ -841,7 +844,12 @@ def parse_payload(payload):
         if len(payload) < 3 + n:
             return None
         callsign = payload[3:3 + n].decode("ascii", errors="replace")
-        return {"type": "id", "callsign": callsign}
+        parsed = {"type": "id", "callsign": callsign}
+        if len(payload) >= 5 + n:
+            vbat_mv = int.from_bytes(payload[3 + n:5 + n], "little", signed=False)
+            parsed["vbat_mv"] = vbat_mv
+            parsed["vbat_v"] = vbat_mv / 1000.0
+        return parsed
     if typ == 2:
         if len(payload) < 18:
             return None

@@ -592,6 +592,10 @@ class TelemetryStore:
                 payload_type = parsed.get("type")
                 if payload_type == "id":
                     self._state["callsign"] = parsed.get("callsign")
+                    id_vbat_mv = parsed.get("vbat_mv")
+                    if id_vbat_mv is not None:
+                        self._state["battery"]["vbat_mv"] = id_vbat_mv
+                        self._state["battery"]["vbat_v"] = id_vbat_mv / 1000.0
                 elif payload_type == "gps":
                     lat_e7 = parsed.get("lat_e7")
                     lon_e7 = parsed.get("lon_e7")
