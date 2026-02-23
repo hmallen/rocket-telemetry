@@ -26,6 +26,7 @@ enum CmdType : uint8_t {
   CMD_ALT_CALIBRATE = 0x06,
   CMD_IMU_CALIBRATE = 0x07,
   CMD_SHUTDOWN = 0x08,
+  CMD_SET_TX_POWER = 0x09,
 };
 
 #pragma pack(push, 1)

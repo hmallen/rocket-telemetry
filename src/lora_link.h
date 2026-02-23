@@ -13,6 +13,7 @@ enum class LoraCommand : uint8_t {
   kTelemDisable = 0x05,
   kAltCalibrate = 0x06,
   kImuCalibrate = 0x07,
+  kSetTxPower = 0x08,
 };
 
 class LoraLink {
@@ -20,6 +21,7 @@ public:
   bool begin();
 
   void enable_tx(bool enable);
+  bool set_tx_power_dbm(uint8_t power_dbm);
   void shutdown();
   void set_faulted(bool faulted);
 
@@ -75,6 +77,7 @@ private:
   bool tx_active_ = false;
   bool faulted_ = false;
   bool shutdown_ = false;
+  uint8_t tx_power_dbm_ = LORA_TX_POWER_DBM;
 
   uint32_t mission_start_ms_ = 0;
   uint32_t last_tx_ms_ = 0;

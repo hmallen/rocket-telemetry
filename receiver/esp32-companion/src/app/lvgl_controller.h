@@ -48,6 +48,7 @@ class LvglController {
   bool txPendingTargetEnabled_ = false;
   bool txPendingPreviousEnabled_ = false;
   uint32_t txPendingSinceMs_ = 0;
+  uint8_t txPowerDbm_ = 17;
 
   uint8_t buzzerDurationS_ = 3;
   bool buzzerConfigVisible_ = false;
@@ -111,6 +112,9 @@ class LvglController {
   lv_obj_t* buzzerConfigRow_ = nullptr;
   lv_obj_t* buzzerDurationSlider_ = nullptr;
   lv_obj_t* buzzerDurationLabel_ = nullptr;
+  lv_obj_t* txPowerConfigRow_ = nullptr;
+  lv_obj_t* txPowerSlider_ = nullptr;
+  lv_obj_t* txPowerLabel_ = nullptr;
   lv_obj_t* settingsBody_ = nullptr;
 
   lv_obj_t* linkLabel_ = nullptr;
@@ -176,6 +180,8 @@ class LvglController {
   static void onBuzzerToggleEvent(lv_event_t* e);
   static void onBuzzerDurationChangedEvent(lv_event_t* e);
   static void onBuzzerSendEvent(lv_event_t* e);
+  static void onTxPowerChangedEvent(lv_event_t* e);
+  static void onTxPowerSendEvent(lv_event_t* e);
   static void onSdToggleEvent(lv_event_t* e);
   static void onTxToggleEvent(lv_event_t* e);
 };

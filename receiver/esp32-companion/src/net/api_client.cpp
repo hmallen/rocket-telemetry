@@ -138,6 +138,8 @@ bool ApiClient::sendCommand(const String& action, int durationS) {
   doc["action"] = action;
   if (action == "buzzer") {
     doc["duration_s"] = durationS;
+  } else if (action == "telemetry_tx_power") {
+    doc["tx_power_dbm"] = durationS;
   }
 
   String body;

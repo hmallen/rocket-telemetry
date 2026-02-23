@@ -139,6 +139,12 @@ bool UartLink::sendCommand(const String& action, int durationS) {
   } else if (action == "shutdown") {
     cmd.cmd = CMD_SHUTDOWN;
     cmd.arg = 0;
+  } else if (action == "telemetry_tx_power") {
+    if (durationS < 2 || durationS > 17) {
+      return false;
+    }
+    cmd.cmd = CMD_SET_TX_POWER;
+    cmd.arg = static_cast<uint8_t>(durationS);
   } else {
     return false;
   }

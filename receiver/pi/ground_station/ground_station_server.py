@@ -128,6 +128,7 @@ LORA_CMD_TELEM_ENABLE = 0x04
 LORA_CMD_TELEM_DISABLE = 0x05
 LORA_CMD_ALT_CALIBRATE = 0x06
 LORA_CMD_IMU_CALIBRATE = 0x07
+LORA_CMD_SET_TX_POWER = 0x08
 LORA_CMD_REPEAT_COUNT = 3
 LORA_CMD_REPEAT_DELAY_S = 0.1
 
@@ -1063,6 +1064,7 @@ class CompanionUartBridge:
     CMD_ALT_CALIBRATE = 0x06
     CMD_IMU_CALIBRATE = 0x07
     CMD_SHUTDOWN = 0x08
+    CMD_SET_TX_POWER = 0x09
 
     def __init__(self, port, baud):
         self._port = port
@@ -1214,6 +1216,8 @@ class CompanionUartBridge:
             ok, error = send_lora_command("alt_calibrate")
         elif cmd == self.CMD_IMU_CALIBRATE:
             ok, error = send_lora_command("imu_calibrate")
+        elif cmd == self.CMD_SET_TX_POWER:
+            ok, error = send_lora_command("telemetry_tx_power", tx_power_dbm=int(arg))
         elif cmd == self.CMD_SHUTDOWN:
             ok, error = request_pi_shutdown()
         else:
@@ -1424,7 +1428,7 @@ def lora_worker():
     print("LoRa worker thread exiting")
 
 
-def send_lora_command(action, duration_s=None):
+def send_lora_command(action, duration_s=None, tx_power_dbm=None):
     if action == "sd_start":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_START])
     elif action == "sd_stop":
@@ -1437,6 +1441,14 @@ def send_lora_command(action, duration_s=None):
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_ALT_CALIBRATE])
     elif action == "imu_calibrate":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_IMU_CALIBRATE])
+    elif action == "telemetry_tx_power":
+        try:
+            tx_power = int(tx_power_dbm)
+        except (TypeError, ValueError):
+            return False, "tx_power_dbm must be a number"
+        if tx_power < 2 or tx_power > 17:
+            return False, "tx_power_dbm must be between 2 and 17"
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SET_TX_POWER, tx_power])
     elif action == "buzzer":
         try:
             duration = int(duration_s)
@@ -1622,7 +1634,8 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             payload = self._read_json() or {}
             action = payload.get("action")
             duration_s = payload.get("duration_s")
-            ok, error = send_lora_command(action, duration_s)
+            tx_power_dbm = payload.get("tx_power_dbm")
+            ok, error = send_lora_command(action, duration_s, tx_power_dbm)
             if not ok:
                 return self._send_json({"ok": False, "error": error}, status=400)
             return self._send_json({"ok": True})
@@ -1633,10 +1646,11 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             payload = self._read_json() or {}
             action = payload.get("action")
             duration_s = payload.get("duration_s")
+            tx_power_dbm = payload.get("tx_power_dbm")
             if action == "shutdown":
                 ok, error = request_pi_shutdown()
             else:
-                ok, error = send_lora_command(action, duration_s)
+                ok, error = send_lora_command(action, duration_s, tx_power_dbm)
             if not ok:
                 return self._send_json({"ok": False, "error": error}, status=400)
             return self._send_json({"ok": True})

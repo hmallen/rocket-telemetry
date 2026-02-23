@@ -10,6 +10,8 @@ constexpr uint32_t kUiRefreshIntervalMs = 120;
 constexpr uint32_t kCommandStatusShowMs = 3000;
 constexpr uint32_t kCommandConfirmTimeoutMs = 5000;
 constexpr uint8_t kCalPointCount = 4;
+constexpr uint8_t kTelemetryTxPowerMinDbm = 2;
+constexpr uint8_t kTelemetryTxPowerMaxDbm = 17;
 constexpr int kCalMarginPx = 24;
 constexpr int32_t kCalRetouchDistancePx = 120;
 constexpr int32_t kTouchPressThreshold = 140;
@@ -450,6 +452,52 @@ void LvglController::buildUi() {
   makeActionButton(settingsActions, "ALTITUDE ZERO", onAltCalibrateEvent, this);
   makeActionButton(settingsActions, "IMU CALIBRATION", onImuCalibrateEvent, this);
   makeActionButton(settingsActions, "SCREEN CALIBRATION", onCalibrateEvent, this);
+
+  lv_obj_t* txPowerTitle = lv_label_create(settingsActions);
+  lv_label_set_text(txPowerTitle, "TELEMETRY TX POWER");
+  lv_obj_set_style_text_color(txPowerTitle, lv_color_hex(0xcfe0ff), 0);
+  lv_obj_clear_flag(txPowerTitle, LV_OBJ_FLAG_CLICKABLE);
+
+  txPowerConfigRow_ = lv_obj_create(settingsActions);
+  lv_obj_set_width(txPowerConfigRow_, LV_PCT(100));
+  lv_obj_set_height(txPowerConfigRow_, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(txPowerConfigRow_, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(txPowerConfigRow_, 0, 0);
+  lv_obj_set_style_pad_all(txPowerConfigRow_, 0, 0);
+  lv_obj_set_style_pad_gap(txPowerConfigRow_, 6, 0);
+  lv_obj_set_flex_flow(txPowerConfigRow_, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(txPowerConfigRow_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_clear_flag(txPowerConfigRow_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(txPowerConfigRow_, LV_OBJ_FLAG_CLICKABLE);
+
+  txPowerSlider_ = lv_slider_create(txPowerConfigRow_);
+  lv_obj_set_width(txPowerSlider_, 84);
+  lv_slider_set_range(txPowerSlider_, kTelemetryTxPowerMinDbm, kTelemetryTxPowerMaxDbm);
+  lv_slider_set_value(txPowerSlider_, txPowerDbm_, LV_ANIM_OFF);
+  lv_obj_add_event_cb(txPowerSlider_, onTxPowerChangedEvent, LV_EVENT_VALUE_CHANGED, this);
+
+  txPowerLabel_ = lv_label_create(txPowerConfigRow_);
+  lv_obj_set_width(txPowerLabel_, 42);
+  lv_obj_set_style_text_align(txPowerLabel_, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_set_style_text_color(txPowerLabel_, lv_color_hex(0xcfe0ff), 0);
+  lv_obj_clear_flag(txPowerLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_label_set_text_fmt(txPowerLabel_, "%udBm", static_cast<unsigned>(txPowerDbm_));
+
+  lv_obj_t* txPowerSendBtn = lv_btn_create(txPowerConfigRow_);
+  lv_obj_add_flag(txPowerSendBtn, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(txPowerSendBtn, 56, 30);
+  lv_obj_set_style_radius(txPowerSendBtn, 8, 0);
+  lv_obj_set_style_bg_color(txPowerSendBtn, lv_color_hex(0x1f2a3b), 0);
+  lv_obj_set_style_bg_color(txPowerSendBtn, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(txPowerSendBtn, lv_color_hex(0x4b7dd1), 0);
+  lv_obj_set_style_border_width(txPowerSendBtn, 1, 0);
+  lv_obj_add_event_cb(txPowerSendBtn, onTxPowerSendEvent, LV_EVENT_PRESSED, this);
+
+  lv_obj_t* txPowerSendLabel = lv_label_create(txPowerSendBtn);
+  lv_label_set_text(txPowerSendLabel, "APPLY");
+  lv_obj_set_style_text_color(txPowerSendLabel, lv_color_hex(0xeaf1ff), 0);
+  lv_obj_clear_flag(txPowerSendLabel, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(txPowerSendLabel);
 
   lv_obj_t* shutdownBtn = lv_btn_create(settingsActions);
   lv_obj_add_flag(shutdownBtn, LV_OBJ_FLAG_CLICKABLE);
@@ -899,6 +947,8 @@ bool LvglController::sendAction(const String& action, int durationS) {
 
   if (action == "buzzer") {
     pretty = "BUZZER " + String(durationS) + "s";
+  } else if (action == "telemetry_tx_power") {
+    pretty = "TELEM TX POWER " + String(durationS) + "dBm";
   }
 
   updateDashboardActionButtons();
@@ -1394,6 +1444,32 @@ void LvglController::onBuzzerDurationChangedEvent(lv_event_t* e) {
 void LvglController::onBuzzerSendEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
   self->sendAction("buzzer", self->buzzerDurationS_);
+  self->refreshUi();
+}
+
+void LvglController::onTxPowerChangedEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr || self->txPowerSlider_ == nullptr) {
+    return;
+  }
+  int value = lv_slider_get_value(self->txPowerSlider_);
+  if (value < kTelemetryTxPowerMinDbm) {
+    value = kTelemetryTxPowerMinDbm;
+  } else if (value > kTelemetryTxPowerMaxDbm) {
+    value = kTelemetryTxPowerMaxDbm;
+  }
+  self->txPowerDbm_ = static_cast<uint8_t>(value);
+  if (self->txPowerLabel_ != nullptr) {
+    lv_label_set_text_fmt(self->txPowerLabel_, "%udBm", static_cast<unsigned>(self->txPowerDbm_));
+  }
+}
+
+void LvglController::onTxPowerSendEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  self->sendAction("telemetry_tx_power", self->txPowerDbm_);
   self->refreshUi();
 }
 

@@ -473,6 +473,7 @@ CMD_TELEM_ENABLE = 0x04
 CMD_TELEM_DISABLE = 0x05
 CMD_ALT_CALIBRATE = 0x06
 CMD_IMU_CALIBRATE = 0x07
+CMD_SET_TX_POWER = 0x08
 
 RECOVERY_PHASE_LABELS = {
     0: "idle",
@@ -680,6 +681,9 @@ def decode_payload(payload):
         elif cmd == CMD_IMU_CALIBRATE:
             cmd_label = "imu_calibrate"
             state_label = "calibration"
+        elif cmd == CMD_SET_TX_POWER:
+            cmd_label = "telemetry_tx_power"
+            state_label = "tx_power"
         else:
             cmd_label = "0x%02X" % cmd
         return "ACK %s %s=%s" % (cmd_label, state_label, enabled)
@@ -809,6 +813,8 @@ def parse_payload(payload):
             cmd_label = "alt_calibrate"
         elif cmd == CMD_IMU_CALIBRATE:
             cmd_label = "imu_calibrate"
+        elif cmd == CMD_SET_TX_POWER:
+            cmd_label = "telemetry_tx_power"
         else:
             cmd_label = "unknown"
         enabled = bool(payload[3])
