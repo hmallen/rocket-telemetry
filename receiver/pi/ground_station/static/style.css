@@ -91,7 +91,8 @@ h1 {
 }
 
 .top-status {
-  width: auto;
+  width: 520px;
+  min-width: 520px;
   max-width: 520px;
   min-height: 58px;
   padding: 10px 14px;
@@ -123,6 +124,7 @@ h1 {
   align-items: baseline;
   gap: 6px;
   font-size: 0.82rem;
+  flex: 0 0 auto;
 }
 
 .top-status-item .label {
@@ -130,6 +132,21 @@ h1 {
   font-size: 0.68rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+
+.top-status-item #packet-count,
+.top-status-item #last-update {
+  display: inline-block;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.top-status-item #packet-count {
+  min-width: 6ch;
+}
+
+.top-status-item #last-update {
+  min-width: 10ch;
 }
 
 .ghost-button {
@@ -680,6 +697,7 @@ h1 {
   }
 
   .top-status {
+    min-width: 0;
     max-width: none;
   }
 
