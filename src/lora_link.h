@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <Arduino.h>
+#include "cfg.h"
  #include "gnss_ubx.h"
  #include "sensors.h"
 
