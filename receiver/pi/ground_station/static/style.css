@@ -52,6 +52,13 @@ body::before {
   flex-wrap: wrap;
 }
 
+.top-rail {
+  display: grid;
+  gap: 12px;
+  justify-items: end;
+  align-content: start;
+}
+
 .eyebrow {
   text-transform: uppercase;
   letter-spacing: 0.12em;
@@ -85,6 +92,11 @@ h1 {
 
 .top-status {
   width: min(100%, 340px);
+}
+
+.top-controls {
+  width: min(100%, 340px);
+  padding: 10px 14px;
 }
 
 .ghost-button {
@@ -318,26 +330,13 @@ h1 {
   padding: 0 6vw 56px;
   display: grid;
   gap: 24px;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  grid-template-areas:
-    "visuals rail"
-    "telemetry rail";
   align-items: start;
 }
 
 .visuals {
-  grid-area: visuals;
   display: grid;
   gap: 24px;
   grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-}
-
-.control-rail {
-  grid-area: rail;
-  position: sticky;
-  top: 20px;
-  max-height: calc(100vh - 40px);
-  overflow-y: auto;
 }
 
 .panel {
@@ -510,7 +509,6 @@ h1 {
 }
 
 .telemetry-panel {
-  grid-area: telemetry;
   gap: 12px;
 }
 
@@ -599,18 +597,14 @@ h1 {
 }
 
 @media (max-width: 960px) {
-  .dashboard-layout {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-areas:
-      "visuals"
-      "rail"
-      "telemetry";
+  .top-rail {
+    width: 100%;
+    justify-items: stretch;
   }
 
-  .control-rail {
-    position: static;
-    max-height: none;
-    overflow: visible;
+  .top-status,
+  .top-controls {
+    width: 100%;
   }
 
   .top-bar {
