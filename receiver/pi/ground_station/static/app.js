@@ -61,6 +61,11 @@ const elements = {
   telemEnable: document.getElementById("telem-enable"),
   telemDisable: document.getElementById("telem-disable"),
   telemStatus: document.getElementById("telem-status"),
+  telemTxPower: document.getElementById("telem-tx-power"),
+  telemTxPowerValue: document.getElementById("telem-tx-power-value"),
+  telemTxPowerApply: document.getElementById("telem-tx-power-apply"),
+  telemTxPowerStatus: document.getElementById("telem-tx-power-status"),
+  telemTxPowerActive: document.getElementById("telem-tx-power-active"),
   buzzerDuration: document.getElementById("buzzer-duration"),
   buzzerActivate: document.getElementById("buzzer-activate"),
   buzzerStatus: document.getElementById("buzzer-status"),
@@ -97,6 +102,8 @@ const state = {
   telemetryTxAckTs: null,
   telemetryEnabled: null,
   telemetryCommandPending: false,
+  telemetryTxPowerCommandPending: false,
+  telemetryTxPowerDbm: 17,
   commandLockoutActive: false,
   buzzerCommandPending: false,
   altCalCommandPending: false,
@@ -286,6 +293,37 @@ function ensureRocketScene(width, height) {
       radius: 0.4 + (hashFract(index * 35.425) * 1.6),
       alpha: 0.16 + (hashFract(index * 91.719) * 0.54),
     });
+  }
+}
+
+function setTelemetryTxPowerInlineValue(powerDbm) {
+  if (!elements.telemTxPowerValue) {
+    return;
+  }
+  if (!Number.isFinite(powerDbm)) {
+    elements.telemTxPowerValue.textContent = "-- dBm";
+    return;
+  }
+  elements.telemTxPowerValue.textContent = `${Math.round(powerDbm)} dBm`;
+}
+
+function setTelemetryTxPowerStatus(message, statusClass) {
+  if (!elements.telemTxPowerStatus) {
+    return;
+  }
+  elements.telemTxPowerStatus.textContent = message;
+  elements.telemTxPowerStatus.classList.remove("ok", "pending", "error");
+  if (statusClass) {
+    elements.telemTxPowerStatus.classList.add(statusClass);
+  }
+}
+
+function toggleTelemetryTxPowerControls(disabled) {
+  if (elements.telemTxPowerApply) {
+    elements.telemTxPowerApply.disabled = disabled;
+  }
+  if (elements.telemTxPower) {
+    elements.telemTxPower.disabled = disabled;
   }
 }
 
@@ -520,6 +558,23 @@ if (elements.telemDisable) {
   });
 }
 
+if (elements.telemTxPower) {
+  elements.telemTxPower.addEventListener("input", () => {
+    const value = Number(elements.telemTxPower.value);
+    if (Number.isFinite(value)) {
+      state.telemetryTxPowerDbm = value;
+      setTelemetryTxPowerInlineValue(value);
+    }
+  });
+}
+
+if (elements.telemTxPowerApply) {
+  elements.telemTxPowerApply.addEventListener("click", () => {
+    const value = elements.telemTxPower ? Number(elements.telemTxPower.value) : NaN;
+    postTelemetryTxPowerCommand(value);
+  });
+}
+
 if (elements.buzzerActivate) {
   elements.buzzerActivate.addEventListener("click", () => {
     const duration = elements.buzzerDuration ? Number(elements.buzzerDuration.value) : 0;
@@ -701,6 +756,40 @@ function postTelemetryCommand(action, label) {
     .finally(() => {
       state.telemetryCommandPending = false;
       updateTelemetryControlState();
+    });
+}
+
+function postTelemetryTxPowerCommand(powerDbm) {
+  const value = Math.round(Number(powerDbm));
+  if (!Number.isFinite(value) || value < 2 || value > 17) {
+    setTelemetryTxPowerStatus("Power must be between 2 and 17 dBm", "error");
+    return;
+  }
+
+  setTelemetryTxPowerInlineValue(value);
+  state.telemetryTxPowerDbm = value;
+  state.telemetryTxPowerCommandPending = true;
+  setTelemetryTxPowerStatus(`Sending TX power ${value} dBm…`, "pending");
+  toggleTelemetryTxPowerControls(true);
+
+  fetch("/api/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "telemetry_tx_power", tx_power_dbm: value }),
+  })
+    .then((res) => res.json())
+    .then((payload) => {
+      if (!payload.ok) {
+        throw new Error(payload.error || "Command failed");
+      }
+      setTelemetryTxPowerStatus(`Command sent: ${value} dBm. Awaiting ack…`, "pending");
+    })
+    .catch((err) => {
+      setTelemetryTxPowerStatus(err.message || "Command failed", "error");
+    })
+    .finally(() => {
+      state.telemetryTxPowerCommandPending = false;
+      toggleTelemetryTxPowerControls(false);
     });
 }
 
@@ -1013,15 +1102,41 @@ function updateFromTelemetry(snapshot) {
   }
 
   const telemetryTx = snapshot.telemetry_tx || {};
+  const activePowerDbm = telemetryTx.active_power_dbm;
+  if (elements.telemTxPowerActive) {
+    elements.telemTxPowerActive.textContent = activePowerDbm === null || activePowerDbm === undefined
+      ? "Active: -- dBm"
+      : `Active: ${formatInt(activePowerDbm)} dBm`;
+  }
+
+  if (elements.telemTxPower && activePowerDbm !== null && activePowerDbm !== undefined) {
+    const clampedPower = Math.max(2, Math.min(17, Number(activePowerDbm)));
+    if (Number.isFinite(clampedPower) && !state.telemetryTxPowerCommandPending) {
+      if (document.activeElement !== elements.telemTxPower) {
+        elements.telemTxPower.value = String(clampedPower);
+      }
+      setTelemetryTxPowerInlineValue(clampedPower);
+      state.telemetryTxPowerDbm = clampedPower;
+    }
+  }
+
   if (telemetryTx.ack_timestamp && telemetryTx.ack_timestamp !== state.telemetryTxAckTs) {
     state.telemetryTxAckTs = telemetryTx.ack_timestamp;
     state.telemetryEnabled = telemetryTx.enabled;
-    const enabled = telemetryTx.enabled;
-    const statusText = enabled === null || enabled === undefined
-      ? "Telemetry TX ack received"
-      : (enabled ? "Telemetry TX enabled" : "Telemetry TX disabled");
+    const lastCommand = telemetryTx.last_command;
     const timeLabel = formatTimestamp(telemetryTx.ack_timestamp);
-    setTelemetryStatus(`${statusText} (${timeLabel})`, "ok");
+    if (lastCommand === "telemetry_tx_power") {
+      const txPowerText = activePowerDbm === null || activePowerDbm === undefined
+        ? "Telemetry TX power ack received"
+        : `Telemetry TX power set: ${formatInt(activePowerDbm)} dBm`;
+      setTelemetryTxPowerStatus(`${txPowerText} (${timeLabel})`, "ok");
+    } else {
+      const enabled = telemetryTx.enabled;
+      const statusText = enabled === null || enabled === undefined
+        ? "Telemetry TX ack received"
+        : (enabled ? "Telemetry TX enabled" : "Telemetry TX disabled");
+      setTelemetryStatus(`${statusText} (${timeLabel})`, "ok");
+    }
     updateTelemetryControlState();
   }
 
@@ -1436,6 +1551,14 @@ if (elements.mapSetHome) {
       state.mapHomeMarker = null;
     }
   });
+}
+
+if (elements.telemTxPower) {
+  const initial = Number(elements.telemTxPower.value);
+  if (Number.isFinite(initial)) {
+    state.telemetryTxPowerDbm = initial;
+    setTelemetryTxPowerInlineValue(initial);
+  }
 }
 
 setInterval(updateClock, 500);

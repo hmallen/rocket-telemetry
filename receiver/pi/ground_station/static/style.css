@@ -83,6 +83,10 @@ h1 {
   box-shadow: var(--shadow);
 }
 
+.top-status {
+  width: min(100%, 340px);
+}
+
 .ghost-button {
   display: inline-flex;
   align-items: center;
@@ -154,6 +158,40 @@ h1 {
   margin-bottom: 2px;
 }
 
+.control-drawer {
+  width: 100%;
+}
+
+.control-drawer summary {
+  cursor: pointer;
+  list-style: none;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.76rem;
+  color: var(--accent-strong);
+  font-weight: 600;
+}
+
+.control-drawer summary::-webkit-details-marker {
+  display: none;
+}
+
+.control-drawer summary::after {
+  content: "▾";
+  float: right;
+  color: var(--muted);
+}
+
+.control-drawer[open] summary::after {
+  content: "▴";
+}
+
+.control-drawer-content {
+  margin-top: 10px;
+  display: grid;
+  gap: 10px;
+}
+
 .control-panel {
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -199,6 +237,17 @@ h1 {
   font-size: 0.82rem;
   color: var(--ink);
   background: #fff;
+}
+
+.control-range {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.control-inline-value {
+  font-size: 0.78rem;
+  color: var(--accent-strong);
+  font-weight: 600;
 }
 
 .control-select:focus {
