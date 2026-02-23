@@ -23,6 +23,8 @@ enum CmdType : uint8_t {
   CMD_BUZZER = 0x03,
   CMD_TELEM_ENABLE = 0x04,
   CMD_TELEM_DISABLE = 0x05,
+  CMD_ALT_CALIBRATE = 0x06,
+  CMD_IMU_CALIBRATE = 0x07,
 };
 
 #pragma pack(push, 1)

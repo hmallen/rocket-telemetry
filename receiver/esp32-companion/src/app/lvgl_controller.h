@@ -170,6 +170,8 @@ class LvglController {
   static void onSettingsToggleEvent(lv_event_t* e);
   static void onTouchDebugToggleEvent(lv_event_t* e);
   static void onCalibrateEvent(lv_event_t* e);
+  static void onAltCalibrateEvent(lv_event_t* e);
+  static void onImuCalibrateEvent(lv_event_t* e);
   static void onBuzzerToggleEvent(lv_event_t* e);
   static void onBuzzerDurationChangedEvent(lv_event_t* e);
   static void onBuzzerSendEvent(lv_event_t* e);

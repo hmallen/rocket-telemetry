@@ -1098,6 +1098,18 @@ void loop() {
         if (duration_ms != 0) {
           buzzer_start_seq(duration_ms, 0, 1, now_ms);
         }
+      } else if (cmd == LoraCommand::kAltCalibrate) {
+        if (!buzzer_busy()) {
+          buzzer_start_seq(60, 0, 1, now_ms);
+        }
+        lora.request_recovery_calibration();
+        ack_enabled_state = true;
+      } else if (cmd == LoraCommand::kImuCalibrate) {
+        if (!buzzer_busy()) {
+          buzzer_start_seq(60, 0, 1, now_ms);
+        }
+        const bool imu_cal_ok = sensors.calibrate_imu();
+        ack_enabled_state = imu_cal_ok;
       }
       if (cmd != LoraCommand::kBuzzer) {
         lora.queue_command_ack(cmd, ack_enabled_state);

@@ -62,6 +62,10 @@ constexpr bool GYRO_RDY_ACTIVE_LOW = true; // set true if gyro DRDY is active-lo
 constexpr bool GYRO_RDY_PULLUP = true;     // set true if gyro DRDY is open-drain/floating
 constexpr bool ACCEL_RDY_ACTIVE_LOW = false; // set true if accel DRDY is active-low
 constexpr bool ACCEL_RDY_PULLUP = false;     // set true if accel DRDY is open-drain/floating
+constexpr uint16_t IMU_CAL_SAMPLES = 200;
+constexpr uint16_t IMU_CAL_MIN_SAMPLES = 40;
+constexpr uint16_t IMU_CAL_SAMPLE_DELAY_MS = 2;
+constexpr uint32_t IMU_CAL_TIMEOUT_MS = 4000;
 
 // ---------- I2C ----------
 #define I2C_BUS Wire
@@ -108,6 +112,14 @@ constexpr uint32_t LORA_IMU_INTERVAL_MS = 200;
 constexpr uint32_t LORA_BAT_INTERVAL_MS = 1000;
 constexpr uint32_t LORA_NAVSAT_INTERVAL_MS = 2000;
 constexpr uint32_t LORA_RECOVERY_INTERVAL_MS = 500;
+
+// Altitude baseline calibration.
+// On boot (and on manual recalibration), wait a short settle period, then average
+// barometer pressure samples to establish ground-level zero. GPS zero is averaged
+// once a valid 3D fix is available.
+constexpr uint32_t RECOVERY_BARO_CAL_DELAY_MS = 1500;
+constexpr uint16_t RECOVERY_BARO_CAL_SAMPLES = 64;
+constexpr uint16_t RECOVERY_GPS_CAL_SAMPLES = 12;
 
 // Recovery-state simulation runs on the rocket flight computer and is downlinked over LoRa.
 // Distances are in millimeters to match GNSS height units.
