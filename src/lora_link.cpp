@@ -331,7 +331,12 @@ void LoraLink::queue_command_ack(LoraCommand cmd, bool enabled_state) {
   ack_buf_[1] = LORA_CMD_ACK;
   ack_buf_[2] = cmd_byte;
   ack_buf_[3] = enabled_state ? 1u : 0u;
-  ack_len_ = 4;
+  if (cmd == LoraCommand::kSetTxPower) {
+    ack_buf_[4] = tx_power_dbm_;
+    ack_len_ = 5;
+  } else {
+    ack_len_ = 4;
+  }
   ack_pending_ = true;
   ack_retry_after_ms_ = millis() + LORA_ACK_REPEAT_MS;
   ack_retries_left_ = LORA_ACK_REPEAT_COUNT;
@@ -1054,14 +1059,15 @@ bool LoraLink::start_id_tx_(uint32_t now_ms, uint16_t vbat_mv) {
 
   const size_t cs_len = strlen(LORA_CALLSIGN);
   if (cs_len == 0) return false;
-  if (cs_len > (sizeof(tx_buf_) - 5)) return false;
+  if (cs_len > (sizeof(tx_buf_) - 6)) return false;
 
   tx_buf_[0] = 0xA1;
   tx_buf_[1] = 1;
   tx_buf_[2] = (uint8_t)cs_len;
   memcpy(&tx_buf_[3], LORA_CALLSIGN, cs_len);
   write_u16_le(&tx_buf_[3 + cs_len], vbat_mv);
-  const size_t n = 5 + cs_len;
+  tx_buf_[5 + cs_len] = tx_power_dbm_;
+  const size_t n = 6 + cs_len;
 
   lora_tx_done_isr = false;
   tx_start_ms_ = now_ms;

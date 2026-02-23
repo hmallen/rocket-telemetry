@@ -19,7 +19,7 @@ void UartLink::begin() {
   serial_.begin(baud_, SERIAL_8N1, rxPin_, txPin_);
 }
 
-void UartLink::applyTelemetry(const TelemetryV1& t, CompanionState& ioState) {
+void UartLink::applyTelemetry(const TelemetryV1& t, bool hasTxPower, CompanionState& ioState) {
   ioState.tsMs = millis();
   ioState.seq++;
 
@@ -44,6 +44,9 @@ void UartLink::applyTelemetry(const TelemetryV1& t, CompanionState& ioState) {
   ioState.sdLoggingEnabled = (t.flags & 0x08) != 0;
   ioState.hasTelemetryTxState = true;
   ioState.telemetryTxEnabled = (t.flags & 0x10) != 0;
+  const bool txPowerValid = hasTxPower && t.telemetry_tx_power_dbm >= 2 && t.telemetry_tx_power_dbm <= 17;
+  ioState.hasTelemetryTxPowerState = txPowerValid;
+  ioState.telemetryTxPowerDbm = txPowerValid ? t.telemetry_tx_power_dbm : 0;
   ioState.hasCommandLockoutState = true;
   ioState.commandLockoutActive = (t.flags & 0x20) != 0;
 
@@ -51,6 +54,7 @@ void UartLink::applyTelemetry(const TelemetryV1& t, CompanionState& ioState) {
 }
 
 bool UartLink::poll(CompanionState& ioState) {
+  static constexpr size_t kTelemetryV1NoTxPowerLen = sizeof(TelemetryV1) - sizeof(uint8_t);
   bool updated = false;
   while (serial_.available() > 0) {
     uint8_t b = static_cast<uint8_t>(serial_.read());
@@ -61,7 +65,13 @@ bool UartLink::poll(CompanionState& ioState) {
       if (frame.len >= sizeof(TelemetryV1)) {
         TelemetryV1 t{};
         memcpy(&t, frame.payload, sizeof(TelemetryV1));
-        applyTelemetry(t, ioState);
+        applyTelemetry(t, true, ioState);
+        updated = true;
+        rxFrames_++;
+      } else if (frame.len >= kTelemetryV1NoTxPowerLen) {
+        TelemetryV1 t{};
+        memcpy(&t, frame.payload, kTelemetryV1NoTxPowerLen);
+        applyTelemetry(t, false, ioState);
         updated = true;
         rxFrames_++;
       } else if (frame.len >= sizeof(TelemetryV1Legacy)) {
@@ -92,6 +102,8 @@ bool UartLink::poll(CompanionState& ioState) {
         ioState.sdLoggingEnabled = (t.flags & 0x08) != 0;
         ioState.hasTelemetryTxState = true;
         ioState.telemetryTxEnabled = (t.flags & 0x10) != 0;
+        ioState.hasTelemetryTxPowerState = false;
+        ioState.telemetryTxPowerDbm = 0;
         ioState.hasCommandLockoutState = true;
         ioState.commandLockoutActive = (t.flags & 0x20) != 0;
 

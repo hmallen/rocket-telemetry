@@ -44,6 +44,8 @@ struct CompanionState {
   bool sdLoggingEnabled = false;
   bool hasTelemetryTxState = false;
   bool telemetryTxEnabled = false;
+  bool hasTelemetryTxPowerState = false;
+  uint8_t telemetryTxPowerDbm = 0;
   bool hasCommandLockoutState = false;
   bool commandLockoutActive = false;
   String primaryAlert;

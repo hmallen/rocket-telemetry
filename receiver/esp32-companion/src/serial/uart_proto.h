@@ -59,6 +59,7 @@ struct TelemetryV1 {
   uint8_t flags;
   uint16_t ground_vbat_mv;
   int32_t gps_alt_mm;
+  uint8_t telemetry_tx_power_dbm;
 };
 
 struct AlertV1 {

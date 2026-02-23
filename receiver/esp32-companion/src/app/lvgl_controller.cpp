@@ -395,7 +395,7 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(buzzerConfigRow_, LV_OBJ_FLAG_CLICKABLE);
 
   buzzerDurationSlider_ = lv_slider_create(buzzerConfigRow_);
-  lv_obj_set_width(buzzerDurationSlider_, 112);
+  lv_obj_set_width(buzzerDurationSlider_, 100);
   lv_slider_set_range(buzzerDurationSlider_, 1, 10);
   lv_slider_set_value(buzzerDurationSlider_, buzzerDurationS_, LV_ANIM_OFF);
   lv_obj_add_event_cb(buzzerDurationSlider_, onBuzzerDurationChangedEvent, LV_EVENT_VALUE_CHANGED, this);
@@ -409,7 +409,7 @@ void LvglController::buildUi() {
 
   lv_obj_t* buzzerSendBtn = lv_btn_create(buzzerConfigRow_);
   lv_obj_add_flag(buzzerSendBtn, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(buzzerSendBtn, 56, 30);
+  lv_obj_set_size(buzzerSendBtn, 52, 30);
   lv_obj_set_style_radius(buzzerSendBtn, 8, 0);
   lv_obj_set_style_bg_color(buzzerSendBtn, lv_color_hex(0x1f2a3b), 0);
   lv_obj_set_style_bg_color(buzzerSendBtn, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
@@ -523,6 +523,12 @@ void LvglController::buildUi() {
   lv_obj_set_style_text_color(txPowerSendLabel, lv_color_hex(0xeaf1ff), 0);
   lv_obj_clear_flag(txPowerSendLabel, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_center(txPowerSendLabel);
+
+  txPowerActiveLabel_ = lv_label_create(settingsActions);
+  lv_obj_set_width(txPowerActiveLabel_, LV_PCT(100));
+  lv_obj_set_style_text_color(txPowerActiveLabel_, lv_color_hex(0x9fb7df), 0);
+  lv_obj_clear_flag(txPowerActiveLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_label_set_text(txPowerActiveLabel_, "Active: -- dBm");
 
   shutdownBtn_ = lv_btn_create(settingsActions);
   lv_obj_add_flag(shutdownBtn_, LV_OBJ_FLAG_CLICKABLE);
@@ -654,6 +660,15 @@ void LvglController::begin() {
   lastPrimaryAlert_ = state_.primaryAlert;
   lastLvTickMs_ = millis();
 
+  if (lastRxMs_ != 0) {
+    hasLastLoraPacketCount_ = true;
+    lastLoraPacketCount_ = state_.flight.packetCount;
+    if (state_.link.lastPacketAgeMs >= 0) {
+      loraAgeBaseMs_ = state_.link.lastPacketAgeMs;
+      loraAgeBaseTickMs_ = lastLvTickMs_;
+    }
+  }
+
   refreshUi();
 }
 
@@ -711,17 +726,18 @@ bool LvglController::ensureConnected() {
 
 void LvglController::updateStaleness() {
   const uint32_t now = millis();
-  const uint32_t age = (lastRxMs_ == 0) ? UINT32_MAX : (now - lastRxMs_);
-  const int ageMs = (lastRxMs_ == 0) ? -1 : static_cast<int>(age);
-  state_.stale = (age > 3000);
+  const uint32_t commAge = (lastRxMs_ == 0) ? UINT32_MAX : (now - lastRxMs_);
+  state_.stale = (commAge > 3000);
 
-  if (COMPANION_LINK_UART) {
-    state_.link.lastPacketAgeMs = ageMs;
+  if (loraAgeBaseMs_ >= 0) {
+    state_.link.lastPacketAgeMs =
+        loraAgeBaseMs_ + static_cast<int32_t>(now - loraAgeBaseTickMs_);
+  } else if (lastRxMs_ == 0) {
+    state_.link.lastPacketAgeMs = -1;
   }
 
   if (state_.stale) {
     state_.link.connected = false;
-    state_.link.lastPacketAgeMs = ageMs;
   }
 }
 
@@ -896,6 +912,26 @@ void LvglController::syncCommandStateFromTelemetry() {
   if (commandLockoutActive_ != reportedLockout) {
     commandLockoutActive_ = reportedLockout;
     changed = true;
+  }
+
+  if (state_.hasTelemetryTxPowerState) {
+    if (!hasTxPowerReadback_ || txPowerActiveDbm_ != state_.telemetryTxPowerDbm) {
+      hasTxPowerReadback_ = true;
+      txPowerActiveDbm_ = state_.telemetryTxPowerDbm;
+      changed = true;
+    }
+  } else if (hasTxPowerReadback_) {
+    hasTxPowerReadback_ = false;
+    txPowerActiveDbm_ = 0;
+    changed = true;
+  }
+
+  if (txPowerActiveLabel_ != nullptr) {
+    if (hasTxPowerReadback_) {
+      lv_label_set_text_fmt(txPowerActiveLabel_, "Active: %udBm", static_cast<unsigned>(txPowerActiveDbm_));
+    } else {
+      lv_label_set_text(txPowerActiveLabel_, "Active: -- dBm");
+    }
   }
 
   if (changed) {
@@ -1346,6 +1382,21 @@ void LvglController::tick() {
 
   if (updated) {
     lastRxMs_ = now;
+#if COMPANION_LINK_UART
+    const bool loraPacketAdvanced =
+        !hasLastLoraPacketCount_ || (state_.flight.packetCount != lastLoraPacketCount_);
+    if (loraPacketAdvanced) {
+      hasLastLoraPacketCount_ = true;
+      lastLoraPacketCount_ = state_.flight.packetCount;
+      loraAgeBaseMs_ = (state_.link.lastPacketAgeMs >= 0) ? state_.link.lastPacketAgeMs : 0;
+      loraAgeBaseTickMs_ = now;
+    }
+#else
+    if (state_.link.lastPacketAgeMs >= 0) {
+      loraAgeBaseMs_ = state_.link.lastPacketAgeMs;
+      loraAgeBaseTickMs_ = now;
+    }
+#endif
     syncCommandStateFromTelemetry();
 
     if (state_.flight.phase != lastPhase_ && state_.flight.phase.length() > 0) {

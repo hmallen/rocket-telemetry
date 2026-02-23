@@ -533,6 +533,7 @@ class TelemetryStore:
                 "enabled": None,
                 "last_command": None,
                 "ack_timestamp": None,
+                "active_power_dbm": None,
             },
             "voltage_monitor": {
                 "timestamp": None,
@@ -619,6 +620,9 @@ class TelemetryStore:
                     if id_vbat_mv is not None:
                         self._state["battery"]["vbat_mv"] = id_vbat_mv
                         self._state["battery"]["vbat_v"] = id_vbat_mv / 1000.0
+                    id_tx_power_dbm = parsed.get("tx_power_dbm")
+                    if id_tx_power_dbm is not None:
+                        self._state["telemetry_tx"]["active_power_dbm"] = int(id_tx_power_dbm)
                 elif payload_type == "gps":
                     lat_e7 = parsed.get("lat_e7")
                     lon_e7 = parsed.get("lon_e7")
@@ -752,6 +756,14 @@ class TelemetryStore:
                             "last_command": cmd,
                             "ack_timestamp": ack_ts,
                         })
+                    elif cmd == "telemetry_tx_power":
+                        self._state["telemetry_tx"].update({
+                            "last_command": cmd,
+                            "ack_timestamp": ack_ts,
+                        })
+                        tx_power_dbm = parsed.get("tx_power_dbm")
+                        if tx_power_dbm is not None:
+                            self._state["telemetry_tx"]["active_power_dbm"] = int(tx_power_dbm)
 
             return copy.deepcopy(self._state)
 
@@ -1054,6 +1066,7 @@ def _build_companion_state(snapshot, seq=None):
             "enabled": telemetry_tx.get("enabled"),
             "last_command": telemetry_tx.get("last_command"),
             "ack_timestamp": telemetry_tx.get("ack_timestamp"),
+            "active_power_dbm": telemetry_tx.get("active_power_dbm"),
         },
         "command_lockout": {
             "active": command_lockout_active,
@@ -1192,8 +1205,14 @@ class CompanionUartBridge:
         if command_lockout.get("active") is True:
             flags |= 0x20
 
+        tx_power_dbm = telemetry_tx.get("active_power_dbm")
+        if tx_power_dbm is None:
+            tx_power_dbm = 0
+        else:
+            tx_power_dbm = int(tx_power_dbm) & 0xFF
+
         payload = struct.pack(
-            "<IiiihhbBHHBHi",
+            "<IiiihhbBHHBHiB",
             int((state.get("ts") or time.time()) * 1000) & 0xFFFFFFFF,
             int((lat_deg or 0.0) * 1e7),
             int((lon_deg or 0.0) * 1e7),
@@ -1207,6 +1226,7 @@ class CompanionUartBridge:
             int(flags),
             int((battery.get("ground_vbat_v") or 0.0) * 1000) & 0xFFFF,
             gps_alt_mm,
+            tx_power_dbm,
         )
         frame = self._encode_frame(self.MSG_TELEM_SNAPSHOT, payload)
         with self._lock:

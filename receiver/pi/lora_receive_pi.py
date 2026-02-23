@@ -686,6 +686,9 @@ def decode_payload(payload):
             state_label = "tx_power"
         else:
             cmd_label = "0x%02X" % cmd
+        if cmd == CMD_SET_TX_POWER and len(payload) >= 5:
+            tx_power_dbm = int(payload[4])
+            return "ACK %s ok=%s active=%ddBm" % (cmd_label, enabled, tx_power_dbm)
         return "ACK %s %s=%s" % (cmd_label, state_label, enabled)
     if payload[0] != 0xA1:
         return None
@@ -706,6 +709,9 @@ def decode_payload(payload):
         callsign = payload[3:3 + n].decode("ascii", errors="replace")
         if len(payload) >= 5 + n:
             vbat_mv = int.from_bytes(payload[3 + n:5 + n], "little", signed=False)
+            if len(payload) >= 6 + n:
+                tx_power_dbm = int(payload[5 + n])
+                return "ID callsign=%s vbat_v=%.3f tx_power=%ddBm" % (callsign, vbat_mv / 1000.0, tx_power_dbm)
             return "ID callsign=%s vbat_v=%.3f" % (callsign, vbat_mv / 1000.0)
         return "ID callsign=%s" % callsign
     if typ == 2:
@@ -823,6 +829,8 @@ def parse_payload(payload):
             "command": cmd_label,
             "enabled": enabled,
         }
+        if cmd == CMD_SET_TX_POWER and len(payload) >= 5:
+            parsed["tx_power_dbm"] = int(payload[4])
         if cmd_label in ("sd_start", "sd_stop"):
             parsed["logging_enabled"] = enabled
         elif cmd_label in ("telemetry_enable", "telemetry_disable"):
@@ -855,6 +863,8 @@ def parse_payload(payload):
             vbat_mv = int.from_bytes(payload[3 + n:5 + n], "little", signed=False)
             parsed["vbat_mv"] = vbat_mv
             parsed["vbat_v"] = vbat_mv / 1000.0
+            if len(payload) >= 6 + n:
+                parsed["tx_power_dbm"] = int(payload[5 + n])
         return parsed
     if typ == 2:
         if len(payload) < 18:

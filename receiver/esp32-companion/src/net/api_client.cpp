@@ -201,6 +201,13 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
   } else {
     ioState.hasTelemetryTxState = false;
   }
+  if (!telemetryTx.isNull() && !telemetryTx["active_power_dbm"].isNull()) {
+    ioState.hasTelemetryTxPowerState = true;
+    ioState.telemetryTxPowerDbm = static_cast<uint8_t>(telemetryTx["active_power_dbm"].as<unsigned int>());
+  } else {
+    ioState.hasTelemetryTxPowerState = false;
+    ioState.telemetryTxPowerDbm = 0;
+  }
 
   JsonObject commandLockout = state["command_lockout"];
   if (!commandLockout.isNull() && !commandLockout["active"].isNull()) {

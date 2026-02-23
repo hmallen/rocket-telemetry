@@ -49,6 +49,8 @@ class LvglController {
   bool txPendingPreviousEnabled_ = false;
   uint32_t txPendingSinceMs_ = 0;
   uint8_t txPowerDbm_ = 17;
+  bool hasTxPowerReadback_ = false;
+  uint8_t txPowerActiveDbm_ = 0;
   bool commandLockoutActive_ = false;
 
   uint8_t buzzerDurationS_ = 3;
@@ -56,6 +58,10 @@ class LvglController {
 
   bool sseConnected_ = false;
   uint32_t lastRxMs_ = 0;
+  int32_t loraAgeBaseMs_ = -1;
+  uint32_t loraAgeBaseTickMs_ = 0;
+  bool hasLastLoraPacketCount_ = false;
+  uint32_t lastLoraPacketCount_ = 0;
   uint32_t lastReconnectAttemptMs_ = 0;
   uint32_t lastCompanionBatSampleMs_ = 0;
   uint32_t lastCompanionBatRawMv_ = 0;
@@ -116,6 +122,7 @@ class LvglController {
   lv_obj_t* txPowerConfigRow_ = nullptr;
   lv_obj_t* txPowerSlider_ = nullptr;
   lv_obj_t* txPowerLabel_ = nullptr;
+  lv_obj_t* txPowerActiveLabel_ = nullptr;
   lv_obj_t* shutdownBtn_ = nullptr;
   lv_obj_t* settingsBody_ = nullptr;
 
