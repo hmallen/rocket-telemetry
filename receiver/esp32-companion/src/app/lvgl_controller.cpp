@@ -451,6 +451,23 @@ void LvglController::buildUi() {
   makeActionButton(settingsActions, "IMU CALIBRATION", onImuCalibrateEvent, this);
   makeActionButton(settingsActions, "SCREEN CALIBRATION", onCalibrateEvent, this);
 
+  lv_obj_t* shutdownBtn = lv_btn_create(settingsActions);
+  lv_obj_add_flag(shutdownBtn, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(shutdownBtn, LV_PCT(100));
+  lv_obj_set_height(shutdownBtn, 34);
+  lv_obj_set_style_radius(shutdownBtn, 8, 0);
+  lv_obj_set_style_bg_color(shutdownBtn, lv_color_hex(0x7a1d1d), 0);
+  lv_obj_set_style_bg_color(shutdownBtn, lv_color_hex(0xa02828), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(shutdownBtn, lv_color_hex(0xdc7070), 0);
+  lv_obj_set_style_border_width(shutdownBtn, 1, 0);
+  lv_obj_add_event_cb(shutdownBtn, onShutdownEvent, LV_EVENT_LONG_PRESSED, this);
+
+  lv_obj_t* shutdownLabel = lv_label_create(shutdownBtn);
+  lv_label_set_text(shutdownLabel, "HOLD: SHUTDOWN PI");
+  lv_obj_set_style_text_color(shutdownLabel, lv_color_hex(0xfff0f0), 0);
+  lv_obj_clear_flag(shutdownLabel, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(shutdownLabel);
+
   lv_obj_t* touchDebugCheckbox = lv_checkbox_create(settingsActions);
   lv_checkbox_set_text(touchDebugCheckbox, "Touchscreen debug");
   lv_obj_set_width(touchDebugCheckbox, LV_PCT(100));
@@ -1343,6 +1360,12 @@ void LvglController::onAltCalibrateEvent(lv_event_t* e) {
 void LvglController::onImuCalibrateEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
   self->sendAction("imu_calibrate", 0);
+  self->refreshUi();
+}
+
+void LvglController::onShutdownEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  self->sendAction("shutdown", 0);
   self->refreshUi();
 }
 

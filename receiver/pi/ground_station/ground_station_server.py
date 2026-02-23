@@ -5,6 +5,7 @@ import mimetypes
 import os
 import queue
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -1061,6 +1062,7 @@ class CompanionUartBridge:
     CMD_TELEM_DISABLE = 0x05
     CMD_ALT_CALIBRATE = 0x06
     CMD_IMU_CALIBRATE = 0x07
+    CMD_SHUTDOWN = 0x08
 
     def __init__(self, port, baud):
         self._port = port
@@ -1212,6 +1214,8 @@ class CompanionUartBridge:
             ok, error = send_lora_command("alt_calibrate")
         elif cmd == self.CMD_IMU_CALIBRATE:
             ok, error = send_lora_command("imu_calibrate")
+        elif cmd == self.CMD_SHUTDOWN:
+            ok, error = request_pi_shutdown()
         else:
             ok, error = False, "Unknown UART command"
 
@@ -1469,6 +1473,25 @@ def send_lora_command(action, duration_s=None):
     return True, None
 
 
+def request_pi_shutdown():
+    def _shutdown_worker():
+        # Give the HTTP/UART ACK path a brief moment to flush before shutdown.
+        time.sleep(0.3)
+        subprocess.Popen(
+            ["sudo", "shutdown", "-h", "now"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    try:
+        threading.Thread(target=_shutdown_worker, daemon=True).start()
+        print("Pi shutdown requested via companion command")
+        return True, None
+    except Exception as exc:  # pylint: disable=broad-except
+        return False, f"Failed to schedule shutdown: {exc}"
+
+
 class GroundStationHandler(BaseHTTPRequestHandler):
     def _check_auth(self):
         """Check authentication for command endpoints. Returns True if authorized."""
@@ -1610,7 +1633,10 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             payload = self._read_json() or {}
             action = payload.get("action")
             duration_s = payload.get("duration_s")
-            ok, error = send_lora_command(action, duration_s)
+            if action == "shutdown":
+                ok, error = request_pi_shutdown()
+            else:
+                ok, error = send_lora_command(action, duration_s)
             if not ok:
                 return self._send_json({"ok": False, "error": error}, status=400)
             return self._send_json({"ok": True})

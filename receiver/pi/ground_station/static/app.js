@@ -37,6 +37,7 @@ const elements = {
   imuAccel: document.getElementById("imu-accel"),
   batTime: document.getElementById("bat-time"),
   batVoltage: document.getElementById("bat-voltage"),
+  batGsVoltage: document.getElementById("bat-gs-voltage"),
   batState: document.getElementById("bat-state"),
   vmStatus: document.getElementById("vm-status"),
   vmUpdated: document.getElementById("vm-updated"),
@@ -712,6 +713,9 @@ function updateFromTelemetry(snapshot) {
   elements.batTime.textContent = battery.t_ms !== null && battery.t_ms !== undefined ? `${battery.t_ms} ms` : "--";
   elements.batVoltage.textContent = battery.vbat_v !== null && battery.vbat_v !== undefined
     ? formatNumber(battery.vbat_v, 2)
+    : "--";
+  elements.batGsVoltage.textContent = battery.ground_vbat_v !== null && battery.ground_vbat_v !== undefined
+    ? formatNumber(battery.ground_vbat_v, 2)
     : "--";
   elements.batState.textContent = battery.bat_state_label || "--";
 
