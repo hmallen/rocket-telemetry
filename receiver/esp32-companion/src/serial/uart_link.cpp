@@ -133,6 +133,9 @@ bool UartLink::sendCommand(const String& action, int durationS) {
   } else if (action == "alt_calibrate") {
     cmd.cmd = CMD_ALT_CALIBRATE;
     cmd.arg = 0;
+  } else if (action == "imu_calibrate") {
+    cmd.cmd = CMD_IMU_CALIBRATE;
+    cmd.arg = 0;
   } else {
     return false;
   }

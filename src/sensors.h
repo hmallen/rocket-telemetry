@@ -17,6 +17,7 @@ struct BaroSample {
 class Sensors {
 public:
   bool begin();
+  bool calibrate_imu();
   bool read_imu(ImuSample& out);
   bool read_baro(BaroSample& out);
   bool read_baro2(BaroSample& out);

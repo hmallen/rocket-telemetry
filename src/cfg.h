@@ -62,6 +62,10 @@ constexpr bool GYRO_RDY_ACTIVE_LOW = true; // set true if gyro DRDY is active-lo
 constexpr bool GYRO_RDY_PULLUP = true;     // set true if gyro DRDY is open-drain/floating
 constexpr bool ACCEL_RDY_ACTIVE_LOW = false; // set true if accel DRDY is active-low
 constexpr bool ACCEL_RDY_PULLUP = false;     // set true if accel DRDY is open-drain/floating
+constexpr uint16_t IMU_CAL_SAMPLES = 200;
+constexpr uint16_t IMU_CAL_MIN_SAMPLES = 40;
+constexpr uint16_t IMU_CAL_SAMPLE_DELAY_MS = 2;
+constexpr uint32_t IMU_CAL_TIMEOUT_MS = 4000;
 
 // ---------- I2C ----------
 #define I2C_BUS Wire

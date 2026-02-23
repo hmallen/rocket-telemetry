@@ -12,6 +12,7 @@ enum class LoraCommand : uint8_t {
   kTelemEnable = 0x04,
   kTelemDisable = 0x05,
   kAltCalibrate = 0x06,
+  kImuCalibrate = 0x07,
 };
 
 class LoraLink {

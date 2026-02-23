@@ -65,6 +65,8 @@ const elements = {
   buzzerStatus: document.getElementById("buzzer-status"),
   altCalibrate: document.getElementById("alt-calibrate"),
   altCalStatus: document.getElementById("alt-cal-status"),
+  imuCalibrate: document.getElementById("imu-calibrate"),
+  imuCalStatus: document.getElementById("imu-cal-status"),
   telemetryWaiting: document.getElementById("telemetry-waiting"),
 };
 
@@ -96,6 +98,7 @@ const state = {
   telemetryCommandPending: false,
   buzzerCommandPending: false,
   altCalCommandPending: false,
+  imuCalCommandPending: false,
 };
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -326,6 +329,12 @@ if (elements.altCalibrate) {
   });
 }
 
+if (elements.imuCalibrate) {
+  elements.imuCalibrate.addEventListener("click", () => {
+    postImuCalibrateCommand();
+  });
+}
+
 function setControlStatus(message, statusClass) {
   if (!elements.sdStatus) {
     return;
@@ -552,6 +561,48 @@ function postAltCalibrateCommand() {
     .finally(() => {
       state.altCalCommandPending = false;
       toggleAltCalControls(false);
+    });
+}
+
+function setImuCalStatus(message, statusClass) {
+  if (!elements.imuCalStatus) {
+    return;
+  }
+  elements.imuCalStatus.textContent = message;
+  elements.imuCalStatus.classList.remove("ok", "pending", "error");
+  if (statusClass) {
+    elements.imuCalStatus.classList.add(statusClass);
+  }
+}
+
+function toggleImuCalControls(disabled) {
+  if (elements.imuCalibrate) {
+    elements.imuCalibrate.disabled = disabled;
+  }
+}
+
+function postImuCalibrateCommand() {
+  setImuCalStatus("Sending IMU calibration... keep rocket still.", "pending");
+  state.imuCalCommandPending = true;
+  toggleImuCalControls(true);
+  fetch("/api/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "imu_calibrate" }),
+  })
+    .then((res) => res.json())
+    .then((payload) => {
+      if (!payload.ok) {
+        throw new Error(payload.error || "Command failed");
+      }
+      setImuCalStatus("IMU calibration command sent.", "ok");
+    })
+    .catch((err) => {
+      setImuCalStatus(err.message || "Command failed", "error");
+    })
+    .finally(() => {
+      state.imuCalCommandPending = false;
+      toggleImuCalControls(false);
     });
 }
 

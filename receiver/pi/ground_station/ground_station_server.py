@@ -126,6 +126,7 @@ LORA_CMD_BUZZER = 0x03
 LORA_CMD_TELEM_ENABLE = 0x04
 LORA_CMD_TELEM_DISABLE = 0x05
 LORA_CMD_ALT_CALIBRATE = 0x06
+LORA_CMD_IMU_CALIBRATE = 0x07
 LORA_CMD_REPEAT_COUNT = 3
 LORA_CMD_REPEAT_DELAY_S = 0.1
 
@@ -1055,6 +1056,7 @@ class CompanionUartBridge:
     CMD_TELEM_ENABLE = 0x04
     CMD_TELEM_DISABLE = 0x05
     CMD_ALT_CALIBRATE = 0x06
+    CMD_IMU_CALIBRATE = 0x07
 
     def __init__(self, port, baud):
         self._port = port
@@ -1204,6 +1206,8 @@ class CompanionUartBridge:
             ok, error = send_lora_command("telemetry_disable")
         elif cmd == self.CMD_ALT_CALIBRATE:
             ok, error = send_lora_command("alt_calibrate")
+        elif cmd == self.CMD_IMU_CALIBRATE:
+            ok, error = send_lora_command("imu_calibrate")
         else:
             ok, error = False, "Unknown UART command"
 
@@ -1423,6 +1427,8 @@ def send_lora_command(action, duration_s=None):
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_TELEM_DISABLE])
     elif action == "alt_calibrate":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_ALT_CALIBRATE])
+    elif action == "imu_calibrate":
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_IMU_CALIBRATE])
     elif action == "buzzer":
         try:
             duration = int(duration_s)

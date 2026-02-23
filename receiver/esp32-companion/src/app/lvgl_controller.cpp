@@ -461,6 +461,7 @@ void LvglController::buildUi() {
 
   makeActionButton(settingsActions, "SCREEN CALIBRATION", onCalibrateEvent, this);
   makeActionButton(settingsActions, "ALTITUDE ZERO", onAltCalibrateEvent, this);
+  makeActionButton(settingsActions, "IMU CALIBRATION", onImuCalibrateEvent, this);
   lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
 
   updateDashboardActionButtons();
@@ -1335,6 +1336,12 @@ void LvglController::onCalibrateEvent(lv_event_t* e) {
 void LvglController::onAltCalibrateEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
   self->sendAction("alt_calibrate", 0);
+  self->refreshUi();
+}
+
+void LvglController::onImuCalibrateEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  self->sendAction("imu_calibrate", 0);
   self->refreshUi();
 }
 

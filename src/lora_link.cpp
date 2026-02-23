@@ -63,6 +63,7 @@ static constexpr uint8_t LORA_CMD_BUZZER = 0x03;
 static constexpr uint8_t LORA_CMD_TELEM_ENABLE = 0x04;
 static constexpr uint8_t LORA_CMD_TELEM_DISABLE = 0x05;
 static constexpr uint8_t LORA_CMD_ALT_CALIBRATE = 0x06;
+static constexpr uint8_t LORA_CMD_IMU_CALIBRATE = 0x07;
 static constexpr uint16_t LORA_RX_DONE_FLAG = 0x40;
 static constexpr uint8_t LORA_ACK_REPEAT_COUNT = 3;
 static constexpr uint32_t LORA_ACK_REPEAT_MS = 400;
@@ -294,6 +295,8 @@ void LoraLink::queue_command_ack(LoraCommand cmd, bool enabled_state) {
     cmd_byte = LORA_CMD_TELEM_DISABLE;
   } else if (cmd == LoraCommand::kAltCalibrate) {
     cmd_byte = LORA_CMD_ALT_CALIBRATE;
+  } else if (cmd == LoraCommand::kImuCalibrate) {
+    cmd_byte = LORA_CMD_IMU_CALIBRATE;
   } else {
     return;
   }
@@ -1006,7 +1009,8 @@ bool LoraLink::handle_command_(const uint8_t* data, size_t len) {
              cmd != LORA_CMD_SD_STOP &&
              cmd != LORA_CMD_TELEM_ENABLE &&
              cmd != LORA_CMD_TELEM_DISABLE &&
-             cmd != LORA_CMD_ALT_CALIBRATE) {
+             cmd != LORA_CMD_ALT_CALIBRATE &&
+             cmd != LORA_CMD_IMU_CALIBRATE) {
     return false;
   }
 #if DEBUG_MODE
