@@ -431,10 +431,10 @@ void LvglController::buildUi() {
   lv_obj_set_style_text_color(settingsTitle, lv_color_hex(0xe6eeff), 0);
   lv_obj_clear_flag(settingsTitle, LV_OBJ_FLAG_CLICKABLE);
 
-  lv_obj_t* settingsInfo = lv_label_create(settingsBody_);
-  lv_label_set_text(settingsInfo, "Touch calibration\nstored in flash");
-  lv_obj_set_style_text_color(settingsInfo, lv_color_hex(0xc2d4f4), 0);
-  lv_obj_clear_flag(settingsInfo, LV_OBJ_FLAG_CLICKABLE);
+  // lv_obj_t* settingsInfo = lv_label_create(settingsBody_);
+  // lv_label_set_text(settingsInfo, "Touch calibration\nstored in flash");
+  // lv_obj_set_style_text_color(settingsInfo, lv_color_hex(0xc2d4f4), 0);
+  // lv_obj_clear_flag(settingsInfo, LV_OBJ_FLAG_CLICKABLE);
 
   lv_obj_t* settingsActions = lv_obj_create(settingsBody_);
   lv_obj_set_width(settingsActions, LV_PCT(100));
@@ -448,7 +448,7 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(settingsActions, LV_OBJ_FLAG_CLICKABLE);
 
   lv_obj_t* touchDebugCheckbox = lv_checkbox_create(settingsActions);
-  lv_checkbox_set_text(touchDebugCheckbox, "Show touch debug overlay");
+  lv_checkbox_set_text(touchDebugCheckbox, "Touchscreen debug");
   lv_obj_set_width(touchDebugCheckbox, LV_PCT(100));
   lv_obj_set_style_text_color(touchDebugCheckbox, lv_color_hex(0xeaf1ff), 0);
   lv_obj_set_style_text_color(touchDebugCheckbox, lv_color_hex(0xeaf1ff), LV_STATE_CHECKED);
@@ -459,9 +459,9 @@ void LvglController::buildUi() {
   }
   lv_obj_add_event_cb(touchDebugCheckbox, onTouchDebugToggleEvent, LV_EVENT_VALUE_CHANGED, this);
 
-  makeActionButton(settingsActions, "SCREEN CALIBRATION", onCalibrateEvent, this);
   makeActionButton(settingsActions, "ALTITUDE ZERO", onAltCalibrateEvent, this);
   makeActionButton(settingsActions, "IMU CALIBRATION", onImuCalibrateEvent, this);
+  makeActionButton(settingsActions, "SCREEN CALIBRATION", onCalibrateEvent, this);
   lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
 
   updateDashboardActionButtons();
