@@ -549,6 +549,9 @@ h1 {
 
 #map-shell {
   background: linear-gradient(140deg, #101418 0%, #1c222a 100%);
+  height: auto;
+  flex: 1 1 auto;
+  min-height: 360px;
 }
 
 #map-overlay {
@@ -729,6 +732,10 @@ h1 {
   .canvas-shell {
     height: 300px;
   }
+
+  #map-shell {
+    min-height: 300px;
+  }
 }
 
 @media (max-width: 640px) {
@@ -752,5 +759,9 @@ h1 {
 
   .canvas-shell {
     height: 260px;
+  }
+
+  #map-shell {
+    min-height: 260px;
   }
 }
