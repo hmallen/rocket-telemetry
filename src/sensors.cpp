@@ -52,8 +52,12 @@ bool Sensors::begin() {
   DBG_PRINTF("sensors: i2c_devices=%u\n", (unsigned)i2c_found);
 #endif
 
+  // Max out IMU ranges at startup to reduce saturation risk during high dynamics.
   gyro_ok = gyro.begin(GYRO_RANGE_2000DPS, &I2C_BUS);
   accel_ok = accel.begin();
+  if (accel_ok) {
+    accel.setRange(LSM303_RANGE_16G);
+  }
 
   DBG_PRINTF("sensors: gyro=%u accel=%u\n", (unsigned)gyro_ok, (unsigned)accel_ok);
 

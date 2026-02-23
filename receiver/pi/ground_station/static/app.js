@@ -63,6 +63,8 @@ const elements = {
   buzzerDuration: document.getElementById("buzzer-duration"),
   buzzerActivate: document.getElementById("buzzer-activate"),
   buzzerStatus: document.getElementById("buzzer-status"),
+  altCalibrate: document.getElementById("alt-calibrate"),
+  altCalStatus: document.getElementById("alt-cal-status"),
   telemetryWaiting: document.getElementById("telemetry-waiting"),
 };
 
@@ -93,6 +95,7 @@ const state = {
   telemetryEnabled: null,
   telemetryCommandPending: false,
   buzzerCommandPending: false,
+  altCalCommandPending: false,
 };
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -317,6 +320,12 @@ if (elements.buzzerActivate) {
   });
 }
 
+if (elements.altCalibrate) {
+  elements.altCalibrate.addEventListener("click", () => {
+    postAltCalibrateCommand();
+  });
+}
+
 function setControlStatus(message, statusClass) {
   if (!elements.sdStatus) {
     return;
@@ -501,6 +510,48 @@ function postBuzzerCommand(durationSec) {
     .finally(() => {
       state.buzzerCommandPending = false;
       toggleBuzzerControls(false);
+    });
+}
+
+function setAltCalStatus(message, statusClass) {
+  if (!elements.altCalStatus) {
+    return;
+  }
+  elements.altCalStatus.textContent = message;
+  elements.altCalStatus.classList.remove("ok", "pending", "error");
+  if (statusClass) {
+    elements.altCalStatus.classList.add(statusClass);
+  }
+}
+
+function toggleAltCalControls(disabled) {
+  if (elements.altCalibrate) {
+    elements.altCalibrate.disabled = disabled;
+  }
+}
+
+function postAltCalibrateCommand() {
+  setAltCalStatus("Sending altitude calibration...", "pending");
+  state.altCalCommandPending = true;
+  toggleAltCalControls(true);
+  fetch("/api/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "alt_calibrate" }),
+  })
+    .then((res) => res.json())
+    .then((payload) => {
+      if (!payload.ok) {
+        throw new Error(payload.error || "Command failed");
+      }
+      setAltCalStatus("Altitude calibration command sent.", "ok");
+    })
+    .catch((err) => {
+      setAltCalStatus(err.message || "Command failed", "error");
+    })
+    .finally(() => {
+      state.altCalCommandPending = false;
+      toggleAltCalControls(false);
     });
 }
 

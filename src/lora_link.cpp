@@ -62,6 +62,7 @@ static constexpr uint8_t LORA_CMD_SD_STOP = 0x02;
 static constexpr uint8_t LORA_CMD_BUZZER = 0x03;
 static constexpr uint8_t LORA_CMD_TELEM_ENABLE = 0x04;
 static constexpr uint8_t LORA_CMD_TELEM_DISABLE = 0x05;
+static constexpr uint8_t LORA_CMD_ALT_CALIBRATE = 0x06;
 static constexpr uint16_t LORA_RX_DONE_FLAG = 0x40;
 static constexpr uint8_t LORA_ACK_REPEAT_COUNT = 3;
 static constexpr uint32_t LORA_ACK_REPEAT_MS = 400;
@@ -81,6 +82,7 @@ static constexpr uint8_t RECOVERY_MAIN_REASON_BACKUP_NO_DROGUE = 4;
 bool LoraLink::begin() {
   began_ = true;
   mission_start_ms_ = millis();
+  request_recovery_calibration();
 
   config_ok_ = validate_config_();
 
@@ -153,6 +155,65 @@ bool LoraLink::ready() const {
 
 bool LoraLink::tx_enabled() const {
   return tx_enabled_;
+}
+
+void LoraLink::request_recovery_calibration() {
+  reset_recovery_state_();
+
+  recovery_calibration_pending_ = true;
+  recovery_baro_cal_start_ms_ = 0;
+  recovery_baro_cal_done_ = false;
+  recovery_baro_cal_sum_pa_x10_ = 0;
+  recovery_baro_cal_count_ = 0;
+  recovery_baro_zero_pa_x10_ = 0;
+
+  recovery_gps_cal_done_ = false;
+  recovery_gps_cal_sum_mm_ = 0;
+  recovery_gps_cal_count_ = 0;
+  recovery_gps_zero_mm_ = 0;
+
+  recovery_baro_agl_mm_ = 0;
+  recovery_gps_agl_mm_ = 0;
+}
+
+void LoraLink::reset_recovery_state_() {
+  recovery_initialized_ = false;
+  recovery_launch_alt_mm_ = 0;
+  recovery_last_alt_mm_ = 0;
+  recovery_last_t_ms_ = 0;
+  recovery_agl_mm_ = 0;
+  recovery_max_agl_mm_ = 0;
+  recovery_vspeed_cms_ = 0;
+  recovery_phase_ = RECOVERY_PHASE_IDLE;
+  recovery_launch_armed_ = false;
+  recovery_liftoff_detected_ = false;
+  recovery_have_min_press_ = false;
+  recovery_min_press_pa_x10_ = 0;
+  recovery_drogue_deployed_ = false;
+  recovery_main_deployed_ = false;
+  recovery_drogue_reason_ = RECOVERY_REASON_NONE;
+  recovery_main_reason_ = RECOVERY_REASON_NONE;
+  recovery_drogue_deploy_agl_mm_ = -1;
+  recovery_main_deploy_agl_mm_ = -1;
+}
+
+int32_t LoraLink::agl_from_press_mm_(int32_t press_pa_x10, int32_t ref_press_pa_x10) {
+  if (press_pa_x10 <= 0 || ref_press_pa_x10 <= 0) {
+    return 0;
+  }
+
+  const float press_pa = static_cast<float>(press_pa_x10) / 10.0f;
+  const float ref_pa = static_cast<float>(ref_press_pa_x10) / 10.0f;
+  if (press_pa <= 0.0f || ref_pa <= 0.0f) {
+    return 0;
+  }
+
+  const float ratio = press_pa / ref_pa;
+  const float altitude_m = 44330.0f * (1.0f - powf(ratio, 0.19029495f));
+  if (!isfinite(altitude_m) || altitude_m <= 0.0f) {
+    return 0;
+  }
+  return static_cast<int32_t>(altitude_m * 1000.0f);
 }
 
 bool LoraLink::pop_command(LoraCommand& cmd, uint8_t* arg) {
@@ -231,6 +292,8 @@ void LoraLink::queue_command_ack(LoraCommand cmd, bool enabled_state) {
     cmd_byte = LORA_CMD_TELEM_ENABLE;
   } else if (cmd == LoraCommand::kTelemDisable) {
     cmd_byte = LORA_CMD_TELEM_DISABLE;
+  } else if (cmd == LoraCommand::kAltCalibrate) {
+    cmd_byte = LORA_CMD_ALT_CALIBRATE;
   } else {
     return;
   }
@@ -441,15 +504,67 @@ void LoraLink::poll_telem(uint32_t now_ms,
   const uint32_t navsat_int_ms = LORA_NAVSAT_INTERVAL_MS;
   const uint32_t recovery_int_ms = LORA_RECOVERY_INTERVAL_MS;
 
-  if (gps != nullptr && gps->last_pvt_ms != 0) {
-    const int32_t alt_mm = gps->height_mm;
+  const bool gps_valid = (gps != nullptr) && (gps->last_pvt_ms != 0) && gps->fix_ok && (gps->fix_type >= 3);
+
+  if (recovery_calibration_pending_) {
+    if (!recovery_baro_cal_done_) {
+      if (press_pa_x10 > 0) {
+        if (recovery_baro_cal_start_ms_ == 0) {
+          recovery_baro_cal_start_ms_ = now_ms;
+        }
+        if ((uint32_t)(now_ms - recovery_baro_cal_start_ms_) >= RECOVERY_BARO_CAL_DELAY_MS) {
+          recovery_baro_cal_sum_pa_x10_ += press_pa_x10;
+          recovery_baro_cal_count_++;
+          if (recovery_baro_cal_count_ >= RECOVERY_BARO_CAL_SAMPLES) {
+            recovery_baro_zero_pa_x10_ =
+                static_cast<int32_t>(recovery_baro_cal_sum_pa_x10_ / (int64_t)recovery_baro_cal_count_);
+            recovery_baro_cal_done_ = (recovery_baro_zero_pa_x10_ > 0);
+          }
+        }
+      }
+    }
+
+    if (!recovery_gps_cal_done_ && gps_valid) {
+      recovery_gps_cal_sum_mm_ += gps->height_mm;
+      recovery_gps_cal_count_++;
+      if (recovery_gps_cal_count_ >= RECOVERY_GPS_CAL_SAMPLES) {
+        recovery_gps_zero_mm_ = static_cast<int32_t>(recovery_gps_cal_sum_mm_ / (int64_t)recovery_gps_cal_count_);
+        recovery_gps_cal_done_ = true;
+      }
+    }
+
+    if (recovery_baro_cal_done_ && recovery_gps_cal_done_) {
+      recovery_calibration_pending_ = false;
+    }
+  }
+
+  if (recovery_baro_cal_done_ && press_pa_x10 > 0) {
+    recovery_baro_agl_mm_ = agl_from_press_mm_(press_pa_x10, recovery_baro_zero_pa_x10_);
+  }
+
+  if (recovery_gps_cal_done_ && gps_valid) {
+    const int32_t gps_agl_raw = gps->height_mm - recovery_gps_zero_mm_;
+    recovery_gps_agl_mm_ = (gps_agl_raw > 0) ? gps_agl_raw : 0;
+  }
+
+  bool have_altitude = false;
+  int32_t selected_agl_mm = 0;
+  if (recovery_baro_cal_done_ && press_pa_x10 > 0) {
+    selected_agl_mm = recovery_baro_agl_mm_;
+    have_altitude = true;
+  } else if (recovery_gps_cal_done_ && gps_valid) {
+    selected_agl_mm = recovery_gps_agl_mm_;
+    have_altitude = true;
+  }
+
+  if (have_altitude) {
     if (!recovery_initialized_) {
       recovery_initialized_ = true;
-      recovery_launch_alt_mm_ = alt_mm;
-      recovery_last_alt_mm_ = alt_mm;
+      recovery_launch_alt_mm_ = 0;
+      recovery_last_alt_mm_ = selected_agl_mm;
       recovery_last_t_ms_ = now_ms;
-      recovery_agl_mm_ = 0;
-      recovery_max_agl_mm_ = 0;
+      recovery_agl_mm_ = selected_agl_mm;
+      recovery_max_agl_mm_ = selected_agl_mm;
       recovery_vspeed_cms_ = 0;
       recovery_phase_ = RECOVERY_PHASE_IDLE;
       recovery_launch_armed_ = false;
@@ -463,8 +578,7 @@ void LoraLink::poll_telem(uint32_t now_ms,
       recovery_drogue_deploy_agl_mm_ = -1;
       recovery_main_deploy_agl_mm_ = -1;
     } else {
-      const int32_t agl_mm_raw = alt_mm - recovery_launch_alt_mm_;
-      recovery_agl_mm_ = (agl_mm_raw > 0) ? agl_mm_raw : 0;
+      recovery_agl_mm_ = (selected_agl_mm > 0) ? selected_agl_mm : 0;
 
       if (recovery_agl_mm_ > recovery_max_agl_mm_) {
         recovery_max_agl_mm_ = recovery_agl_mm_;
@@ -473,14 +587,14 @@ void LoraLink::poll_telem(uint32_t now_ms,
       recovery_vspeed_cms_ = 0;
       const uint32_t dt_ms = now_ms - recovery_last_t_ms_;
       if (dt_ms > 0 && dt_ms <= 10000) {
-        const int32_t delta_mm = alt_mm - recovery_last_alt_mm_;
-        const int32_t vspeed_cms = (delta_mm * 100) / (int32_t)dt_ms;
+        const int32_t delta_mm = recovery_agl_mm_ - recovery_last_alt_mm_;
+        const int32_t vspeed_cms = (delta_mm * 100) / static_cast<int32_t>(dt_ms);
         if (vspeed_cms > 32767) {
           recovery_vspeed_cms_ = 32767;
         } else if (vspeed_cms < -32768) {
           recovery_vspeed_cms_ = -32768;
         } else {
-          recovery_vspeed_cms_ = (int16_t)vspeed_cms;
+          recovery_vspeed_cms_ = static_cast<int16_t>(vspeed_cms);
         }
       }
 
@@ -566,7 +680,7 @@ void LoraLink::poll_telem(uint32_t now_ms,
         recovery_phase_ = RECOVERY_PHASE_LANDED;
       }
 
-      recovery_last_alt_mm_ = alt_mm;
+      recovery_last_alt_mm_ = recovery_agl_mm_;
       recovery_last_t_ms_ = now_ms;
     }
   }
@@ -891,7 +1005,8 @@ bool LoraLink::handle_command_(const uint8_t* data, size_t len) {
   } else if (cmd != LORA_CMD_SD_START &&
              cmd != LORA_CMD_SD_STOP &&
              cmd != LORA_CMD_TELEM_ENABLE &&
-             cmd != LORA_CMD_TELEM_DISABLE) {
+             cmd != LORA_CMD_TELEM_DISABLE &&
+             cmd != LORA_CMD_ALT_CALIBRATE) {
     return false;
   }
 #if DEBUG_MODE

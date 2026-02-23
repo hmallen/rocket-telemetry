@@ -11,6 +11,7 @@ enum class LoraCommand : uint8_t {
   kBuzzer = 0x03,
   kTelemEnable = 0x04,
   kTelemDisable = 0x05,
+  kAltCalibrate = 0x06,
 };
 
 class LoraLink {
@@ -25,6 +26,7 @@ public:
   bool tx_enabled() const;
   bool pop_command(LoraCommand& cmd, uint8_t* arg = nullptr);
   void queue_command_ack(LoraCommand cmd, bool enabled_state);
+  void request_recovery_calibration();
 
   // Cleartext telemetry payload (ASCII, human-decodable):
   //   ID=<CALLSIGN>;t_ms=<uint32>;
@@ -49,6 +51,8 @@ private:
   bool start_rx_();
   void poll_rx_(uint32_t now_ms);
   bool handle_command_(const uint8_t* data, size_t len);
+  void reset_recovery_state_();
+  static int32_t agl_from_press_mm_(int32_t press_pa_x10, int32_t ref_press_pa_x10);
   bool start_id_tx_(uint32_t now_ms);
   bool start_alt_tx_(uint32_t now_ms,
                      int32_t press_pa_x10,
@@ -97,6 +101,18 @@ private:
   bool have_last_alt_ = false;
 
   bool recovery_initialized_ = false;
+  bool recovery_calibration_pending_ = true;
+  uint32_t recovery_baro_cal_start_ms_ = 0;
+  bool recovery_baro_cal_done_ = false;
+  int64_t recovery_baro_cal_sum_pa_x10_ = 0;
+  uint16_t recovery_baro_cal_count_ = 0;
+  int32_t recovery_baro_zero_pa_x10_ = 0;
+  bool recovery_gps_cal_done_ = false;
+  int64_t recovery_gps_cal_sum_mm_ = 0;
+  uint16_t recovery_gps_cal_count_ = 0;
+  int32_t recovery_gps_zero_mm_ = 0;
+  int32_t recovery_baro_agl_mm_ = 0;
+  int32_t recovery_gps_agl_mm_ = 0;
   int32_t recovery_launch_alt_mm_ = 0;
   int32_t recovery_last_alt_mm_ = 0;
   uint32_t recovery_last_t_ms_ = 0;

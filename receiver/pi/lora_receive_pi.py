@@ -471,6 +471,7 @@ CMD_SD_STOP = 0x02
 CMD_BUZZER = 0x03
 CMD_TELEM_ENABLE = 0x04
 CMD_TELEM_DISABLE = 0x05
+CMD_ALT_CALIBRATE = 0x06
 
 RECOVERY_PHASE_LABELS = {
     0: "idle",
@@ -672,6 +673,9 @@ def decode_payload(payload):
         elif cmd == CMD_TELEM_DISABLE:
             cmd_label = "telemetry_disable"
             state_label = "telemetry"
+        elif cmd == CMD_ALT_CALIBRATE:
+            cmd_label = "alt_calibrate"
+            state_label = "calibration"
         else:
             cmd_label = "0x%02X" % cmd
         return "ACK %s %s=%s" % (cmd_label, state_label, enabled)
@@ -794,6 +798,8 @@ def parse_payload(payload):
             cmd_label = "telemetry_enable"
         elif cmd == CMD_TELEM_DISABLE:
             cmd_label = "telemetry_disable"
+        elif cmd == CMD_ALT_CALIBRATE:
+            cmd_label = "alt_calibrate"
         else:
             cmd_label = "unknown"
         enabled = bool(payload[3])

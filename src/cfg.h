@@ -109,6 +109,14 @@ constexpr uint32_t LORA_BAT_INTERVAL_MS = 1000;
 constexpr uint32_t LORA_NAVSAT_INTERVAL_MS = 2000;
 constexpr uint32_t LORA_RECOVERY_INTERVAL_MS = 500;
 
+// Altitude baseline calibration.
+// On boot (and on manual recalibration), wait a short settle period, then average
+// barometer pressure samples to establish ground-level zero. GPS zero is averaged
+// once a valid 3D fix is available.
+constexpr uint32_t RECOVERY_BARO_CAL_DELAY_MS = 1500;
+constexpr uint16_t RECOVERY_BARO_CAL_SAMPLES = 64;
+constexpr uint16_t RECOVERY_GPS_CAL_SAMPLES = 12;
+
 // Recovery-state simulation runs on the rocket flight computer and is downlinked over LoRa.
 // Distances are in millimeters to match GNSS height units.
 constexpr int32_t RECOVERY_MIN_ASCENT_AGL_MM = 90000;            // 90 m AGL launch-arm threshold (~300 ft)

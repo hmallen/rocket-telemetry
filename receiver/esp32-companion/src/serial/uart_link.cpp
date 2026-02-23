@@ -130,6 +130,9 @@ bool UartLink::sendCommand(const String& action, int durationS) {
   } else if (action == "telemetry_disable") {
     cmd.cmd = CMD_TELEM_DISABLE;
     cmd.arg = 0;
+  } else if (action == "alt_calibrate") {
+    cmd.cmd = CMD_ALT_CALIBRATE;
+    cmd.arg = 0;
   } else {
     return false;
   }
