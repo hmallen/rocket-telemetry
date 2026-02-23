@@ -447,6 +447,10 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(settingsActions, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_clear_flag(settingsActions, LV_OBJ_FLAG_CLICKABLE);
 
+  makeActionButton(settingsActions, "ALTITUDE ZERO", onAltCalibrateEvent, this);
+  makeActionButton(settingsActions, "IMU CALIBRATION", onImuCalibrateEvent, this);
+  makeActionButton(settingsActions, "SCREEN CALIBRATION", onCalibrateEvent, this);
+
   lv_obj_t* touchDebugCheckbox = lv_checkbox_create(settingsActions);
   lv_checkbox_set_text(touchDebugCheckbox, "Touchscreen debug");
   lv_obj_set_width(touchDebugCheckbox, LV_PCT(100));
@@ -459,9 +463,6 @@ void LvglController::buildUi() {
   }
   lv_obj_add_event_cb(touchDebugCheckbox, onTouchDebugToggleEvent, LV_EVENT_VALUE_CHANGED, this);
 
-  makeActionButton(settingsActions, "ALTITUDE ZERO", onAltCalibrateEvent, this);
-  makeActionButton(settingsActions, "IMU CALIBRATION", onImuCalibrateEvent, this);
-  makeActionButton(settingsActions, "SCREEN CALIBRATION", onCalibrateEvent, this);
   lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
 
   updateDashboardActionButtons();
