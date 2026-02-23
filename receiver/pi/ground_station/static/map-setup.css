@@ -13,6 +13,10 @@ body.map-setup {
     linear-gradient(145deg, #f9f6f0 0%, #e8e1d6 100%);
 }
 
+body.map-setup main {
+  padding: 0 6vw 40px;
+}
+
 .top-actions {
   display: flex;
   align-items: center;
