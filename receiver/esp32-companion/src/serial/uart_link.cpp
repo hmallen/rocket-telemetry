@@ -44,6 +44,8 @@ void UartLink::applyTelemetry(const TelemetryV1& t, CompanionState& ioState) {
   ioState.sdLoggingEnabled = (t.flags & 0x08) != 0;
   ioState.hasTelemetryTxState = true;
   ioState.telemetryTxEnabled = (t.flags & 0x10) != 0;
+  ioState.hasCommandLockoutState = true;
+  ioState.commandLockoutActive = (t.flags & 0x20) != 0;
 
   ioState.stale = false;
 }
@@ -90,6 +92,8 @@ bool UartLink::poll(CompanionState& ioState) {
         ioState.sdLoggingEnabled = (t.flags & 0x08) != 0;
         ioState.hasTelemetryTxState = true;
         ioState.telemetryTxEnabled = (t.flags & 0x10) != 0;
+        ioState.hasCommandLockoutState = true;
+        ioState.commandLockoutActive = (t.flags & 0x20) != 0;
 
         ioState.stale = false;
         updated = true;

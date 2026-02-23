@@ -118,6 +118,12 @@ static int batteryPercentFromVoltage(float voltage, uint8_t cells) {
   return static_cast<int>(pct + 0.5f);
 }
 
+static bool phaseIndicatesInFlight(const String& phaseText) {
+  String phase = phaseText;
+  phase.toLowerCase();
+  return phase == "ascent" || phase == "descent" || phase == "boost" || phase == "coast";
+}
+
 static lv_obj_t* makeActionButton(lv_obj_t* parent, const char* text, lv_event_cb_t cb, void* userData) {
   lv_obj_t* btn = lv_btn_create(parent);
   lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
@@ -499,18 +505,18 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(txPowerSendLabel, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_center(txPowerSendLabel);
 
-  lv_obj_t* shutdownBtn = lv_btn_create(settingsActions);
-  lv_obj_add_flag(shutdownBtn, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_width(shutdownBtn, LV_PCT(100));
-  lv_obj_set_height(shutdownBtn, 34);
-  lv_obj_set_style_radius(shutdownBtn, 8, 0);
-  lv_obj_set_style_bg_color(shutdownBtn, lv_color_hex(0x7a1d1d), 0);
-  lv_obj_set_style_bg_color(shutdownBtn, lv_color_hex(0xa02828), LV_STATE_PRESSED);
-  lv_obj_set_style_border_color(shutdownBtn, lv_color_hex(0xdc7070), 0);
-  lv_obj_set_style_border_width(shutdownBtn, 1, 0);
-  lv_obj_add_event_cb(shutdownBtn, onShutdownEvent, LV_EVENT_LONG_PRESSED, this);
+  shutdownBtn_ = lv_btn_create(settingsActions);
+  lv_obj_add_flag(shutdownBtn_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(shutdownBtn_, LV_PCT(100));
+  lv_obj_set_height(shutdownBtn_, 34);
+  lv_obj_set_style_radius(shutdownBtn_, 8, 0);
+  lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0x7a1d1d), 0);
+  lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0xa02828), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(shutdownBtn_, lv_color_hex(0xdc7070), 0);
+  lv_obj_set_style_border_width(shutdownBtn_, 1, 0);
+  lv_obj_add_event_cb(shutdownBtn_, onShutdownEvent, LV_EVENT_LONG_PRESSED, this);
 
-  lv_obj_t* shutdownLabel = lv_label_create(shutdownBtn);
+  lv_obj_t* shutdownLabel = lv_label_create(shutdownBtn_);
   lv_label_set_text(shutdownLabel, "HOLD: SHUTDOWN PI");
   lv_obj_set_style_text_color(shutdownLabel, lv_color_hex(0xfff0f0), 0);
   lv_obj_clear_flag(shutdownLabel, LV_OBJ_FLAG_CLICKABLE);
@@ -762,11 +768,18 @@ void LvglController::setCommandStatus(const String& msg, bool ok) {
 
 void LvglController::updateDashboardActionButtons() {
   if (sdToggleBtn_ != nullptr && sdToggleLabel_ != nullptr) {
-    if (sdCommandPending_) {
+    const bool sdDisableLocked = commandLockoutActive_ && sdLoggingEnabled_;
+    if (sdCommandPending_ || sdDisableLocked) {
       lv_obj_add_state(sdToggleBtn_, LV_STATE_DISABLED);
-      lv_label_set_text_fmt(sdToggleLabel_, "SD %s...", sdPendingTargetEnabled_ ? "ON" : "OFF");
-      lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x4b566d), 0);
-      lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      if (sdCommandPending_) {
+        lv_label_set_text_fmt(sdToggleLabel_, "SD %s...", sdPendingTargetEnabled_ ? "ON" : "OFF");
+        lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x4b566d), 0);
+        lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      } else {
+        lv_label_set_text(sdToggleLabel_, "SD ON LOCK");
+        lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x1f6a42), 0);
+        lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x1f6a42), LV_STATE_PRESSED);
+      }
     } else {
       lv_obj_clear_state(sdToggleBtn_, LV_STATE_DISABLED);
       lv_label_set_text_fmt(sdToggleLabel_, "SD %s", sdLoggingEnabled_ ? "ON" : "OFF");
@@ -774,16 +787,23 @@ void LvglController::updateDashboardActionButtons() {
       lv_obj_set_style_bg_color(sdToggleBtn_, sdLoggingEnabled_ ? lv_color_hex(0x2a8e5a) : lv_color_hex(0x5a3f3f),
                                 LV_STATE_PRESSED);
     }
-    lv_obj_set_style_border_color(sdToggleBtn_, lv_color_hex(0x6ea4ff), 0);
+    lv_obj_set_style_border_color(sdToggleBtn_, sdDisableLocked ? lv_color_hex(0xffb34f) : lv_color_hex(0x6ea4ff), 0);
     lv_obj_set_style_border_width(sdToggleBtn_, 1, 0);
   }
 
   if (txToggleBtn_ != nullptr && txToggleLabel_ != nullptr) {
-    if (txCommandPending_) {
+    const bool txDisableLocked = commandLockoutActive_ && telemetryTxEnabled_;
+    if (txCommandPending_ || txDisableLocked) {
       lv_obj_add_state(txToggleBtn_, LV_STATE_DISABLED);
-      lv_label_set_text_fmt(txToggleLabel_, "TX %s...", txPendingTargetEnabled_ ? "ON" : "OFF");
-      lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x4b566d), 0);
-      lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      if (txCommandPending_) {
+        lv_label_set_text_fmt(txToggleLabel_, "TX %s...", txPendingTargetEnabled_ ? "ON" : "OFF");
+        lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x4b566d), 0);
+        lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      } else {
+        lv_label_set_text(txToggleLabel_, "TX ON LOCK");
+        lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x1f5f73), 0);
+        lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x1f5f73), LV_STATE_PRESSED);
+      }
     } else {
       lv_obj_clear_state(txToggleBtn_, LV_STATE_DISABLED);
       lv_label_set_text_fmt(txToggleLabel_, "TX %s", telemetryTxEnabled_ ? "ON" : "OFF");
@@ -791,8 +811,23 @@ void LvglController::updateDashboardActionButtons() {
       lv_obj_set_style_bg_color(txToggleBtn_, telemetryTxEnabled_ ? lv_color_hex(0x2c839f) : lv_color_hex(0x5a3f3f),
                                 LV_STATE_PRESSED);
     }
-    lv_obj_set_style_border_color(txToggleBtn_, lv_color_hex(0x6ea4ff), 0);
+    lv_obj_set_style_border_color(txToggleBtn_, txDisableLocked ? lv_color_hex(0xffb34f) : lv_color_hex(0x6ea4ff), 0);
     lv_obj_set_style_border_width(txToggleBtn_, 1, 0);
+  }
+
+  if (shutdownBtn_ != nullptr) {
+    if (commandLockoutActive_) {
+      lv_obj_add_state(shutdownBtn_, LV_STATE_DISABLED);
+      lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0x4b566d), 0);
+      lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(shutdownBtn_, lv_color_hex(0xffb34f), 0);
+    } else {
+      lv_obj_clear_state(shutdownBtn_, LV_STATE_DISABLED);
+      lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0x7a1d1d), 0);
+      lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0xa02828), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(shutdownBtn_, lv_color_hex(0xdc7070), 0);
+    }
+    lv_obj_set_style_border_width(shutdownBtn_, 1, 0);
   }
 }
 
@@ -835,6 +870,15 @@ void LvglController::syncCommandStateFromTelemetry() {
     }
   }
 
+  bool reportedLockout = phaseIndicatesInFlight(state_.flight.phase);
+  if (state_.hasCommandLockoutState) {
+    reportedLockout = state_.commandLockoutActive;
+  }
+  if (commandLockoutActive_ != reportedLockout) {
+    commandLockoutActive_ = reportedLockout;
+    changed = true;
+  }
+
   if (changed) {
     updateDashboardActionButtons();
   }
@@ -868,6 +912,12 @@ void LvglController::requestSdToggle(bool enable) {
     return;
   }
 
+  if (!enable && commandLockoutActive_) {
+    setCommandStatus("SD stop locked until landing", false);
+    refreshUi();
+    return;
+  }
+
   sdPendingPreviousEnabled_ = sdLoggingEnabled_;
   sdPendingTargetEnabled_ = enable;
   sdCommandPending_ = true;
@@ -892,6 +942,12 @@ void LvglController::requestSdToggle(bool enable) {
 
 void LvglController::requestTxToggle(bool enable) {
   if (txCommandPending_ || telemetryTxEnabled_ == enable) {
+    return;
+  }
+
+  if (!enable && commandLockoutActive_) {
+    setCommandStatus("TX disable locked until landing", false);
+    refreshUi();
     return;
   }
 
@@ -1415,6 +1471,11 @@ void LvglController::onImuCalibrateEvent(lv_event_t* e) {
 
 void LvglController::onShutdownEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self->commandLockoutActive_) {
+    self->setCommandStatus("Shutdown locked until landing", false);
+    self->refreshUi();
+    return;
+  }
   self->sendAction("shutdown", 0);
   self->refreshUi();
 }

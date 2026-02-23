@@ -202,6 +202,15 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
     ioState.hasTelemetryTxState = false;
   }
 
+  JsonObject commandLockout = state["command_lockout"];
+  if (!commandLockout.isNull() && !commandLockout["active"].isNull()) {
+    ioState.hasCommandLockoutState = true;
+    ioState.commandLockoutActive = commandLockout["active"].as<bool>();
+  } else {
+    ioState.hasCommandLockoutState = false;
+    ioState.commandLockoutActive = false;
+  }
+
   ioState.primaryAlert = "";
   JsonArray alerts = state["alerts"].as<JsonArray>();
   if (!alerts.isNull() && alerts.size() > 0) {

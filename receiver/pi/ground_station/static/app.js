@@ -97,6 +97,7 @@ const state = {
   telemetryTxAckTs: null,
   telemetryEnabled: null,
   telemetryCommandPending: false,
+  commandLockoutActive: false,
   buzzerCommandPending: false,
   altCalCommandPending: false,
   imuCalCommandPending: false,
@@ -356,11 +357,27 @@ function toggleControlButtons(disabled) {
   }
 }
 
+function phaseIndicatesInFlight(phase) {
+  const normalized = typeof phase === "string" ? phase.toLowerCase() : "";
+  return normalized === "ascent" || normalized === "descent" || normalized === "boost" || normalized === "coast";
+}
+
 function updateSdControlState() {
   if (state.sdCommandPending) {
     toggleControlButtons(true);
     return;
   }
+
+  if (state.commandLockoutActive) {
+    if (elements.sdStart) {
+      elements.sdStart.disabled = state.sdLoggingEnabled === true;
+    }
+    if (elements.sdStop) {
+      elements.sdStop.disabled = true;
+    }
+    return;
+  }
+
   if (state.sdLoggingEnabled === true) {
     if (elements.sdStart) {
       elements.sdStart.disabled = true;
@@ -430,6 +447,17 @@ function updateTelemetryControlState() {
     toggleTelemetryButtons(true);
     return;
   }
+
+  if (state.commandLockoutActive) {
+    if (elements.telemEnable) {
+      elements.telemEnable.disabled = state.telemetryEnabled === true;
+    }
+    if (elements.telemDisable) {
+      elements.telemDisable.disabled = true;
+    }
+    return;
+  }
+
   if (state.telemetryEnabled === true) {
     if (elements.telemEnable) {
       elements.telemEnable.disabled = true;
@@ -688,6 +716,7 @@ function updateFromTelemetry(snapshot) {
   elements.altTempC.textContent = alt.temp_c !== null && alt.temp_c !== undefined ? formatNumber(alt.temp_c, 2) : "--";
 
   const recovery = snapshot.recovery || {};
+  state.commandLockoutActive = phaseIndicatesInFlight(recovery.phase);
   elements.recoveryMode.textContent = recovery.mode || "--";
   elements.recoveryPhase.textContent = recovery.phase || "--";
   elements.recoveryAgl.textContent = recovery.altitude_agl_m !== null && recovery.altitude_agl_m !== undefined
@@ -798,6 +827,8 @@ function updateFromTelemetry(snapshot) {
   updateOrientation(attitude, imu);
   syncFilterSelection(attitude);
   syncThreshold(attitude);
+  updateSdControlState();
+  updateTelemetryControlState();
   updateMap(gps);
 }
 

@@ -132,6 +132,27 @@ LORA_CMD_SET_TX_POWER = 0x08
 LORA_CMD_REPEAT_COUNT = 3
 LORA_CMD_REPEAT_DELAY_S = 0.1
 
+COMMAND_LOCKOUT_PHASES = {"ascent", "descent", "boost", "coast"}
+COMMAND_LOCKOUT_ACTIONS = {"sd_stop", "telemetry_disable", "shutdown"}
+
+
+def _command_lockout_active_from_snapshot(snapshot):
+    if not isinstance(snapshot, dict):
+        return False
+    recovery = snapshot.get("recovery", {})
+    phase = recovery.get("phase")
+    if not isinstance(phase, str):
+        return False
+    return phase.lower() in COMMAND_LOCKOUT_PHASES
+
+
+def _command_lockout_active():
+    return _command_lockout_active_from_snapshot(TELEMETRY.snapshot())
+
+
+def _is_action_locked_during_flight(action):
+    return action in COMMAND_LOCKOUT_ACTIONS and _command_lockout_active()
+
 
 def _clamp(value, low, high):
     return max(low, min(high, value))
@@ -968,6 +989,7 @@ def _build_companion_state(snapshot, seq=None):
 
     connected = age_s is not None and age_s <= 2.0
     phase = recovery.get("phase") or "unknown"
+    command_lockout_active = _command_lockout_active_from_snapshot(snapshot)
 
     alerts = []
     if age_s is None or age_s > 5.0:
@@ -1032,6 +1054,10 @@ def _build_companion_state(snapshot, seq=None):
             "enabled": telemetry_tx.get("enabled"),
             "last_command": telemetry_tx.get("last_command"),
             "ack_timestamp": telemetry_tx.get("ack_timestamp"),
+        },
+        "command_lockout": {
+            "active": command_lockout_active,
+            "reason": "flight_in_progress" if command_lockout_active else None,
         },
         "recovery": {
             "enabled": recovery.get("enabled"),
@@ -1141,6 +1167,7 @@ class CompanionUartBridge:
         flight = state.get("flight", {})
         sd_logging = state.get("sd_logging", {})
         telemetry_tx = state.get("telemetry_tx", {})
+        command_lockout = state.get("command_lockout", {})
 
         lat_deg = gps.get("lat_deg")
         lon_deg = gps.get("lon_deg")
@@ -1162,6 +1189,8 @@ class CompanionUartBridge:
             flags |= 0x08
         if telemetry_tx.get("enabled") is True:
             flags |= 0x10
+        if command_lockout.get("active") is True:
+            flags |= 0x20
 
         payload = struct.pack(
             "<IiiihhbBHHBHi",
@@ -1429,6 +1458,9 @@ def lora_worker():
 
 
 def send_lora_command(action, duration_s=None, tx_power_dbm=None):
+    if _is_action_locked_during_flight(action):
+        return False, f"{action} blocked after launch; wait for landing"
+
     if action == "sd_start":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_START])
     elif action == "sd_stop":
@@ -1486,6 +1518,9 @@ def send_lora_command(action, duration_s=None, tx_power_dbm=None):
 
 
 def request_pi_shutdown():
+    if _is_action_locked_during_flight("shutdown"):
+        return False, "shutdown blocked after launch; wait for landing"
+
     def _shutdown_worker():
         # Give the HTTP/UART ACK path a brief moment to flush before shutdown.
         time.sleep(0.3)

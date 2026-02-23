@@ -44,6 +44,8 @@ struct CompanionState {
   bool sdLoggingEnabled = false;
   bool hasTelemetryTxState = false;
   bool telemetryTxEnabled = false;
+  bool hasCommandLockoutState = false;
+  bool commandLockoutActive = false;
   String primaryAlert;
   bool stale = true;
 };

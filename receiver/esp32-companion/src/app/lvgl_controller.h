@@ -49,6 +49,7 @@ class LvglController {
   bool txPendingPreviousEnabled_ = false;
   uint32_t txPendingSinceMs_ = 0;
   uint8_t txPowerDbm_ = 17;
+  bool commandLockoutActive_ = false;
 
   uint8_t buzzerDurationS_ = 3;
   bool buzzerConfigVisible_ = false;
@@ -115,6 +116,7 @@ class LvglController {
   lv_obj_t* txPowerConfigRow_ = nullptr;
   lv_obj_t* txPowerSlider_ = nullptr;
   lv_obj_t* txPowerLabel_ = nullptr;
+  lv_obj_t* shutdownBtn_ = nullptr;
   lv_obj_t* settingsBody_ = nullptr;
 
   lv_obj_t* linkLabel_ = nullptr;
