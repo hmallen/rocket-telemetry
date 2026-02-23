@@ -19,76 +19,9 @@
         <h1>Rocket Telemetry Console</h1>
         <p class="subhead">LoRa downlink · real-time attitude, navigation, and system status</p>
       </div>
-      <div class="status-panel">
-        <div class="status-pill">
-          <span id="conn-dot" class="status-dot"></span>
-          <span id="conn-status">Connecting</span>
-        </div>
-        <div class="status-grid">
-          <div>
-            <span class="label">Packets</span>
-            <span id="packet-count">0</span>
-          </div>
-          <div>
-            <span class="label">Last Update</span>
-            <span id="last-update">--</span>
-          </div>
-          <div>
-            <span class="label">Callsign</span>
-            <span id="callsign">--</span>
-          </div>
-        </div>
-        <div class="control-panel">
-          <span class="label">SD Logging</span>
-          <div class="control-buttons">
-            <button class="control-button" id="sd-start" type="button">Start logging</button>
-            <button class="control-button danger" id="sd-stop" type="button">Stop logging</button>
-          </div>
-          <p class="control-status" id="sd-status">Idle</p>
-        </div>
-        <div class="control-panel">
-          <span class="label">Telemetry TX</span>
-          <div class="control-buttons">
-            <button class="control-button" id="telem-enable" type="button">Enable telemetry</button>
-            <button class="control-button danger" id="telem-disable" type="button">Disable telemetry</button>
-          </div>
-          <p class="control-status" id="telem-status">Idle</p>
-        </div>
-        <div class="control-panel">
-          <span class="label">Buzzer</span>
-          <div class="control-buttons">
-            <div class="control-input">
-              <label for="buzzer-duration">Duration (s)</label>
-              <select id="buzzer-duration" class="control-select">
-                <option value="1">1</option>
-                <option value="5" selected>5</option>
-                <option value="10">10</option>
-                <option value="30">30</option>
-              </select>
-            </div>
-            <button class="control-button" id="buzzer-activate" type="button">Activate buzzer</button>
-          </div>
-          <p class="control-status" id="buzzer-status">Idle</p>
-        </div>
-        <div class="control-panel">
-          <span class="label">Altitude Zero</span>
-          <div class="control-buttons">
-            <button class="control-button" id="alt-calibrate" type="button">Run altitude calibration</button>
-          </div>
-          <p class="control-status" id="alt-cal-status">Idle</p>
-        </div>
-        <div class="control-panel">
-          <span class="label">IMU Calibration</span>
-          <div class="control-buttons">
-            <button class="control-button" id="imu-calibrate" type="button">Run IMU calibration</button>
-          </div>
-          <p class="control-status" id="imu-cal-status">Idle</p>
-        </div>
-        <a class="ghost-button" href="/map-setup">Offline map setup</a>
-      </div>
     </header>
 
-    <main>
+    <main class="dashboard-layout">
       <section class="visuals">
         <article class="panel">
           <div class="panel-header">
@@ -169,6 +102,74 @@
           </div>
         </article>
       </section>
+
+      <aside class="status-panel control-rail">
+        <div class="status-pill">
+          <span id="conn-dot" class="status-dot"></span>
+          <span id="conn-status">Connecting</span>
+        </div>
+        <div class="status-grid">
+          <div>
+            <span class="label">Packets</span>
+            <span id="packet-count">0</span>
+          </div>
+          <div>
+            <span class="label">Last Update</span>
+            <span id="last-update">--</span>
+          </div>
+          <div>
+            <span class="label">Callsign</span>
+            <span id="callsign">--</span>
+          </div>
+        </div>
+        <div class="control-panel">
+          <span class="label">SD Logging</span>
+          <div class="control-buttons">
+            <button class="control-button" id="sd-start" type="button">Start logging</button>
+            <button class="control-button danger" id="sd-stop" type="button">Stop logging</button>
+          </div>
+          <p class="control-status" id="sd-status">Idle</p>
+        </div>
+        <div class="control-panel">
+          <span class="label">Telemetry TX</span>
+          <div class="control-buttons">
+            <button class="control-button" id="telem-enable" type="button">Enable telemetry</button>
+            <button class="control-button danger" id="telem-disable" type="button">Disable telemetry</button>
+          </div>
+          <p class="control-status" id="telem-status">Idle</p>
+        </div>
+        <div class="control-panel">
+          <span class="label">Buzzer</span>
+          <div class="control-buttons">
+            <div class="control-input">
+              <label for="buzzer-duration">Duration (s)</label>
+              <select id="buzzer-duration" class="control-select">
+                <option value="1">1</option>
+                <option value="5" selected>5</option>
+                <option value="10">10</option>
+                <option value="30">30</option>
+              </select>
+            </div>
+            <button class="control-button" id="buzzer-activate" type="button">Activate buzzer</button>
+          </div>
+          <p class="control-status" id="buzzer-status">Idle</p>
+        </div>
+        <div class="control-panel">
+          <span class="label">Altitude Zero</span>
+          <div class="control-buttons">
+            <button class="control-button" id="alt-calibrate" type="button">Run altitude calibration</button>
+          </div>
+          <p class="control-status" id="alt-cal-status">Idle</p>
+        </div>
+        <div class="control-panel">
+          <span class="label">IMU Calibration</span>
+          <div class="control-buttons">
+            <button class="control-button" id="imu-calibrate" type="button">Run IMU calibration</button>
+          </div>
+          <p class="control-status" id="imu-cal-status">Idle</p>
+        </div>
+        <a class="ghost-button" href="/map-setup">Offline map setup</a>
+      </aside>
 
       <section class="panel telemetry-panel">
         <div class="panel-header">
