@@ -17,6 +17,8 @@ constexpr int kCalMarginPx = 24;
 constexpr int32_t kCalRetouchDistancePx = 120;
 constexpr int32_t kTouchPressThreshold = 140;
 constexpr int32_t kTouchReleaseThreshold = 90;
+constexpr lv_coord_t kSettingsButtonHeight = 28;
+constexpr lv_coord_t kSettingsGapPx = 4;
 
 static uint16_t median3(uint16_t a, uint16_t b, uint16_t c) {
   if (a > b) {
@@ -125,11 +127,15 @@ static bool phaseIndicatesInFlight(const String& phaseText) {
   return phase == "ascent" || phase == "descent" || phase == "boost" || phase == "coast";
 }
 
-static lv_obj_t* makeActionButton(lv_obj_t* parent, const char* text, lv_event_cb_t cb, void* userData) {
+static lv_obj_t* makeActionButton(lv_obj_t* parent,
+                                  const char* text,
+                                  lv_event_cb_t cb,
+                                  void* userData,
+                                  lv_coord_t height = 34) {
   lv_obj_t* btn = lv_btn_create(parent);
   lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_width(btn, LV_PCT(100));
-  lv_obj_set_height(btn, 34);
+  lv_obj_set_height(btn, height);
   lv_obj_set_style_radius(btn, 8, 0);
   lv_obj_set_style_bg_color(btn, lv_color_hex(0x1f2a3b), 0);
   lv_obj_set_style_bg_color(btn, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
@@ -427,8 +433,8 @@ void LvglController::buildUi() {
   lv_obj_set_style_border_color(settingsBody_, lv_color_hex(0x2a446a), 0);
   lv_obj_set_style_border_width(settingsBody_, 1, 0);
   lv_obj_set_style_radius(settingsBody_, 10, 0);
-  lv_obj_set_style_pad_all(settingsBody_, 8, 0);
-  lv_obj_set_style_pad_gap(settingsBody_, 6, 0);
+  lv_obj_set_style_pad_all(settingsBody_, 6, 0);
+  lv_obj_set_style_pad_gap(settingsBody_, kSettingsGapPx, 0);
   lv_obj_set_flex_flow(settingsBody_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(settingsBody_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_SCROLLABLE);
@@ -451,14 +457,26 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_opa(settingsActions, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(settingsActions, 0, 0);
   lv_obj_set_style_pad_all(settingsActions, 0, 0);
-  lv_obj_set_style_pad_gap(settingsActions, 6, 0);
+  lv_obj_set_style_pad_gap(settingsActions, kSettingsGapPx, 0);
   lv_obj_set_flex_flow(settingsActions, LV_FLEX_FLOW_COLUMN);
   lv_obj_clear_flag(settingsActions, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_clear_flag(settingsActions, LV_OBJ_FLAG_CLICKABLE);
 
-  makeActionButton(settingsActions, "ALTITUDE ZERO", onAltCalibrateEvent, this);
-  makeActionButton(settingsActions, "IMU CALIBRATION", onImuCalibrateEvent, this);
-  makeActionButton(settingsActions, "SCREEN CALIBRATION", onCalibrateEvent, this);
+  makeActionButton(settingsActions,
+                   "ALTITUDE ZERO",
+                   onAltCalibrateEvent,
+                   this,
+                   kSettingsButtonHeight);
+  makeActionButton(settingsActions,
+                   "IMU CALIBRATION",
+                   onImuCalibrateEvent,
+                   this,
+                   kSettingsButtonHeight);
+  makeActionButton(settingsActions,
+                   "SCREEN CALIBRATION",
+                   onCalibrateEvent,
+                   this,
+                   kSettingsButtonHeight);
 
   lv_obj_t* txPowerTitle = lv_label_create(settingsActions);
   lv_label_set_text(txPowerTitle, "TELEMETRY TX POWER");
@@ -471,7 +489,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_opa(txPowerConfigRow_, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(txPowerConfigRow_, 0, 0);
   lv_obj_set_style_pad_all(txPowerConfigRow_, 0, 0);
-  lv_obj_set_style_pad_gap(txPowerConfigRow_, 6, 0);
+  lv_obj_set_style_pad_gap(txPowerConfigRow_, kSettingsGapPx, 0);
   lv_obj_set_flex_flow(txPowerConfigRow_, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(txPowerConfigRow_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_clear_flag(txPowerConfigRow_, LV_OBJ_FLAG_SCROLLABLE);
@@ -492,7 +510,7 @@ void LvglController::buildUi() {
 
   lv_obj_t* txPowerSendBtn = lv_btn_create(txPowerConfigRow_);
   lv_obj_add_flag(txPowerSendBtn, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(txPowerSendBtn, 56, 30);
+  lv_obj_set_size(txPowerSendBtn, 52, kSettingsButtonHeight);
   lv_obj_set_style_radius(txPowerSendBtn, 8, 0);
   lv_obj_set_style_bg_color(txPowerSendBtn, lv_color_hex(0x1f2a3b), 0);
   lv_obj_set_style_bg_color(txPowerSendBtn, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
@@ -509,7 +527,7 @@ void LvglController::buildUi() {
   shutdownBtn_ = lv_btn_create(settingsActions);
   lv_obj_add_flag(shutdownBtn_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_width(shutdownBtn_, LV_PCT(100));
-  lv_obj_set_height(shutdownBtn_, 34);
+  lv_obj_set_height(shutdownBtn_, kSettingsButtonHeight);
   lv_obj_set_style_radius(shutdownBtn_, 8, 0);
   lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0x7a1d1d), 0);
   lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0xa02828), LV_STATE_PRESSED);
