@@ -152,8 +152,8 @@ constexpr int16_t  LORA_MEANINGFUL_TEMP_DELTA_C_X100  = 50;    // 0.50 C
 
 // Hard failsafes.
 constexpr uint32_t LORA_TX_WATCHDOG_MS = 5000;
-constexpr uint32_t LORA_MAX_MISSION_TX_MS = 20UL * 60UL * 1000UL;
-constexpr uint32_t LORA_LANDING_STABLE_MS = 30000;
+constexpr uint32_t LORA_MAX_MISSION_TX_MS = 120UL * 60UL * 1000UL;   // Minutes * Seconds * Milliseconds
+constexpr uint32_t LORA_LANDING_STABLE_MS = 600UL * 1000UL;          // Seconds * Milliseconds
 constexpr int32_t  LORA_LANDING_PRESS_STABLE_DELTA_PA_X10 = 50;
 constexpr int32_t  LORA_FLIGHT_PRESS_DELTA_PA_X10 = 5000;
 
