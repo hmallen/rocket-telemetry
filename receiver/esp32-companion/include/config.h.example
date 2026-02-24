@@ -69,6 +69,22 @@
 #define COMPANION_SD_SPI_FREQ 10000000
 #define COMPANION_SD_SOUND_DIR "/sounds"
 
+// Optional speaker playback for flight events using WAV files on SD.
+// Configure speaker pin/output and place matching WAV files on the card.
+// Elecrow CrowPanel 3.5 SPK header is driven from GPIO26 (DAC2/PWM-capable).
+#define COMPANION_AUDIO_ENABLE 1
+#define COMPANION_AUDIO_SPK_PIN 26
+#define COMPANION_AUDIO_PWM_CHANNEL 0
+#define COMPANION_AUDIO_PWM_FREQ 32000
+#define COMPANION_AUDIO_PWM_BITS 8
+
+#define COMPANION_SOUND_FILE_ARMED_WAIT "/sounds/armed_waiting.wav"
+#define COMPANION_SOUND_FILE_LIFTOFF "/sounds/liftoff.wav"
+#define COMPANION_SOUND_FILE_APOGEE "/sounds/apogee.wav"
+#define COMPANION_SOUND_FILE_DROGUE "/sounds/drogue_deploy.wav"
+#define COMPANION_SOUND_FILE_MAIN "/sounds/main_deploy.wav"
+#define COMPANION_SOUND_FILE_LANDING "/sounds/landing.wav"
+
 // OTA update settings.
 // When enabled, firmware keeps Wi-Fi active even in UART transport mode.
 // First flash should be done over USB, then OTA can be used for updates.

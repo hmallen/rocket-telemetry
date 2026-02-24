@@ -49,6 +49,9 @@ void UartLink::applyTelemetry(const TelemetryV1& t, bool hasTxPower, CompanionSt
   ioState.telemetryTxPowerDbm = txPowerValid ? t.telemetry_tx_power_dbm : 0;
   ioState.hasCommandLockoutState = true;
   ioState.commandLockoutActive = (t.flags & 0x20) != 0;
+  ioState.hasRecoveryDeploymentState = true;
+  ioState.recoveryDrogueDeployed = (t.flags & 0x02) != 0;
+  ioState.recoveryMainDeployed = (t.flags & 0x04) != 0;
 
   ioState.stale = false;
 }
@@ -106,6 +109,9 @@ bool UartLink::poll(CompanionState& ioState) {
         ioState.telemetryTxPowerDbm = 0;
         ioState.hasCommandLockoutState = true;
         ioState.commandLockoutActive = (t.flags & 0x20) != 0;
+        ioState.hasRecoveryDeploymentState = true;
+        ioState.recoveryDrogueDeployed = (t.flags & 0x02) != 0;
+        ioState.recoveryMainDeployed = (t.flags & 0x04) != 0;
 
         ioState.stale = false;
         updated = true;

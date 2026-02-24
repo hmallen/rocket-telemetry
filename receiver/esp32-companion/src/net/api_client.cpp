@@ -179,6 +179,19 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
   ioState.alt.gpsAltitudeM = gpsAlt;
   ioState.alt.verticalSpeedMps = recovery["vertical_speed_mps"].isNull() ? NAN : (float)recovery["vertical_speed_mps"].as<float>();
 
+  JsonObject recoveryDrogue = recovery["drogue"];
+  JsonObject recoveryMain = recovery["main"];
+  if (!recoveryDrogue.isNull() && !recoveryMain.isNull() &&
+      !recoveryDrogue["deployed"].isNull() && !recoveryMain["deployed"].isNull()) {
+    ioState.hasRecoveryDeploymentState = true;
+    ioState.recoveryDrogueDeployed = recoveryDrogue["deployed"].as<bool>();
+    ioState.recoveryMainDeployed = recoveryMain["deployed"].as<bool>();
+  } else {
+    ioState.hasRecoveryDeploymentState = false;
+    ioState.recoveryDrogueDeployed = false;
+    ioState.recoveryMainDeployed = false;
+  }
+
   JsonObject battery = state["battery"];
   ioState.battery.telemetryVbatV =
       battery["vbat_v"].isNull() ? NAN : (float)battery["vbat_v"].as<float>();
