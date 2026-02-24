@@ -53,6 +53,9 @@ class LvglController {
   bool hasTxPowerReadback_ = false;
   uint8_t txPowerActiveDbm_ = 0;
   bool commandLockoutActive_ = false;
+  bool sdStorageReady_ = false;
+  uint64_t sdStorageTotalBytes_ = 0;
+  uint64_t sdStorageUsedBytes_ = 0;
 
   uint8_t buzzerDurationS_ = 3;
   bool buzzerConfigVisible_ = false;
@@ -161,6 +164,7 @@ class LvglController {
 
   void updateStaleness();
   void updateCompanionBattery();
+  void initSdStorage();
   bool ensureConnected();
 
   bool sendAction(const String& action, int durationS = 0);

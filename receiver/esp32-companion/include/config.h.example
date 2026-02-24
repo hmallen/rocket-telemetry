@@ -62,6 +62,13 @@
 // Set to 1 to show a quick LCD bring-up test (RGB + text) at boot.
 #define DISPLAY_TEST_SCREEN 1
 
+// Optional SD card bootstrap for future on-device assets (for example: sounds).
+// Set COMPANION_SD_CS_PIN to your board's SD/TF CS pin (or -1 to disable).
+#define COMPANION_SD_ENABLE 0
+#define COMPANION_SD_CS_PIN -1
+#define COMPANION_SD_SPI_FREQ 10000000
+#define COMPANION_SD_SOUND_DIR "/sounds"
+
 // OTA update settings.
 // When enabled, firmware keeps Wi-Fi active even in UART transport mode.
 // First flash should be done over USB, then OTA can be used for updates.

@@ -53,6 +53,7 @@ cp include/config.h.example include/config.h
 - UART pins/baud for your board revision
 - Wi-Fi + host settings if using API/SSE mode
 - auth token if `/api/companion/cmd` is protected
+- optional SD bootstrap (`COMPANION_SD_ENABLE`, `COMPANION_SD_CS_PIN`, `COMPANION_SD_SPI_FREQ`, `COMPANION_SD_SOUND_DIR`) for future sound assets
 - OTA settings (`OTA_ENABLE`, `OTA_HOSTNAME`, `OTA_PORT`, `OTA_PASSWORD`) if using OTA updates
 
 When `OTA_ENABLE=1`, firmware keeps Wi-Fi active even in UART transport mode so OTA
