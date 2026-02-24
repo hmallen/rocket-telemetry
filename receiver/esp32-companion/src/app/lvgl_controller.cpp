@@ -3,6 +3,7 @@
 #include <esp_heap_caps.h>
 #include <math.h>
 #include <SPI.h>
+#include <WiFi.h>
 
 namespace {
 
@@ -299,6 +300,15 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(menuIconRow, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_clear_flag(menuIconRow, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_align(menuIconRow, LV_ALIGN_TOP_RIGHT, 0, 0);
+
+  wifiIndicator_ = lv_obj_create(menuIconRow);
+  lv_obj_set_size(wifiIndicator_, 12, 12);
+  lv_obj_set_style_radius(wifiIndicator_, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(wifiIndicator_, lv_color_hex(0x3f4f66), 0);
+  lv_obj_set_style_border_color(wifiIndicator_, lv_color_hex(0x7f8fa8), 0);
+  lv_obj_set_style_border_width(wifiIndicator_, 1, 0);
+  lv_obj_clear_flag(wifiIndicator_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(wifiIndicator_, LV_OBJ_FLAG_CLICKABLE);
 
   sdToggleBtn_ = lv_btn_create(menuIconRow);
   lv_obj_add_flag(sdToggleBtn_, LV_OBJ_FLAG_CLICKABLE);
@@ -1287,6 +1297,19 @@ void LvglController::refreshUi() {
           : (linkLive ? lv_color_hex(0x6cff95)
                       : (state_.stale ? lv_color_hex(0xffc369) : lv_color_hex(0xff6b6b))),
       0);
+
+  if (wifiIndicator_ != nullptr) {
+#if (!COMPANION_LINK_UART) || OTA_ENABLE
+    const bool wifiConnected = (WiFi.status() == WL_CONNECTED);
+    const uint32_t wifiColor = wifiConnected ? 0x6cff95 : 0xffc369;
+    const uint32_t wifiBorder = wifiConnected ? 0xb4ffd0 : 0xffde9a;
+#else
+    const uint32_t wifiColor = 0x3f4f66;
+    const uint32_t wifiBorder = 0x7f8fa8;
+#endif
+    lv_obj_set_style_bg_color(wifiIndicator_, lv_color_hex(wifiColor), 0);
+    lv_obj_set_style_border_color(wifiIndicator_, lv_color_hex(wifiBorder), 0);
+  }
 
   const String snrText = formatFloat(state_.link.snr, 1, "--.-");
   lv_label_set_text_fmt(linkMetaLabel_, "RSSI %d dBm   SNR %s   AGE %d ms", state_.link.rssi,

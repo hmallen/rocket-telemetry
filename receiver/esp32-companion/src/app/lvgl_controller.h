@@ -113,6 +113,7 @@ class LvglController {
 
   lv_obj_t* root_ = nullptr;
   lv_obj_t* telemetryPanel_ = nullptr;
+  lv_obj_t* wifiIndicator_ = nullptr;
   lv_obj_t* sdToggleBtn_ = nullptr;
   lv_obj_t* sdToggleLabel_ = nullptr;
   lv_obj_t* txToggleBtn_ = nullptr;
