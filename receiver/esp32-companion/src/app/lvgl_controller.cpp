@@ -427,7 +427,7 @@ void LvglController::buildUi() {
   lv_obj_add_flag(actionPanel_, LV_OBJ_FLAG_HIDDEN);
 
   settingsBody_ = lv_obj_create(telemetryPanel_);
-  lv_obj_set_width(settingsBody_, kActionPanelWidth);
+  lv_obj_set_width(settingsBody_, kSettingsPanelWidth);
   lv_obj_set_height(settingsBody_, LV_SIZE_CONTENT);
   lv_obj_set_style_bg_color(settingsBody_, lv_color_hex(0x111c2e), 0);
   lv_obj_set_style_border_color(settingsBody_, lv_color_hex(0x2a446a), 0);
@@ -496,7 +496,7 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(txPowerConfigRow_, LV_OBJ_FLAG_CLICKABLE);
 
   txPowerSlider_ = lv_slider_create(txPowerConfigRow_);
-  lv_obj_set_width(txPowerSlider_, 84);
+  lv_obj_set_width(txPowerSlider_, 126);
   lv_slider_set_range(txPowerSlider_, kTelemetryTxPowerMinDbm, kTelemetryTxPowerMaxDbm);
   lv_slider_set_value(txPowerSlider_, txPowerDbm_, LV_ANIM_OFF);
   lv_obj_add_event_cb(txPowerSlider_, onTxPowerChangedEvent, LV_EVENT_VALUE_CHANGED, this);
@@ -1489,8 +1489,8 @@ void LvglController::readTouchCb(lv_indev_t* indev, lv_indev_data_t* data) {
     self->touchDebugMapX_ = -1;
     self->touchDebugMapY_ = -1;
     data->state = LV_INDEV_STATE_REL;
-    data->point.x = 0;
-    data->point.y = 0;
+    data->point.x = static_cast<lv_coord_t>(self->lastTouchScreenX_);
+    data->point.y = static_cast<lv_coord_t>(self->lastTouchScreenY_);
     return;
   }
   self->touchDebugPressed_ = true;
@@ -1502,14 +1502,16 @@ void LvglController::readTouchCb(lv_indev_t* indev, lv_indev_data_t* data) {
     self->touchDebugMapX_ = -1;
     self->touchDebugMapY_ = -1;
     data->state = LV_INDEV_STATE_REL;
-    data->point.x = 0;
-    data->point.y = 0;
+    data->point.x = static_cast<lv_coord_t>(self->lastTouchScreenX_);
+    data->point.y = static_cast<lv_coord_t>(self->lastTouchScreenY_);
     return;
   }
 
   self->touchDebugMapOk_ = true;
   self->touchDebugMapX_ = x;
   self->touchDebugMapY_ = y;
+  self->lastTouchScreenX_ = x;
+  self->lastTouchScreenY_ = y;
 
   data->state = LV_INDEV_STATE_PR;
   data->point.x = x;
