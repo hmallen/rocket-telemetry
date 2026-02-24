@@ -1,8 +1,10 @@
 #include "lvgl_controller.h"
 
+#include <SD.h>
 #include <esp_heap_caps.h>
 #include <math.h>
 #include <SPI.h>
+#include <string.h>
 
 namespace {
 
@@ -78,6 +80,22 @@ static int32_t mapLinearRange(int32_t value,
 
 #ifndef COMPANION_BAT_ADC_MIN_VALID_MV
 #define COMPANION_BAT_ADC_MIN_VALID_MV 50
+#endif
+
+#ifndef COMPANION_SD_ENABLE
+#define COMPANION_SD_ENABLE 0
+#endif
+
+#ifndef COMPANION_SD_CS_PIN
+#define COMPANION_SD_CS_PIN -1
+#endif
+
+#ifndef COMPANION_SD_SPI_FREQ
+#define COMPANION_SD_SPI_FREQ 10000000
+#endif
+
+#ifndef COMPANION_SD_SOUND_DIR
+#define COMPANION_SD_SOUND_DIR "/sounds"
 #endif
 
 constexpr uint32_t kBatterySampleIntervalMs = COMPANION_BAT_SAMPLE_INTERVAL_MS;
@@ -625,6 +643,7 @@ void LvglController::begin() {
   tft_.init();
   tft_.setRotation(1);
   tft_.fillScreen(TFT_BLACK);
+  initSdStorage();
 
 #if COMPANION_LINK_UART
   pinMode(COMPANION_BAT_ADC_PIN, INPUT);
@@ -705,6 +724,40 @@ void LvglController::updateCompanionBattery() {
   const float vadc = mvAvg / 1000.0f;
   state_.battery.companionVbatV =
       vadc * COMPANION_BAT_ADC_DIVIDER_SCALE * COMPANION_BAT_ADC_CAL_SCALE;
+}
+
+void LvglController::initSdStorage() {
+  sdStorageReady_ = false;
+  sdStorageTotalBytes_ = 0;
+  sdStorageUsedBytes_ = 0;
+
+#if COMPANION_SD_ENABLE
+#if COMPANION_SD_CS_PIN < 0
+  return;
+#else
+  pinMode(COMPANION_SD_CS_PIN, OUTPUT);
+  digitalWrite(COMPANION_SD_CS_PIN, HIGH);
+
+  if (!SD.begin(COMPANION_SD_CS_PIN, SPI, COMPANION_SD_SPI_FREQ)) {
+    return;
+  }
+
+  const uint8_t cardType = SD.cardType();
+  if (cardType == CARD_NONE) {
+    SD.end();
+    return;
+  }
+
+  const char* soundDir = COMPANION_SD_SOUND_DIR;
+  if (soundDir != nullptr && soundDir[0] == '/' && strlen(soundDir) > 1U && !SD.exists(soundDir)) {
+    (void)SD.mkdir(soundDir);
+  }
+
+  sdStorageReady_ = true;
+  sdStorageTotalBytes_ = SD.totalBytes();
+  sdStorageUsedBytes_ = SD.usedBytes();
+#endif
+#endif
 }
 
 bool LvglController::ensureConnected() {
