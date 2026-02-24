@@ -302,13 +302,32 @@ void LvglController::buildUi() {
   lv_obj_align(menuIconRow, LV_ALIGN_TOP_RIGHT, 0, 0);
 
   wifiIndicator_ = lv_obj_create(menuIconRow);
-  lv_obj_set_size(wifiIndicator_, 12, 12);
-  lv_obj_set_style_radius(wifiIndicator_, LV_RADIUS_CIRCLE, 0);
-  lv_obj_set_style_bg_color(wifiIndicator_, lv_color_hex(0x3f4f66), 0);
-  lv_obj_set_style_border_color(wifiIndicator_, lv_color_hex(0x7f8fa8), 0);
-  lv_obj_set_style_border_width(wifiIndicator_, 1, 0);
+  lv_obj_set_size(wifiIndicator_, 30, 30);
+  lv_obj_set_style_bg_opa(wifiIndicator_, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(wifiIndicator_, 0, 0);
+  lv_obj_set_style_pad_all(wifiIndicator_, 0, 0);
   lv_obj_clear_flag(wifiIndicator_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_clear_flag(wifiIndicator_, LV_OBJ_FLAG_CLICKABLE);
+
+  wifiIndicatorIcon_ = lv_label_create(wifiIndicator_);
+  lv_label_set_text(wifiIndicatorIcon_, LV_SYMBOL_WIFI);
+  lv_obj_set_style_text_color(wifiIndicatorIcon_, lv_color_hex(0xaab8cf), 0);
+  lv_obj_clear_flag(wifiIndicatorIcon_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_align(wifiIndicatorIcon_, LV_ALIGN_CENTER, 0, -1);
+
+  wifiIndicatorState_ = lv_label_create(wifiIndicator_);
+  lv_label_set_text(wifiIndicatorState_, LV_SYMBOL_CLOSE);
+  lv_obj_set_style_text_color(wifiIndicatorState_, lv_color_hex(0x2d0e0e), 0);
+  lv_obj_set_style_text_align(wifiIndicatorState_, LV_TEXT_ALIGN_CENTER, 0);
+  lv_obj_set_style_bg_opa(wifiIndicatorState_, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(wifiIndicatorState_, lv_color_hex(0xff9c9c), 0);
+  lv_obj_set_style_border_width(wifiIndicatorState_, 1, 0);
+  lv_obj_set_style_border_color(wifiIndicatorState_, lv_color_hex(0xffd2d2), 0);
+  lv_obj_set_style_radius(wifiIndicatorState_, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_pad_hor(wifiIndicatorState_, 2, 0);
+  lv_obj_set_style_pad_ver(wifiIndicatorState_, 1, 0);
+  lv_obj_clear_flag(wifiIndicatorState_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_align(wifiIndicatorState_, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
 
   sdToggleBtn_ = lv_btn_create(menuIconRow);
   lv_obj_add_flag(sdToggleBtn_, LV_OBJ_FLAG_CLICKABLE);
@@ -1298,17 +1317,31 @@ void LvglController::refreshUi() {
                       : (state_.stale ? lv_color_hex(0xffc369) : lv_color_hex(0xff6b6b))),
       0);
 
-  if (wifiIndicator_ != nullptr) {
+  if (wifiIndicator_ != nullptr && wifiIndicatorIcon_ != nullptr && wifiIndicatorState_ != nullptr) {
 #if (!COMPANION_LINK_UART) || OTA_ENABLE
     const bool wifiConnected = (WiFi.status() == WL_CONNECTED);
-    const uint32_t wifiColor = wifiConnected ? 0x6cff95 : 0xffc369;
-    const uint32_t wifiBorder = wifiConnected ? 0xb4ffd0 : 0xffde9a;
+    lv_label_set_text(wifiIndicatorIcon_, LV_SYMBOL_WIFI);
+    lv_obj_set_style_text_color(wifiIndicatorIcon_, lv_color_hex(wifiConnected ? 0xe6f2ff : 0xa7b4c9), 0);
+
+    lv_label_set_text(wifiIndicatorState_, wifiConnected ? LV_SYMBOL_OK : LV_SYMBOL_CLOSE);
+    lv_obj_set_style_text_color(wifiIndicatorState_,
+                                lv_color_hex(wifiConnected ? 0x10351f : 0x3a1111),
+                                0);
+    lv_obj_set_style_bg_color(wifiIndicatorState_,
+                              lv_color_hex(wifiConnected ? 0x6cff95 : 0xff8e8e),
+                              0);
+    lv_obj_set_style_border_color(wifiIndicatorState_,
+                                  lv_color_hex(wifiConnected ? 0xb4ffd0 : 0xffc3c3),
+                                  0);
 #else
-    const uint32_t wifiColor = 0x3f4f66;
-    const uint32_t wifiBorder = 0x7f8fa8;
+    lv_label_set_text(wifiIndicatorIcon_, LV_SYMBOL_WIFI);
+    lv_obj_set_style_text_color(wifiIndicatorIcon_, lv_color_hex(0x637287), 0);
+
+    lv_label_set_text(wifiIndicatorState_, "-");
+    lv_obj_set_style_text_color(wifiIndicatorState_, lv_color_hex(0x93a3bc), 0);
+    lv_obj_set_style_bg_color(wifiIndicatorState_, lv_color_hex(0x2d394d), 0);
+    lv_obj_set_style_border_color(wifiIndicatorState_, lv_color_hex(0x4d5f79), 0);
 #endif
-    lv_obj_set_style_bg_color(wifiIndicator_, lv_color_hex(wifiColor), 0);
-    lv_obj_set_style_border_color(wifiIndicator_, lv_color_hex(wifiBorder), 0);
   }
 
   const String snrText = formatFloat(state_.link.snr, 1, "--.-");
