@@ -31,6 +31,7 @@ class LvglController {
   static constexpr int kScreenHeight = 320;
   static constexpr int kDrawBufferLines = 28;
   static constexpr int kActionPanelWidth = 210;
+  static constexpr int kSettingsPanelWidth = 252;
 
   ApiClient api_;
   UartLink uart_;
@@ -103,6 +104,8 @@ class LvglController {
   int32_t touchDebugMapY_ = -1;
   uint32_t touchDebugTs_ = 0;
   bool touchPressed_ = false;
+  int32_t lastTouchScreenX_ = 0;
+  int32_t lastTouchScreenY_ = 0;
 
   String cmdMsg_;
   bool cmdOk_ = true;
