@@ -19,6 +19,15 @@ class LvglController {
   void tick();
 
  private:
+  enum class SoundCue : uint8_t {
+    kArmedWait = 0,
+    kLiftoff,
+    kApogee,
+    kDrogueDeploy,
+    kMainDeploy,
+    kLanding,
+  };
+
   struct TouchCalibration {
     int32_t xMin = TOUCH_X_MIN;
     int32_t xMax = TOUCH_X_MAX;
@@ -56,6 +65,16 @@ class LvglController {
   bool sdStorageReady_ = false;
   uint64_t sdStorageTotalBytes_ = 0;
   uint64_t sdStorageUsedBytes_ = 0;
+  bool audioOutputReady_ = false;
+  uint16_t audioPwmMaxDuty_ = 255;
+  bool hasRecoveryDeployHistory_ = false;
+  bool lastRecoveryDrogueDeployed_ = false;
+  bool lastRecoveryMainDeployed_ = false;
+  static constexpr uint8_t kSoundQueueCapacity = 8;
+  SoundCue soundQueue_[kSoundQueueCapacity] = {};
+  uint8_t soundQueueHead_ = 0;
+  uint8_t soundQueueTail_ = 0;
+  uint8_t soundQueueCount_ = 0;
 
   uint8_t buzzerDurationS_ = 3;
   bool buzzerConfigVisible_ = false;
@@ -165,6 +184,12 @@ class LvglController {
   void updateStaleness();
   void updateCompanionBattery();
   void initSdStorage();
+  void initSoundOutput();
+  void queueSoundCue(SoundCue cue);
+  void handleEventSoundTriggers(const String& previousPhase, bool phaseChanged);
+  void playNextQueuedSound();
+  const char* cueFilePath(SoundCue cue) const;
+  bool playWavFromSd(const char* path);
   bool ensureConnected();
 
   bool sendAction(const String& action, int durationS = 0);

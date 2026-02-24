@@ -98,6 +98,50 @@ static int32_t mapLinearRange(int32_t value,
 #define COMPANION_SD_SOUND_DIR "/sounds"
 #endif
 
+#ifndef COMPANION_AUDIO_ENABLE
+#define COMPANION_AUDIO_ENABLE 0
+#endif
+
+#ifndef COMPANION_AUDIO_SPK_PIN
+#define COMPANION_AUDIO_SPK_PIN -1
+#endif
+
+#ifndef COMPANION_AUDIO_PWM_CHANNEL
+#define COMPANION_AUDIO_PWM_CHANNEL 0
+#endif
+
+#ifndef COMPANION_AUDIO_PWM_FREQ
+#define COMPANION_AUDIO_PWM_FREQ 32000
+#endif
+
+#ifndef COMPANION_AUDIO_PWM_BITS
+#define COMPANION_AUDIO_PWM_BITS 8
+#endif
+
+#ifndef COMPANION_SOUND_FILE_ARMED_WAIT
+#define COMPANION_SOUND_FILE_ARMED_WAIT "/sounds/armed_waiting.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_LIFTOFF
+#define COMPANION_SOUND_FILE_LIFTOFF "/sounds/liftoff.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_APOGEE
+#define COMPANION_SOUND_FILE_APOGEE "/sounds/apogee.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_DROGUE
+#define COMPANION_SOUND_FILE_DROGUE "/sounds/drogue_deploy.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_MAIN
+#define COMPANION_SOUND_FILE_MAIN "/sounds/main_deploy.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_LANDING
+#define COMPANION_SOUND_FILE_LANDING "/sounds/landing.wav"
+#endif
+
 constexpr uint32_t kBatterySampleIntervalMs = COMPANION_BAT_SAMPLE_INTERVAL_MS;
 constexpr float kLipoCellEmptyV = 3.3f;
 constexpr float kLipoCellFullV = 4.2f;
@@ -143,6 +187,12 @@ static bool phaseIndicatesInFlight(const String& phaseText) {
   String phase = phaseText;
   phase.toLowerCase();
   return phase == "ascent" || phase == "descent" || phase == "boost" || phase == "coast";
+}
+
+static bool phaseEquals(const String& phaseText, const char* expectedLower) {
+  String phase = phaseText;
+  phase.toLowerCase();
+  return phase == expectedLower;
 }
 
 static lv_obj_t* makeActionButton(lv_obj_t* parent,
@@ -644,6 +694,7 @@ void LvglController::begin() {
   tft_.setRotation(1);
   tft_.fillScreen(TFT_BLACK);
   initSdStorage();
+  initSoundOutput();
 
 #if COMPANION_LINK_UART
   pinMode(COMPANION_BAT_ADC_PIN, INPUT);
@@ -757,6 +808,254 @@ void LvglController::initSdStorage() {
   sdStorageTotalBytes_ = SD.totalBytes();
   sdStorageUsedBytes_ = SD.usedBytes();
 #endif
+#endif
+}
+
+void LvglController::initSoundOutput() {
+  audioOutputReady_ = false;
+  audioPwmMaxDuty_ = 255;
+
+#if COMPANION_AUDIO_ENABLE
+#if COMPANION_AUDIO_SPK_PIN >= 0
+  const uint8_t pwmBits = (COMPANION_AUDIO_PWM_BITS > 15) ? 15 : COMPANION_AUDIO_PWM_BITS;
+  ledcSetup(COMPANION_AUDIO_PWM_CHANNEL, COMPANION_AUDIO_PWM_FREQ, pwmBits);
+  ledcAttachPin(COMPANION_AUDIO_SPK_PIN, COMPANION_AUDIO_PWM_CHANNEL);
+  const uint32_t maxDuty = (1UL << pwmBits) - 1UL;
+  audioPwmMaxDuty_ = static_cast<uint16_t>(maxDuty);
+  ledcWrite(COMPANION_AUDIO_PWM_CHANNEL, audioPwmMaxDuty_ / 2U);
+  audioOutputReady_ = true;
+#endif
+#endif
+}
+
+void LvglController::queueSoundCue(SoundCue cue) {
+  if (soundQueueCount_ >= kSoundQueueCapacity) {
+    return;
+  }
+
+  if (soundQueueCount_ > 0) {
+    const uint8_t lastIdx = static_cast<uint8_t>((soundQueueTail_ + kSoundQueueCapacity - 1) % kSoundQueueCapacity);
+    if (soundQueue_[lastIdx] == cue) {
+      return;
+    }
+  }
+
+  soundQueue_[soundQueueTail_] = cue;
+  soundQueueTail_ = static_cast<uint8_t>((soundQueueTail_ + 1) % kSoundQueueCapacity);
+  soundQueueCount_++;
+}
+
+const char* LvglController::cueFilePath(SoundCue cue) const {
+  switch (cue) {
+    case SoundCue::kArmedWait:
+      return COMPANION_SOUND_FILE_ARMED_WAIT;
+    case SoundCue::kLiftoff:
+      return COMPANION_SOUND_FILE_LIFTOFF;
+    case SoundCue::kApogee:
+      return COMPANION_SOUND_FILE_APOGEE;
+    case SoundCue::kDrogueDeploy:
+      return COMPANION_SOUND_FILE_DROGUE;
+    case SoundCue::kMainDeploy:
+      return COMPANION_SOUND_FILE_MAIN;
+    case SoundCue::kLanding:
+      return COMPANION_SOUND_FILE_LANDING;
+    default:
+      return "";
+  }
+}
+
+void LvglController::handleEventSoundTriggers(const String& previousPhase, bool phaseChanged) {
+  const String& currentPhase = state_.flight.phase;
+
+  if (phaseChanged) {
+    if (phaseEquals(currentPhase, "idle") && !phaseEquals(previousPhase, "idle")) {
+      queueSoundCue(SoundCue::kArmedWait);
+    }
+
+    const bool prevInAscent = phaseEquals(previousPhase, "ascent") || phaseEquals(previousPhase, "boost") ||
+                              phaseEquals(previousPhase, "coast");
+    const bool currInAscent = phaseEquals(currentPhase, "ascent") || phaseEquals(currentPhase, "boost") ||
+                              phaseEquals(currentPhase, "coast");
+
+    if (currInAscent && !prevInAscent) {
+      queueSoundCue(SoundCue::kLiftoff);
+    }
+
+    if (phaseEquals(currentPhase, "descent") && prevInAscent) {
+      queueSoundCue(SoundCue::kApogee);
+    }
+
+    if (phaseEquals(currentPhase, "landed") && !phaseEquals(previousPhase, "landed")) {
+      queueSoundCue(SoundCue::kLanding);
+    }
+  }
+
+  if (state_.hasRecoveryDeploymentState) {
+    if (hasRecoveryDeployHistory_) {
+      if (!lastRecoveryDrogueDeployed_ && state_.recoveryDrogueDeployed) {
+        queueSoundCue(SoundCue::kDrogueDeploy);
+      }
+      if (!lastRecoveryMainDeployed_ && state_.recoveryMainDeployed) {
+        queueSoundCue(SoundCue::kMainDeploy);
+      }
+    }
+    lastRecoveryDrogueDeployed_ = state_.recoveryDrogueDeployed;
+    lastRecoveryMainDeployed_ = state_.recoveryMainDeployed;
+    hasRecoveryDeployHistory_ = true;
+  }
+}
+
+void LvglController::playNextQueuedSound() {
+  if (soundQueueCount_ == 0) {
+    return;
+  }
+
+  const SoundCue cue = soundQueue_[soundQueueHead_];
+  soundQueueHead_ = static_cast<uint8_t>((soundQueueHead_ + 1) % kSoundQueueCapacity);
+  soundQueueCount_--;
+
+  (void)playWavFromSd(cueFilePath(cue));
+}
+
+bool LvglController::playWavFromSd(const char* path) {
+#if !COMPANION_AUDIO_ENABLE
+  (void)path;
+  return false;
+#else
+  if (!audioOutputReady_ || !sdStorageReady_ || path == nullptr || path[0] == '\0') {
+    return false;
+  }
+
+  File wav = SD.open(path, FILE_READ);
+  if (!wav || wav.isDirectory()) {
+    return false;
+  }
+
+  uint8_t riffHeader[12] = {0};
+  if (wav.read(riffHeader, sizeof(riffHeader)) != static_cast<int>(sizeof(riffHeader)) ||
+      memcmp(riffHeader, "RIFF", 4) != 0 || memcmp(riffHeader + 8, "WAVE", 4) != 0) {
+    wav.close();
+    return false;
+  }
+
+  uint16_t audioFormat = 0;
+  uint16_t numChannels = 0;
+  uint16_t bitsPerSample = 0;
+  uint32_t sampleRate = 0;
+  uint32_t dataOffset = 0;
+  uint32_t dataBytes = 0;
+
+  while (wav.available() >= 8) {
+    uint8_t chunkHeader[8] = {0};
+    if (wav.read(chunkHeader, sizeof(chunkHeader)) != static_cast<int>(sizeof(chunkHeader))) {
+      break;
+    }
+
+    const uint32_t chunkSize = static_cast<uint32_t>(chunkHeader[4]) |
+                               (static_cast<uint32_t>(chunkHeader[5]) << 8) |
+                               (static_cast<uint32_t>(chunkHeader[6]) << 16) |
+                               (static_cast<uint32_t>(chunkHeader[7]) << 24);
+    const uint32_t chunkDataPos = static_cast<uint32_t>(wav.position());
+
+    if (memcmp(chunkHeader, "fmt ", 4) == 0 && chunkSize >= 16) {
+      uint8_t fmt[16] = {0};
+      if (wav.read(fmt, sizeof(fmt)) != static_cast<int>(sizeof(fmt))) {
+        break;
+      }
+      audioFormat = static_cast<uint16_t>(fmt[0]) | (static_cast<uint16_t>(fmt[1]) << 8);
+      numChannels = static_cast<uint16_t>(fmt[2]) | (static_cast<uint16_t>(fmt[3]) << 8);
+      sampleRate = static_cast<uint32_t>(fmt[4]) |
+                   (static_cast<uint32_t>(fmt[5]) << 8) |
+                   (static_cast<uint32_t>(fmt[6]) << 16) |
+                   (static_cast<uint32_t>(fmt[7]) << 24);
+      bitsPerSample = static_cast<uint16_t>(fmt[14]) | (static_cast<uint16_t>(fmt[15]) << 8);
+    } else if (memcmp(chunkHeader, "data", 4) == 0) {
+      dataOffset = chunkDataPos;
+      dataBytes = chunkSize;
+    }
+
+    const uint32_t paddedSize = chunkSize + (chunkSize & 1U);
+    const uint32_t nextPos = chunkDataPos + paddedSize;
+    if (!wav.seek(nextPos)) {
+      break;
+    }
+  }
+
+  const bool formatOk = (audioFormat == 1U) && ((bitsPerSample == 8U) || (bitsPerSample == 16U)) &&
+                        (numChannels >= 1U) && (sampleRate > 0U) && (dataBytes > 0U);
+  if (!formatOk || !wav.seek(dataOffset)) {
+    wav.close();
+    return false;
+  }
+
+  const uint32_t bytesPerSample = (bitsPerSample / 8U) * static_cast<uint32_t>(numChannels);
+  if (bytesPerSample == 0U) {
+    wav.close();
+    return false;
+  }
+
+  uint32_t samplePeriodUs = 1000000UL / sampleRate;
+  if (samplePeriodUs == 0U) {
+    samplePeriodUs = 1U;
+  }
+
+  uint32_t bytesRemaining = dataBytes;
+  uint32_t nextSampleUs = micros();
+  bool readOk = true;
+  while (bytesRemaining >= bytesPerSample && readOk) {
+    int32_t mixed = 0;
+    for (uint16_t ch = 0; ch < numChannels; ++ch) {
+      int32_t sample = 0;
+      if (bitsPerSample == 8U) {
+        const int b = wav.read();
+        if (b < 0) {
+          readOk = false;
+          break;
+        }
+        sample = (static_cast<int32_t>(b) - 128) << 8;
+      } else {
+        const int lo = wav.read();
+        const int hi = wav.read();
+        if (lo < 0 || hi < 0) {
+          readOk = false;
+          break;
+        }
+        const uint16_t raw = static_cast<uint16_t>(static_cast<uint16_t>(hi) << 8) | static_cast<uint16_t>(lo);
+        sample = static_cast<int16_t>(raw);
+      }
+      mixed += sample;
+    }
+    if (!readOk) {
+      break;
+    }
+
+    if (numChannels > 1U) {
+      mixed /= static_cast<int32_t>(numChannels);
+    }
+
+    int32_t sampleU8 = (mixed + 32768) >> 8;
+    if (sampleU8 < 0) {
+      sampleU8 = 0;
+    } else if (sampleU8 > 255) {
+      sampleU8 = 255;
+    }
+
+    const uint32_t duty = (static_cast<uint32_t>(sampleU8) * audioPwmMaxDuty_) / 255U;
+    ledcWrite(COMPANION_AUDIO_PWM_CHANNEL, duty);
+
+    bytesRemaining -= bytesPerSample;
+    nextSampleUs += samplePeriodUs;
+    int32_t waitUs = static_cast<int32_t>(nextSampleUs - micros());
+    while (waitUs > 0) {
+      const uint32_t chunkUs = (waitUs > 200) ? 200U : static_cast<uint32_t>(waitUs);
+      delayMicroseconds(chunkUs);
+      waitUs = static_cast<int32_t>(nextSampleUs - micros());
+    }
+  }
+
+  ledcWrite(COMPANION_AUDIO_PWM_CHANNEL, audioPwmMaxDuty_ / 2U);
+  wav.close();
+  return readOk;
 #endif
 }
 
@@ -1452,7 +1751,11 @@ void LvglController::tick() {
 #endif
     syncCommandStateFromTelemetry();
 
-    if (state_.flight.phase != lastPhase_ && state_.flight.phase.length() > 0) {
+    const String previousPhase = lastPhase_;
+    const bool phaseChanged = (state_.flight.phase != previousPhase && state_.flight.phase.length() > 0);
+    handleEventSoundTriggers(previousPhase, phaseChanged);
+
+    if (phaseChanged) {
       setCommandStatus("Phase -> " + state_.flight.phase, true);
       lastPhase_ = state_.flight.phase;
     }
@@ -1466,6 +1769,7 @@ void LvglController::tick() {
   handleCalibrationTouch();
   updatePendingCommandTimeouts(now);
   updateStaleness();
+  playNextQueuedSound();
 
   const bool statusVisible = cmdMsg_.length() > 0 && (now - cmdTs_) <= kCommandStatusShowMs;
   if (updated || statusVisible || (now - lastUiRefreshMs_) >= kUiRefreshIntervalMs) {

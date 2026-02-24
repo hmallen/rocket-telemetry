@@ -48,6 +48,9 @@ struct CompanionState {
   uint8_t telemetryTxPowerDbm = 0;
   bool hasCommandLockoutState = false;
   bool commandLockoutActive = false;
+  bool hasRecoveryDeploymentState = false;
+  bool recoveryDrogueDeployed = false;
+  bool recoveryMainDeployed = false;
   String primaryAlert;
   bool stale = true;
 };
