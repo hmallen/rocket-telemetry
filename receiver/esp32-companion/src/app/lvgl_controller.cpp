@@ -9,11 +9,16 @@ namespace {
 constexpr uint32_t kUiRefreshIntervalMs = 120;
 constexpr uint32_t kCommandStatusShowMs = 3000;
 constexpr uint32_t kCommandConfirmTimeoutMs = 5000;
+constexpr uint32_t kGroundStationOfflineDetectMs = 8000;
 constexpr uint8_t kCalPointCount = 4;
+constexpr uint8_t kTelemetryTxPowerMinDbm = 2;
+constexpr uint8_t kTelemetryTxPowerMaxDbm = 17;
 constexpr int kCalMarginPx = 24;
 constexpr int32_t kCalRetouchDistancePx = 120;
 constexpr int32_t kTouchPressThreshold = 140;
 constexpr int32_t kTouchReleaseThreshold = 90;
+constexpr lv_coord_t kSettingsButtonHeight = 28;
+constexpr lv_coord_t kSettingsGapPx = 4;
 
 static uint16_t median3(uint16_t a, uint16_t b, uint16_t c) {
   if (a > b) {
@@ -116,11 +121,21 @@ static int batteryPercentFromVoltage(float voltage, uint8_t cells) {
   return static_cast<int>(pct + 0.5f);
 }
 
-static lv_obj_t* makeActionButton(lv_obj_t* parent, const char* text, lv_event_cb_t cb, void* userData) {
+static bool phaseIndicatesInFlight(const String& phaseText) {
+  String phase = phaseText;
+  phase.toLowerCase();
+  return phase == "ascent" || phase == "descent" || phase == "boost" || phase == "coast";
+}
+
+static lv_obj_t* makeActionButton(lv_obj_t* parent,
+                                  const char* text,
+                                  lv_event_cb_t cb,
+                                  void* userData,
+                                  lv_coord_t height = 34) {
   lv_obj_t* btn = lv_btn_create(parent);
   lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_width(btn, LV_PCT(100));
-  lv_obj_set_height(btn, 34);
+  lv_obj_set_height(btn, height);
   lv_obj_set_style_radius(btn, 8, 0);
   lv_obj_set_style_bg_color(btn, lv_color_hex(0x1f2a3b), 0);
   lv_obj_set_style_bg_color(btn, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
@@ -225,9 +240,9 @@ void LvglController::buildUi() {
   lv_obj_set_style_text_color(altitudeLabel_, lv_color_hex(0xffde6a), 0);
   lv_obj_align(altitudeLabel_, LV_ALIGN_TOP_LEFT, 0, 96);
 
-  vsLabel_ = lv_label_create(telemetryPanel_);
-  lv_obj_set_style_text_color(vsLabel_, lv_color_hex(0x9df5b3), 0);
-  lv_obj_align(vsLabel_, LV_ALIGN_TOP_LEFT, 0, 164);
+  //vsLabel_ = lv_label_create(telemetryPanel_);
+  //lv_obj_set_style_text_color(vsLabel_, lv_color_hex(0x9df5b3), 0);
+  //lv_obj_align(vsLabel_, LV_ALIGN_TOP_LEFT, 0, 164);
 
   packetLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(packetLabel_, lv_color_hex(0xd9e3f8), 0);
@@ -380,7 +395,7 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(buzzerConfigRow_, LV_OBJ_FLAG_CLICKABLE);
 
   buzzerDurationSlider_ = lv_slider_create(buzzerConfigRow_);
-  lv_obj_set_width(buzzerDurationSlider_, 112);
+  lv_obj_set_width(buzzerDurationSlider_, 100);
   lv_slider_set_range(buzzerDurationSlider_, 1, 10);
   lv_slider_set_value(buzzerDurationSlider_, buzzerDurationS_, LV_ANIM_OFF);
   lv_obj_add_event_cb(buzzerDurationSlider_, onBuzzerDurationChangedEvent, LV_EVENT_VALUE_CHANGED, this);
@@ -394,7 +409,7 @@ void LvglController::buildUi() {
 
   lv_obj_t* buzzerSendBtn = lv_btn_create(buzzerConfigRow_);
   lv_obj_add_flag(buzzerSendBtn, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(buzzerSendBtn, 56, 30);
+  lv_obj_set_size(buzzerSendBtn, 52, 30);
   lv_obj_set_style_radius(buzzerSendBtn, 8, 0);
   lv_obj_set_style_bg_color(buzzerSendBtn, lv_color_hex(0x1f2a3b), 0);
   lv_obj_set_style_bg_color(buzzerSendBtn, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
@@ -418,8 +433,8 @@ void LvglController::buildUi() {
   lv_obj_set_style_border_color(settingsBody_, lv_color_hex(0x2a446a), 0);
   lv_obj_set_style_border_width(settingsBody_, 1, 0);
   lv_obj_set_style_radius(settingsBody_, 10, 0);
-  lv_obj_set_style_pad_all(settingsBody_, 8, 0);
-  lv_obj_set_style_pad_gap(settingsBody_, 6, 0);
+  lv_obj_set_style_pad_all(settingsBody_, 6, 0);
+  lv_obj_set_style_pad_gap(settingsBody_, kSettingsGapPx, 0);
   lv_obj_set_flex_flow(settingsBody_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(settingsBody_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_SCROLLABLE);
@@ -431,10 +446,10 @@ void LvglController::buildUi() {
   lv_obj_set_style_text_color(settingsTitle, lv_color_hex(0xe6eeff), 0);
   lv_obj_clear_flag(settingsTitle, LV_OBJ_FLAG_CLICKABLE);
 
-  lv_obj_t* settingsInfo = lv_label_create(settingsBody_);
-  lv_label_set_text(settingsInfo, "Touch calibration\nstored in flash");
-  lv_obj_set_style_text_color(settingsInfo, lv_color_hex(0xc2d4f4), 0);
-  lv_obj_clear_flag(settingsInfo, LV_OBJ_FLAG_CLICKABLE);
+  // lv_obj_t* settingsInfo = lv_label_create(settingsBody_);
+  // lv_label_set_text(settingsInfo, "Touch calibration\nstored in flash");
+  // lv_obj_set_style_text_color(settingsInfo, lv_color_hex(0xc2d4f4), 0);
+  // lv_obj_clear_flag(settingsInfo, LV_OBJ_FLAG_CLICKABLE);
 
   lv_obj_t* settingsActions = lv_obj_create(settingsBody_);
   lv_obj_set_width(settingsActions, LV_PCT(100));
@@ -442,13 +457,98 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_opa(settingsActions, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(settingsActions, 0, 0);
   lv_obj_set_style_pad_all(settingsActions, 0, 0);
-  lv_obj_set_style_pad_gap(settingsActions, 6, 0);
+  lv_obj_set_style_pad_gap(settingsActions, kSettingsGapPx, 0);
   lv_obj_set_flex_flow(settingsActions, LV_FLEX_FLOW_COLUMN);
   lv_obj_clear_flag(settingsActions, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_clear_flag(settingsActions, LV_OBJ_FLAG_CLICKABLE);
 
+  makeActionButton(settingsActions,
+                   "ALTITUDE ZERO",
+                   onAltCalibrateEvent,
+                   this,
+                   kSettingsButtonHeight);
+  makeActionButton(settingsActions,
+                   "IMU CALIBRATION",
+                   onImuCalibrateEvent,
+                   this,
+                   kSettingsButtonHeight);
+  makeActionButton(settingsActions,
+                   "SCREEN CALIBRATION",
+                   onCalibrateEvent,
+                   this,
+                   kSettingsButtonHeight);
+
+  lv_obj_t* txPowerTitle = lv_label_create(settingsActions);
+  lv_label_set_text(txPowerTitle, "TELEMETRY TX POWER");
+  lv_obj_set_style_text_color(txPowerTitle, lv_color_hex(0xcfe0ff), 0);
+  lv_obj_clear_flag(txPowerTitle, LV_OBJ_FLAG_CLICKABLE);
+
+  txPowerConfigRow_ = lv_obj_create(settingsActions);
+  lv_obj_set_width(txPowerConfigRow_, LV_PCT(100));
+  lv_obj_set_height(txPowerConfigRow_, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(txPowerConfigRow_, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(txPowerConfigRow_, 0, 0);
+  lv_obj_set_style_pad_all(txPowerConfigRow_, 0, 0);
+  lv_obj_set_style_pad_gap(txPowerConfigRow_, kSettingsGapPx, 0);
+  lv_obj_set_flex_flow(txPowerConfigRow_, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(txPowerConfigRow_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_clear_flag(txPowerConfigRow_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(txPowerConfigRow_, LV_OBJ_FLAG_CLICKABLE);
+
+  txPowerSlider_ = lv_slider_create(txPowerConfigRow_);
+  lv_obj_set_width(txPowerSlider_, 84);
+  lv_slider_set_range(txPowerSlider_, kTelemetryTxPowerMinDbm, kTelemetryTxPowerMaxDbm);
+  lv_slider_set_value(txPowerSlider_, txPowerDbm_, LV_ANIM_OFF);
+  lv_obj_add_event_cb(txPowerSlider_, onTxPowerChangedEvent, LV_EVENT_VALUE_CHANGED, this);
+
+  txPowerLabel_ = lv_label_create(txPowerConfigRow_);
+  lv_obj_set_width(txPowerLabel_, 42);
+  lv_obj_set_style_text_align(txPowerLabel_, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_set_style_text_color(txPowerLabel_, lv_color_hex(0xcfe0ff), 0);
+  lv_obj_clear_flag(txPowerLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_label_set_text_fmt(txPowerLabel_, "%udBm", static_cast<unsigned>(txPowerDbm_));
+
+  lv_obj_t* txPowerSendBtn = lv_btn_create(txPowerConfigRow_);
+  lv_obj_add_flag(txPowerSendBtn, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(txPowerSendBtn, 52, kSettingsButtonHeight);
+  lv_obj_set_style_radius(txPowerSendBtn, 8, 0);
+  lv_obj_set_style_bg_color(txPowerSendBtn, lv_color_hex(0x1f2a3b), 0);
+  lv_obj_set_style_bg_color(txPowerSendBtn, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(txPowerSendBtn, lv_color_hex(0x4b7dd1), 0);
+  lv_obj_set_style_border_width(txPowerSendBtn, 1, 0);
+  lv_obj_add_event_cb(txPowerSendBtn, onTxPowerSendEvent, LV_EVENT_PRESSED, this);
+
+  lv_obj_t* txPowerSendLabel = lv_label_create(txPowerSendBtn);
+  lv_label_set_text(txPowerSendLabel, "APPLY");
+  lv_obj_set_style_text_color(txPowerSendLabel, lv_color_hex(0xeaf1ff), 0);
+  lv_obj_clear_flag(txPowerSendLabel, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(txPowerSendLabel);
+
+  txPowerActiveLabel_ = lv_label_create(settingsActions);
+  lv_obj_set_width(txPowerActiveLabel_, LV_PCT(100));
+  lv_obj_set_style_text_color(txPowerActiveLabel_, lv_color_hex(0x9fb7df), 0);
+  lv_obj_clear_flag(txPowerActiveLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_label_set_text(txPowerActiveLabel_, "Active: -- dBm");
+
+  shutdownBtn_ = lv_btn_create(settingsActions);
+  lv_obj_add_flag(shutdownBtn_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(shutdownBtn_, LV_PCT(100));
+  lv_obj_set_height(shutdownBtn_, kSettingsButtonHeight);
+  lv_obj_set_style_radius(shutdownBtn_, 8, 0);
+  lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0x7a1d1d), 0);
+  lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0xa02828), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(shutdownBtn_, lv_color_hex(0xdc7070), 0);
+  lv_obj_set_style_border_width(shutdownBtn_, 1, 0);
+  lv_obj_add_event_cb(shutdownBtn_, onShutdownEvent, LV_EVENT_LONG_PRESSED, this);
+
+  lv_obj_t* shutdownLabel = lv_label_create(shutdownBtn_);
+  lv_label_set_text(shutdownLabel, "HOLD: SHUTDOWN PI");
+  lv_obj_set_style_text_color(shutdownLabel, lv_color_hex(0xfff0f0), 0);
+  lv_obj_clear_flag(shutdownLabel, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(shutdownLabel);
+
   lv_obj_t* touchDebugCheckbox = lv_checkbox_create(settingsActions);
-  lv_checkbox_set_text(touchDebugCheckbox, "Show touch debug overlay");
+  lv_checkbox_set_text(touchDebugCheckbox, "Touchscreen debug");
   lv_obj_set_width(touchDebugCheckbox, LV_PCT(100));
   lv_obj_set_style_text_color(touchDebugCheckbox, lv_color_hex(0xeaf1ff), 0);
   lv_obj_set_style_text_color(touchDebugCheckbox, lv_color_hex(0xeaf1ff), LV_STATE_CHECKED);
@@ -459,9 +559,6 @@ void LvglController::buildUi() {
   }
   lv_obj_add_event_cb(touchDebugCheckbox, onTouchDebugToggleEvent, LV_EVENT_VALUE_CHANGED, this);
 
-  makeActionButton(settingsActions, "SCREEN CALIBRATION", onCalibrateEvent, this);
-  makeActionButton(settingsActions, "ALTITUDE ZERO", onAltCalibrateEvent, this);
-  makeActionButton(settingsActions, "IMU CALIBRATION", onImuCalibrateEvent, this);
   lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
 
   updateDashboardActionButtons();
@@ -563,6 +660,15 @@ void LvglController::begin() {
   lastPrimaryAlert_ = state_.primaryAlert;
   lastLvTickMs_ = millis();
 
+  if (lastRxMs_ != 0) {
+    hasLastLoraPacketCount_ = true;
+    lastLoraPacketCount_ = state_.flight.packetCount;
+    if (state_.link.lastPacketAgeMs >= 0) {
+      loraAgeBaseMs_ = state_.link.lastPacketAgeMs;
+      loraAgeBaseTickMs_ = lastLvTickMs_;
+    }
+  }
+
   refreshUi();
 }
 
@@ -620,17 +726,18 @@ bool LvglController::ensureConnected() {
 
 void LvglController::updateStaleness() {
   const uint32_t now = millis();
-  const uint32_t age = (lastRxMs_ == 0) ? UINT32_MAX : (now - lastRxMs_);
-  const int ageMs = (lastRxMs_ == 0) ? -1 : static_cast<int>(age);
-  state_.stale = (age > 3000);
+  const uint32_t commAge = (lastRxMs_ == 0) ? UINT32_MAX : (now - lastRxMs_);
+  state_.stale = (commAge > 3000);
 
-  if (COMPANION_LINK_UART) {
-    state_.link.lastPacketAgeMs = ageMs;
+  if (loraAgeBaseMs_ >= 0) {
+    state_.link.lastPacketAgeMs =
+        loraAgeBaseMs_ + static_cast<int32_t>(now - loraAgeBaseTickMs_);
+  } else if (lastRxMs_ == 0) {
+    state_.link.lastPacketAgeMs = -1;
   }
 
   if (state_.stale) {
     state_.link.connected = false;
-    state_.link.lastPacketAgeMs = ageMs;
   }
 }
 
@@ -696,11 +803,18 @@ void LvglController::setCommandStatus(const String& msg, bool ok) {
 
 void LvglController::updateDashboardActionButtons() {
   if (sdToggleBtn_ != nullptr && sdToggleLabel_ != nullptr) {
-    if (sdCommandPending_) {
+    const bool sdDisableLocked = commandLockoutActive_ && sdLoggingEnabled_;
+    if (sdCommandPending_ || sdDisableLocked) {
       lv_obj_add_state(sdToggleBtn_, LV_STATE_DISABLED);
-      lv_label_set_text_fmt(sdToggleLabel_, "SD %s...", sdPendingTargetEnabled_ ? "ON" : "OFF");
-      lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x4b566d), 0);
-      lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      if (sdCommandPending_) {
+        lv_label_set_text_fmt(sdToggleLabel_, "SD %s...", sdPendingTargetEnabled_ ? "ON" : "OFF");
+        lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x4b566d), 0);
+        lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      } else {
+        lv_label_set_text(sdToggleLabel_, "SD ON LOCK");
+        lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x1f6a42), 0);
+        lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x1f6a42), LV_STATE_PRESSED);
+      }
     } else {
       lv_obj_clear_state(sdToggleBtn_, LV_STATE_DISABLED);
       lv_label_set_text_fmt(sdToggleLabel_, "SD %s", sdLoggingEnabled_ ? "ON" : "OFF");
@@ -708,16 +822,23 @@ void LvglController::updateDashboardActionButtons() {
       lv_obj_set_style_bg_color(sdToggleBtn_, sdLoggingEnabled_ ? lv_color_hex(0x2a8e5a) : lv_color_hex(0x5a3f3f),
                                 LV_STATE_PRESSED);
     }
-    lv_obj_set_style_border_color(sdToggleBtn_, lv_color_hex(0x6ea4ff), 0);
+    lv_obj_set_style_border_color(sdToggleBtn_, sdDisableLocked ? lv_color_hex(0xffb34f) : lv_color_hex(0x6ea4ff), 0);
     lv_obj_set_style_border_width(sdToggleBtn_, 1, 0);
   }
 
   if (txToggleBtn_ != nullptr && txToggleLabel_ != nullptr) {
-    if (txCommandPending_) {
+    const bool txDisableLocked = commandLockoutActive_ && telemetryTxEnabled_;
+    if (txCommandPending_ || txDisableLocked) {
       lv_obj_add_state(txToggleBtn_, LV_STATE_DISABLED);
-      lv_label_set_text_fmt(txToggleLabel_, "TX %s...", txPendingTargetEnabled_ ? "ON" : "OFF");
-      lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x4b566d), 0);
-      lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      if (txCommandPending_) {
+        lv_label_set_text_fmt(txToggleLabel_, "TX %s...", txPendingTargetEnabled_ ? "ON" : "OFF");
+        lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x4b566d), 0);
+        lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      } else {
+        lv_label_set_text(txToggleLabel_, "TX ON LOCK");
+        lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x1f5f73), 0);
+        lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x1f5f73), LV_STATE_PRESSED);
+      }
     } else {
       lv_obj_clear_state(txToggleBtn_, LV_STATE_DISABLED);
       lv_label_set_text_fmt(txToggleLabel_, "TX %s", telemetryTxEnabled_ ? "ON" : "OFF");
@@ -725,8 +846,23 @@ void LvglController::updateDashboardActionButtons() {
       lv_obj_set_style_bg_color(txToggleBtn_, telemetryTxEnabled_ ? lv_color_hex(0x2c839f) : lv_color_hex(0x5a3f3f),
                                 LV_STATE_PRESSED);
     }
-    lv_obj_set_style_border_color(txToggleBtn_, lv_color_hex(0x6ea4ff), 0);
+    lv_obj_set_style_border_color(txToggleBtn_, txDisableLocked ? lv_color_hex(0xffb34f) : lv_color_hex(0x6ea4ff), 0);
     lv_obj_set_style_border_width(txToggleBtn_, 1, 0);
+  }
+
+  if (shutdownBtn_ != nullptr) {
+    if (commandLockoutActive_) {
+      lv_obj_add_state(shutdownBtn_, LV_STATE_DISABLED);
+      lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0x4b566d), 0);
+      lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(shutdownBtn_, lv_color_hex(0xffb34f), 0);
+    } else {
+      lv_obj_clear_state(shutdownBtn_, LV_STATE_DISABLED);
+      lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0x7a1d1d), 0);
+      lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0xa02828), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(shutdownBtn_, lv_color_hex(0xdc7070), 0);
+    }
+    lv_obj_set_style_border_width(shutdownBtn_, 1, 0);
   }
 }
 
@@ -769,6 +905,35 @@ void LvglController::syncCommandStateFromTelemetry() {
     }
   }
 
+  bool reportedLockout = phaseIndicatesInFlight(state_.flight.phase);
+  if (state_.hasCommandLockoutState) {
+    reportedLockout = state_.commandLockoutActive;
+  }
+  if (commandLockoutActive_ != reportedLockout) {
+    commandLockoutActive_ = reportedLockout;
+    changed = true;
+  }
+
+  if (state_.hasTelemetryTxPowerState) {
+    if (!hasTxPowerReadback_ || txPowerActiveDbm_ != state_.telemetryTxPowerDbm) {
+      hasTxPowerReadback_ = true;
+      txPowerActiveDbm_ = state_.telemetryTxPowerDbm;
+      changed = true;
+    }
+  } else if (hasTxPowerReadback_) {
+    hasTxPowerReadback_ = false;
+    txPowerActiveDbm_ = 0;
+    changed = true;
+  }
+
+  if (txPowerActiveLabel_ != nullptr) {
+    if (hasTxPowerReadback_) {
+      lv_label_set_text_fmt(txPowerActiveLabel_, "Active: %udBm", static_cast<unsigned>(txPowerActiveDbm_));
+    } else {
+      lv_label_set_text(txPowerActiveLabel_, "Active: -- dBm");
+    }
+  }
+
   if (changed) {
     updateDashboardActionButtons();
   }
@@ -802,6 +967,12 @@ void LvglController::requestSdToggle(bool enable) {
     return;
   }
 
+  if (!enable && commandLockoutActive_) {
+    setCommandStatus("SD stop locked until landing", false);
+    refreshUi();
+    return;
+  }
+
   sdPendingPreviousEnabled_ = sdLoggingEnabled_;
   sdPendingTargetEnabled_ = enable;
   sdCommandPending_ = true;
@@ -826,6 +997,12 @@ void LvglController::requestSdToggle(bool enable) {
 
 void LvglController::requestTxToggle(bool enable) {
   if (txCommandPending_ || telemetryTxEnabled_ == enable) {
+    return;
+  }
+
+  if (!enable && commandLockoutActive_) {
+    setCommandStatus("TX disable locked until landing", false);
+    refreshUi();
     return;
   }
 
@@ -881,6 +1058,8 @@ bool LvglController::sendAction(const String& action, int durationS) {
 
   if (action == "buzzer") {
     pretty = "BUZZER " + String(durationS) + "s";
+  } else if (action == "telemetry_tx_power") {
+    pretty = "TELEM TX POWER " + String(durationS) + "dBm";
   }
 
   updateDashboardActionButtons();
@@ -1089,13 +1268,24 @@ void LvglController::handleCalibrationTouch() {
 
 void LvglController::refreshUi() {
   const uint32_t now = millis();
+  bool groundStationAppOffline = false;
+#if COMPANION_LINK_UART
+  groundStationAppOffline = (lastRxMs_ == 0) && (now > kGroundStationOfflineDetectMs);
+#else
+  groundStationAppOffline = !sseConnected_;
+#endif
+
   const bool linkLive = state_.link.connected && !state_.stale;
 
-  lv_label_set_text(linkLabel_, linkLive ? "LINK LIVE" : (state_.stale ? "LINK STALE" : "NO LINK"));
+  lv_label_set_text(linkLabel_, groundStationAppOffline
+                                    ? "GS APP OFFLINE"
+                                    : (linkLive ? "LINK LIVE" : (state_.stale ? "LINK STALE" : "NO LINK")));
   lv_obj_set_style_text_color(
       linkLabel_,
-      linkLive ? lv_color_hex(0x6cff95)
-               : (state_.stale ? lv_color_hex(0xffc369) : lv_color_hex(0xff6b6b)),
+      groundStationAppOffline
+          ? lv_color_hex(0xff6b6b)
+          : (linkLive ? lv_color_hex(0x6cff95)
+                      : (state_.stale ? lv_color_hex(0xffc369) : lv_color_hex(0xff6b6b))),
       0);
 
   const String snrText = formatFloat(state_.link.snr, 1, "--.-");
@@ -1108,8 +1298,8 @@ void LvglController::refreshUi() {
   const String gpsAltText = formatFloat(state_.alt.gpsAltitudeM, 1);
   const String vsText = formatFloat(state_.alt.verticalSpeedMps, 1);
 
-  lv_label_set_text_fmt(altitudeLabel_, "BARO %s m\nGPS  %s m", baroAltText.c_str(), gpsAltText.c_str());
-  lv_label_set_text_fmt(vsLabel_, "VS  %s m/s", vsText.c_str());
+  lv_label_set_text_fmt(altitudeLabel_, "BARO %s m\nGPS  %s m\nVS  %s m/s", baroAltText.c_str(), gpsAltText.c_str(), vsText.c_str());
+  //lv_label_set_text_fmt(vsLabel_, "VS  %s m/s", vsText.c_str());
 
   lv_label_set_text_fmt(packetLabel_, "Packets: %lu", static_cast<unsigned long>(state_.flight.packetCount));
   lv_label_set_text_fmt(callsignLabel_, "Callsign: %s",
@@ -1140,7 +1330,9 @@ void LvglController::refreshUi() {
   lv_label_set_text(cmdStatusLabel_, cmdStatus.c_str());
 
   String alert;
-  if (state_.primaryAlert.length() > 0) {
+  if (groundStationAppOffline) {
+    alert = "Start ground_station_server.py on Pi";
+  } else if (state_.primaryAlert.length() > 0) {
     alert = state_.primaryAlert;
   } else if (state_.stale) {
     alert = "Telemetry stale";
@@ -1190,6 +1382,21 @@ void LvglController::tick() {
 
   if (updated) {
     lastRxMs_ = now;
+#if COMPANION_LINK_UART
+    const bool loraPacketAdvanced =
+        !hasLastLoraPacketCount_ || (state_.flight.packetCount != lastLoraPacketCount_);
+    if (loraPacketAdvanced) {
+      hasLastLoraPacketCount_ = true;
+      lastLoraPacketCount_ = state_.flight.packetCount;
+      loraAgeBaseMs_ = (state_.link.lastPacketAgeMs >= 0) ? state_.link.lastPacketAgeMs : 0;
+      loraAgeBaseTickMs_ = now;
+    }
+#else
+    if (state_.link.lastPacketAgeMs >= 0) {
+      loraAgeBaseMs_ = state_.link.lastPacketAgeMs;
+      loraAgeBaseTickMs_ = now;
+    }
+#endif
     syncCommandStateFromTelemetry();
 
     if (state_.flight.phase != lastPhase_ && state_.flight.phase.length() > 0) {
@@ -1345,6 +1552,17 @@ void LvglController::onImuCalibrateEvent(lv_event_t* e) {
   self->refreshUi();
 }
 
+void LvglController::onShutdownEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self->commandLockoutActive_) {
+    self->setCommandStatus("Shutdown locked until landing", false);
+    self->refreshUi();
+    return;
+  }
+  self->sendAction("shutdown", 0);
+  self->refreshUi();
+}
+
 void LvglController::onBuzzerToggleEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
   self->setBuzzerConfigVisible(!self->buzzerConfigVisible_);
@@ -1370,6 +1588,32 @@ void LvglController::onBuzzerDurationChangedEvent(lv_event_t* e) {
 void LvglController::onBuzzerSendEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
   self->sendAction("buzzer", self->buzzerDurationS_);
+  self->refreshUi();
+}
+
+void LvglController::onTxPowerChangedEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr || self->txPowerSlider_ == nullptr) {
+    return;
+  }
+  int value = lv_slider_get_value(self->txPowerSlider_);
+  if (value < kTelemetryTxPowerMinDbm) {
+    value = kTelemetryTxPowerMinDbm;
+  } else if (value > kTelemetryTxPowerMaxDbm) {
+    value = kTelemetryTxPowerMaxDbm;
+  }
+  self->txPowerDbm_ = static_cast<uint8_t>(value);
+  if (self->txPowerLabel_ != nullptr) {
+    lv_label_set_text_fmt(self->txPowerLabel_, "%udBm", static_cast<unsigned>(self->txPowerDbm_));
+  }
+}
+
+void LvglController::onTxPowerSendEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  self->sendAction("telemetry_tx_power", self->txPowerDbm_);
   self->refreshUi();
 }
 

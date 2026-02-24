@@ -37,6 +37,7 @@ const elements = {
   imuAccel: document.getElementById("imu-accel"),
   batTime: document.getElementById("bat-time"),
   batVoltage: document.getElementById("bat-voltage"),
+  batGsVoltage: document.getElementById("bat-gs-voltage"),
   batState: document.getElementById("bat-state"),
   vmStatus: document.getElementById("vm-status"),
   vmUpdated: document.getElementById("vm-updated"),
@@ -60,6 +61,11 @@ const elements = {
   telemEnable: document.getElementById("telem-enable"),
   telemDisable: document.getElementById("telem-disable"),
   telemStatus: document.getElementById("telem-status"),
+  telemTxPower: document.getElementById("telem-tx-power"),
+  telemTxPowerValue: document.getElementById("telem-tx-power-value"),
+  telemTxPowerApply: document.getElementById("telem-tx-power-apply"),
+  telemTxPowerStatus: document.getElementById("telem-tx-power-status"),
+  telemTxPowerActive: document.getElementById("telem-tx-power-active"),
   buzzerDuration: document.getElementById("buzzer-duration"),
   buzzerActivate: document.getElementById("buzzer-activate"),
   buzzerStatus: document.getElementById("buzzer-status"),
@@ -96,6 +102,9 @@ const state = {
   telemetryTxAckTs: null,
   telemetryEnabled: null,
   telemetryCommandPending: false,
+  telemetryTxPowerCommandPending: false,
+  telemetryTxPowerDbm: 17,
+  commandLockoutActive: false,
   buzzerCommandPending: false,
   altCalCommandPending: false,
   imuCalCommandPending: false,
@@ -110,42 +119,275 @@ const FILTER_LABELS = {
   "accel-threshold": "Accel Threshold",
 };
 const MAP_PATH_LIMIT = 200;
+const ROCKET_COLORS = {
+  body: [198, 222, 235],
+  nose: [244, 252, 255],
+  fin: [58, 129, 121],
+  nozzle: [46, 62, 78],
+  wire: [120, 236, 204],
+};
+
+const rocketScene = {
+  stars: [],
+  width: 0,
+  height: 0,
+};
 
 const rocketModel = (() => {
   const points = [];
-  const edges = [];
-  const ring = (z, r, count) => {
+  const faces = [];
+  const wireEdges = [];
+
+  const addPoint = (x, y, z) => {
+    points.push([x, y, z]);
+    return points.length - 1;
+  };
+
+  const addRing = (z, radius, count, twist = 0) => {
     const start = points.length;
     for (let i = 0; i < count; i += 1) {
-      const angle = (i / count) * Math.PI * 2;
-      points.push([Math.cos(angle) * r, Math.sin(angle) * r, z]);
-    }
-    for (let i = 0; i < count; i += 1) {
-      edges.push([start + i, start + ((i + 1) % count)]);
+      const angle = ((i / count) * Math.PI * 2) + twist;
+      addPoint(Math.cos(angle) * radius, Math.sin(angle) * radius, z);
     }
     return start;
   };
 
-  const base = ring(-1.0, 0.25, 10);
-  const top = ring(0.6, 0.2, 10);
-  const fin = ring(-0.7, 0.32, 4);
-  const noseIndex = points.length;
-  points.push([0, 0, 1.2]);
+  const connectRings = (ringA, ringB, count, color) => {
+    for (let i = 0; i < count; i += 1) {
+      const a = ringA + i;
+      const b = ringA + ((i + 1) % count);
+      const c = ringB + ((i + 1) % count);
+      const d = ringB + i;
+      faces.push({ indices: [a, b, c, d], color });
+      wireEdges.push([a, b], [a, d]);
+    }
+  };
 
-  for (let i = 0; i < 10; i += 1) {
-    edges.push([base + i, top + i]);
-    edges.push([top + i, noseIndex]);
+  const segments = 18;
+  const baseRing = addRing(-1.0, 0.25, segments);
+  const midRing = addRing(0.55, 0.22, segments, Math.PI / segments);
+  const shoulderRing = addRing(0.82, 0.15, segments, Math.PI / segments);
+  const noseTipIndex = addPoint(0, 0, 1.28);
+
+  const nozzleSegments = 10;
+  const nozzleRing = addRing(-1.16, 0.12, nozzleSegments);
+  const tailIndex = addPoint(0, 0, -1.27);
+
+  connectRings(baseRing, midRing, segments, ROCKET_COLORS.body);
+  connectRings(midRing, shoulderRing, segments, [170, 198, 220]);
+
+  for (let i = 0; i < segments; i += 1) {
+    const a = shoulderRing + i;
+    const b = shoulderRing + ((i + 1) % segments);
+    faces.push({ indices: [a, b, noseTipIndex], color: ROCKET_COLORS.nose });
+    wireEdges.push([a, b], [a, noseTipIndex]);
+  }
+
+  for (let i = 0; i < nozzleSegments; i += 1) {
+    const a = nozzleRing + i;
+    const b = nozzleRing + ((i + 1) % nozzleSegments);
+    faces.push({ indices: [a, b, tailIndex], color: ROCKET_COLORS.nozzle });
+    wireEdges.push([a, b], [a, tailIndex]);
+  }
+
+  for (let i = 0; i < segments; i += 3) {
+    wireEdges.push([baseRing + i, shoulderRing + ((i + 9) % segments)]);
   }
 
   for (let i = 0; i < 4; i += 1) {
-    edges.push([fin + i, base + i * 2]);
+    const angle = i * (Math.PI / 2);
+    const radialX = Math.cos(angle);
+    const radialY = Math.sin(angle);
+    const tangentX = -radialY;
+    const tangentY = radialX;
+
+    const rootTop = addPoint(
+      (radialX * 0.24) + (tangentX * 0.035),
+      (radialY * 0.24) + (tangentY * 0.035),
+      -0.52
+    );
+    const rootBottom = addPoint(
+      (radialX * 0.24) - (tangentX * 0.035),
+      (radialY * 0.24) - (tangentY * 0.035),
+      -0.84
+    );
+    const rootInset = addPoint(radialX * 0.29, radialY * 0.29, -0.64);
+    const tip = addPoint(radialX * 0.52, radialY * 0.52, -1.04);
+
+    faces.push({ indices: [rootTop, rootBottom, tip], color: ROCKET_COLORS.fin });
+    faces.push({ indices: [rootTop, rootInset, rootBottom], color: [43, 100, 95] });
+    wireEdges.push(
+      [rootTop, rootBottom],
+      [rootBottom, tip],
+      [tip, rootTop],
+      [rootTop, rootInset],
+      [rootBottom, rootInset]
+    );
   }
 
-  edges.push([base, base + 5]);
-  edges.push([base + 2, base + 7]);
-
-  return { points, edges };
+  return {
+    points,
+    faces,
+    wireEdges,
+    noseTipIndex,
+    tailIndex,
+  };
 })();
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function subVec3(a, b) {
+  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+}
+
+function crossVec3(a, b) {
+  return [
+    (a[1] * b[2]) - (a[2] * b[1]),
+    (a[2] * b[0]) - (a[0] * b[2]),
+    (a[0] * b[1]) - (a[1] * b[0]),
+  ];
+}
+
+function dotVec3(a, b) {
+  return (a[0] * b[0]) + (a[1] * b[1]) + (a[2] * b[2]);
+}
+
+function normalizeVec3(v) {
+  const mag = Math.hypot(v[0], v[1], v[2]);
+  if (mag === 0) {
+    return [0, 0, 0];
+  }
+  return [v[0] / mag, v[1] / mag, v[2] / mag];
+}
+
+function shadeColor(baseRgb, light, alpha = 1) {
+  const tone = clamp(0.28 + (light * 0.82), 0, 1.25);
+  const r = Math.round(clamp(baseRgb[0] * tone, 0, 255));
+  const g = Math.round(clamp(baseRgb[1] * tone, 0, 255));
+  const b = Math.round(clamp(baseRgb[2] * tone, 0, 255));
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+function hashFract(seed) {
+  const value = Math.sin(seed) * 43758.5453123;
+  return value - Math.floor(value);
+}
+
+function ensureRocketScene(width, height) {
+  if (rocketScene.width === width && rocketScene.height === height) {
+    return;
+  }
+
+  rocketScene.width = width;
+  rocketScene.height = height;
+  rocketScene.stars = [];
+
+  const starCount = Math.max(28, Math.floor((width * height) / 5200));
+  for (let i = 0; i < starCount; i += 1) {
+    const index = i + 1;
+    rocketScene.stars.push({
+      x: hashFract(index * 12.9898) * width,
+      y: hashFract(index * 78.233) * (height * 0.74),
+      radius: 0.4 + (hashFract(index * 35.425) * 1.6),
+      alpha: 0.16 + (hashFract(index * 91.719) * 0.54),
+    });
+  }
+}
+
+function setTelemetryTxPowerInlineValue(powerDbm) {
+  if (!elements.telemTxPowerValue) {
+    return;
+  }
+  if (!Number.isFinite(powerDbm)) {
+    elements.telemTxPowerValue.textContent = "-- dBm";
+    return;
+  }
+  elements.telemTxPowerValue.textContent = `${Math.round(powerDbm)} dBm`;
+}
+
+function setTelemetryTxPowerStatus(message, statusClass) {
+  if (!elements.telemTxPowerStatus) {
+    return;
+  }
+  elements.telemTxPowerStatus.textContent = message;
+  elements.telemTxPowerStatus.classList.remove("ok", "pending", "error");
+  if (statusClass) {
+    elements.telemTxPowerStatus.classList.add(statusClass);
+  }
+}
+
+function toggleTelemetryTxPowerControls(disabled) {
+  if (elements.telemTxPowerApply) {
+    elements.telemTxPowerApply.disabled = disabled;
+  }
+  if (elements.telemTxPower) {
+    elements.telemTxPower.disabled = disabled;
+  }
+}
+
+function drawRocketBackdrop(width, height, centerX, centerY, scale) {
+  ensureRocketScene(width, height);
+  const now = performance.now() * 0.001;
+
+  const backdrop = rocketCtx.createLinearGradient(0, 0, 0, height);
+  backdrop.addColorStop(0, "#091214");
+  backdrop.addColorStop(0.45, "#102225");
+  backdrop.addColorStop(1, "#070e12");
+  rocketCtx.fillStyle = backdrop;
+  rocketCtx.fillRect(0, 0, width, height);
+
+  const halo = rocketCtx.createRadialGradient(
+    centerX,
+    centerY - (scale * 0.68),
+    scale * 0.12,
+    centerX,
+    centerY,
+    scale * 1.8
+  );
+  halo.addColorStop(0, "rgba(97, 242, 212, 0.22)");
+  halo.addColorStop(0.5, "rgba(36, 102, 111, 0.13)");
+  halo.addColorStop(1, "rgba(6, 14, 18, 0)");
+  rocketCtx.fillStyle = halo;
+  rocketCtx.fillRect(0, 0, width, height);
+
+  for (const star of rocketScene.stars) {
+    const shimmer = 0.72 + (Math.sin(now + (star.x * 0.047) + (star.y * 0.021)) * 0.28);
+    rocketCtx.fillStyle = `rgba(220, 249, 255, ${star.alpha * shimmer})`;
+    rocketCtx.beginPath();
+    rocketCtx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+    rocketCtx.fill();
+  }
+
+  rocketCtx.strokeStyle = "rgba(112, 187, 175, 0.16)";
+  rocketCtx.lineWidth = 1;
+  rocketCtx.setLineDash([5, 8]);
+  rocketCtx.beginPath();
+  rocketCtx.moveTo(centerX - (scale * 1.18), centerY + (scale * 0.62));
+  rocketCtx.lineTo(centerX + (scale * 1.18), centerY + (scale * 0.62));
+  rocketCtx.stroke();
+  rocketCtx.setLineDash([]);
+
+  rocketCtx.save();
+  rocketCtx.translate(centerX, centerY + (scale * 0.93));
+  rocketCtx.scale(1.22, 0.34);
+  rocketCtx.strokeStyle = "rgba(82, 172, 160, 0.2)";
+  rocketCtx.lineWidth = 2;
+  rocketCtx.beginPath();
+  rocketCtx.arc(0, 0, scale * 1.03, 0, Math.PI * 2);
+  rocketCtx.stroke();
+  rocketCtx.restore();
+}
+
+function projectPoint(point, centerX, centerY, scale, camera) {
+  const perspective = camera / (camera - point[2]);
+  return {
+    x: centerX + (point[0] * scale * perspective),
+    y: centerY - (point[1] * scale * perspective),
+    z: point[2],
+  };
+}
 
 function formatNumber(value, digits = 2) {
   if (value === null || value === undefined || Number.isNaN(value)) {
@@ -316,6 +558,23 @@ if (elements.telemDisable) {
   });
 }
 
+if (elements.telemTxPower) {
+  elements.telemTxPower.addEventListener("input", () => {
+    const value = Number(elements.telemTxPower.value);
+    if (Number.isFinite(value)) {
+      state.telemetryTxPowerDbm = value;
+      setTelemetryTxPowerInlineValue(value);
+    }
+  });
+}
+
+if (elements.telemTxPowerApply) {
+  elements.telemTxPowerApply.addEventListener("click", () => {
+    const value = elements.telemTxPower ? Number(elements.telemTxPower.value) : NaN;
+    postTelemetryTxPowerCommand(value);
+  });
+}
+
 if (elements.buzzerActivate) {
   elements.buzzerActivate.addEventListener("click", () => {
     const duration = elements.buzzerDuration ? Number(elements.buzzerDuration.value) : 0;
@@ -355,11 +614,27 @@ function toggleControlButtons(disabled) {
   }
 }
 
+function phaseIndicatesInFlight(phase) {
+  const normalized = typeof phase === "string" ? phase.toLowerCase() : "";
+  return normalized === "ascent" || normalized === "descent" || normalized === "boost" || normalized === "coast";
+}
+
 function updateSdControlState() {
   if (state.sdCommandPending) {
     toggleControlButtons(true);
     return;
   }
+
+  if (state.commandLockoutActive) {
+    if (elements.sdStart) {
+      elements.sdStart.disabled = state.sdLoggingEnabled === true;
+    }
+    if (elements.sdStop) {
+      elements.sdStop.disabled = true;
+    }
+    return;
+  }
+
   if (state.sdLoggingEnabled === true) {
     if (elements.sdStart) {
       elements.sdStart.disabled = true;
@@ -429,6 +704,17 @@ function updateTelemetryControlState() {
     toggleTelemetryButtons(true);
     return;
   }
+
+  if (state.commandLockoutActive) {
+    if (elements.telemEnable) {
+      elements.telemEnable.disabled = state.telemetryEnabled === true;
+    }
+    if (elements.telemDisable) {
+      elements.telemDisable.disabled = true;
+    }
+    return;
+  }
+
   if (state.telemetryEnabled === true) {
     if (elements.telemEnable) {
       elements.telemEnable.disabled = true;
@@ -470,6 +756,40 @@ function postTelemetryCommand(action, label) {
     .finally(() => {
       state.telemetryCommandPending = false;
       updateTelemetryControlState();
+    });
+}
+
+function postTelemetryTxPowerCommand(powerDbm) {
+  const value = Math.round(Number(powerDbm));
+  if (!Number.isFinite(value) || value < 2 || value > 17) {
+    setTelemetryTxPowerStatus("Power must be between 2 and 17 dBm", "error");
+    return;
+  }
+
+  setTelemetryTxPowerInlineValue(value);
+  state.telemetryTxPowerDbm = value;
+  state.telemetryTxPowerCommandPending = true;
+  setTelemetryTxPowerStatus(`Sending TX power ${value} dBm…`, "pending");
+  toggleTelemetryTxPowerControls(true);
+
+  fetch("/api/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "telemetry_tx_power", tx_power_dbm: value }),
+  })
+    .then((res) => res.json())
+    .then((payload) => {
+      if (!payload.ok) {
+        throw new Error(payload.error || "Command failed");
+      }
+      setTelemetryTxPowerStatus(`Command sent: ${value} dBm. Awaiting ack…`, "pending");
+    })
+    .catch((err) => {
+      setTelemetryTxPowerStatus(err.message || "Command failed", "error");
+    })
+    .finally(() => {
+      state.telemetryTxPowerCommandPending = false;
+      toggleTelemetryTxPowerControls(false);
     });
 }
 
@@ -687,6 +1007,7 @@ function updateFromTelemetry(snapshot) {
   elements.altTempC.textContent = alt.temp_c !== null && alt.temp_c !== undefined ? formatNumber(alt.temp_c, 2) : "--";
 
   const recovery = snapshot.recovery || {};
+  state.commandLockoutActive = phaseIndicatesInFlight(recovery.phase);
   elements.recoveryMode.textContent = recovery.mode || "--";
   elements.recoveryPhase.textContent = recovery.phase || "--";
   elements.recoveryAgl.textContent = recovery.altitude_agl_m !== null && recovery.altitude_agl_m !== undefined
@@ -712,6 +1033,9 @@ function updateFromTelemetry(snapshot) {
   elements.batTime.textContent = battery.t_ms !== null && battery.t_ms !== undefined ? `${battery.t_ms} ms` : "--";
   elements.batVoltage.textContent = battery.vbat_v !== null && battery.vbat_v !== undefined
     ? formatNumber(battery.vbat_v, 2)
+    : "--";
+  elements.batGsVoltage.textContent = battery.ground_vbat_v !== null && battery.ground_vbat_v !== undefined
+    ? formatNumber(battery.ground_vbat_v, 2)
     : "--";
   elements.batState.textContent = battery.bat_state_label || "--";
 
@@ -778,15 +1102,41 @@ function updateFromTelemetry(snapshot) {
   }
 
   const telemetryTx = snapshot.telemetry_tx || {};
+  const activePowerDbm = telemetryTx.active_power_dbm;
+  if (elements.telemTxPowerActive) {
+    elements.telemTxPowerActive.textContent = activePowerDbm === null || activePowerDbm === undefined
+      ? "Active: -- dBm"
+      : `Active: ${formatInt(activePowerDbm)} dBm`;
+  }
+
+  if (elements.telemTxPower && activePowerDbm !== null && activePowerDbm !== undefined) {
+    const clampedPower = Math.max(2, Math.min(17, Number(activePowerDbm)));
+    if (Number.isFinite(clampedPower) && !state.telemetryTxPowerCommandPending) {
+      if (document.activeElement !== elements.telemTxPower) {
+        elements.telemTxPower.value = String(clampedPower);
+      }
+      setTelemetryTxPowerInlineValue(clampedPower);
+      state.telemetryTxPowerDbm = clampedPower;
+    }
+  }
+
   if (telemetryTx.ack_timestamp && telemetryTx.ack_timestamp !== state.telemetryTxAckTs) {
     state.telemetryTxAckTs = telemetryTx.ack_timestamp;
     state.telemetryEnabled = telemetryTx.enabled;
-    const enabled = telemetryTx.enabled;
-    const statusText = enabled === null || enabled === undefined
-      ? "Telemetry TX ack received"
-      : (enabled ? "Telemetry TX enabled" : "Telemetry TX disabled");
+    const lastCommand = telemetryTx.last_command;
     const timeLabel = formatTimestamp(telemetryTx.ack_timestamp);
-    setTelemetryStatus(`${statusText} (${timeLabel})`, "ok");
+    if (lastCommand === "telemetry_tx_power") {
+      const txPowerText = activePowerDbm === null || activePowerDbm === undefined
+        ? "Telemetry TX power ack received"
+        : `Telemetry TX power set: ${formatInt(activePowerDbm)} dBm`;
+      setTelemetryTxPowerStatus(`${txPowerText} (${timeLabel})`, "ok");
+    } else {
+      const enabled = telemetryTx.enabled;
+      const statusText = enabled === null || enabled === undefined
+        ? "Telemetry TX ack received"
+        : (enabled ? "Telemetry TX enabled" : "Telemetry TX disabled");
+      setTelemetryStatus(`${statusText} (${timeLabel})`, "ok");
+    }
     updateTelemetryControlState();
   }
 
@@ -794,6 +1144,8 @@ function updateFromTelemetry(snapshot) {
   updateOrientation(attitude, imu);
   syncFilterSelection(attitude);
   syncThreshold(attitude);
+  updateSdControlState();
+  updateTelemetryControlState();
   updateMap(gps);
 }
 
@@ -891,39 +1243,116 @@ function rotatePoint(point, roll, pitch, yaw) {
 function renderRocket() {
   resizeCanvas(rocketCanvas, rocketCtx);
   const { width, height } = rocketCanvas.getBoundingClientRect();
-  rocketCtx.clearRect(0, 0, width, height);
+  if (width <= 0 || height <= 0) {
+    requestAnimationFrame(renderRocket);
+    return;
+  }
 
   const centerX = width / 2;
-  const centerY = height / 2 + 20;
-  const scale = Math.min(width, height) * 0.32;
-  const camera = 3.5;
+  const centerY = (height * 0.5) + 20;
+  const scale = Math.min(width, height) * 0.3;
+  const camera = 4.2;
+
+  drawRocketBackdrop(width, height, centerX, centerY, scale);
 
   const { roll, pitch, yaw } = state.orientation;
   const transformed = rocketModel.points.map((point) => rotatePoint(point, roll, pitch, yaw));
+  const projected = transformed.map((point) => projectPoint(point, centerX, centerY, scale, camera));
 
-  rocketCtx.lineWidth = 2;
-  rocketCtx.strokeStyle = "rgba(255, 255, 255, 0.85)";
+  const lightDir = normalizeVec3([0.42, -0.36, 1]);
+  const viewDir = [0, 0, 1];
+  const drawableFaces = [];
+
+  for (const face of rocketModel.faces) {
+    if (!face || !face.indices || face.indices.length < 3) {
+      continue;
+    }
+
+    const worldA = transformed[face.indices[0]];
+    const worldB = transformed[face.indices[1]];
+    const worldC = transformed[face.indices[2]];
+    const edgeAB = subVec3(worldB, worldA);
+    const edgeAC = subVec3(worldC, worldA);
+    const normal = normalizeVec3(crossVec3(edgeAB, edgeAC));
+    const facing = dotVec3(normal, viewDir);
+    if (facing <= -0.06) {
+      continue;
+    }
+
+    const light = clamp((dotVec3(normal, lightDir) + 1) * 0.5, 0, 1);
+    let depth = 0;
+    const screenPoints = [];
+    for (const idx of face.indices) {
+      depth += transformed[idx][2];
+      screenPoints.push(projected[idx]);
+    }
+    depth /= face.indices.length;
+
+    drawableFaces.push({
+      screenPoints,
+      depth,
+      fill: shadeColor(face.color, light, clamp(0.7 + (facing * 0.26), 0.4, 0.96)),
+      stroke: shadeColor(face.color, light * 0.65, 0.42),
+    });
+  }
+
+  drawableFaces.sort((a, b) => a.depth - b.depth);
+  for (const face of drawableFaces) {
+    rocketCtx.beginPath();
+    rocketCtx.moveTo(face.screenPoints[0].x, face.screenPoints[0].y);
+    for (let i = 1; i < face.screenPoints.length; i += 1) {
+      rocketCtx.lineTo(face.screenPoints[i].x, face.screenPoints[i].y);
+    }
+    rocketCtx.closePath();
+    rocketCtx.fillStyle = face.fill;
+    rocketCtx.fill();
+    rocketCtx.strokeStyle = face.stroke;
+    rocketCtx.lineWidth = 0.9;
+    rocketCtx.stroke();
+  }
+
+  rocketCtx.lineWidth = 1.25;
+  rocketCtx.strokeStyle = shadeColor(ROCKET_COLORS.wire, 1.0, 0.68);
   rocketCtx.beginPath();
-  rocketModel.edges.forEach(([a, b]) => {
-    const pa = transformed[a];
-    const pb = transformed[b];
-    const paScale = camera / (camera - pa[2]);
-    const pbScale = camera / (camera - pb[2]);
-    const ax = centerX + pa[0] * scale * paScale;
-    const ay = centerY - pa[1] * scale * paScale;
-    const bx = centerX + pb[0] * scale * pbScale;
-    const by = centerY - pb[1] * scale * pbScale;
-    rocketCtx.moveTo(ax, ay);
-    rocketCtx.lineTo(bx, by);
+  rocketModel.wireEdges.forEach(([a, b]) => {
+    const pa = projected[a];
+    const pb = projected[b];
+    rocketCtx.moveTo(pa.x, pa.y);
+    rocketCtx.lineTo(pb.x, pb.y);
   });
   rocketCtx.stroke();
 
-  rocketCtx.strokeStyle = "rgba(46, 210, 165, 0.8)";
-  rocketCtx.lineWidth = 3;
+  const nose = projected[rocketModel.noseTipIndex];
+  const tail = projected[rocketModel.tailIndex];
+
+  const noseGlow = rocketCtx.createRadialGradient(nose.x, nose.y, 1, nose.x, nose.y, scale * 0.26);
+  noseGlow.addColorStop(0, "rgba(191, 255, 244, 0.48)");
+  noseGlow.addColorStop(1, "rgba(191, 255, 244, 0)");
+  rocketCtx.fillStyle = noseGlow;
   rocketCtx.beginPath();
-  rocketCtx.moveTo(centerX, centerY);
-  rocketCtx.lineTo(centerX, centerY - scale * 0.9);
+  rocketCtx.arc(nose.x, nose.y, scale * 0.26, 0, Math.PI * 2);
+  rocketCtx.fill();
+
+  rocketCtx.strokeStyle = "rgba(124, 248, 219, 0.86)";
+  rocketCtx.lineWidth = 2.6;
+  rocketCtx.beginPath();
+  rocketCtx.moveTo(tail.x, tail.y);
+  rocketCtx.lineTo(nose.x, nose.y);
   rocketCtx.stroke();
+
+  rocketCtx.fillStyle = "rgba(124, 248, 219, 0.94)";
+  rocketCtx.beginPath();
+  rocketCtx.arc(nose.x, nose.y, 3.4, 0, Math.PI * 2);
+  rocketCtx.fill();
+
+  rocketCtx.strokeStyle = "rgba(104, 194, 177, 0.32)";
+  rocketCtx.lineWidth = 1;
+  rocketCtx.setLineDash([3, 6]);
+  rocketCtx.beginPath();
+  rocketCtx.moveTo(nose.x, nose.y);
+  rocketCtx.lineTo(nose.x, 18);
+  rocketCtx.stroke();
+  rocketCtx.setLineDash([]);
 
   requestAnimationFrame(renderRocket);
 }
@@ -977,8 +1406,7 @@ function updateMap(gps) {
   if (!state.map && mapContainer && window.L) {
     state.map = L.map(mapContainer, { zoomControl: true });
     L.tileLayer("/tiles/{z}/{x}/{y}.png", {
-      maxZoom: 19,
-      attribution: "&copy; OpenStreetMap contributors",
+      maxZoom: 18,
     }).addTo(state.map);
     state.map.setView([lat, lon], 13);
     state.mapMarker = L.circleMarker([lat, lon], {
@@ -1122,6 +1550,14 @@ if (elements.mapSetHome) {
       state.mapHomeMarker = null;
     }
   });
+}
+
+if (elements.telemTxPower) {
+  const initial = Number(elements.telemTxPower.value);
+  if (Number.isFinite(initial)) {
+    state.telemetryTxPowerDbm = initial;
+    setTelemetryTxPowerInlineValue(initial);
+  }
 }
 
 setInterval(updateClock, 500);

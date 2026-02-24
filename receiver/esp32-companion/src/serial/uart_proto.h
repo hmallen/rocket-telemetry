@@ -25,6 +25,8 @@ enum CmdType : uint8_t {
   CMD_TELEM_DISABLE = 0x05,
   CMD_ALT_CALIBRATE = 0x06,
   CMD_IMU_CALIBRATE = 0x07,
+  CMD_SHUTDOWN = 0x08,
+  CMD_SET_TX_POWER = 0x09,
 };
 
 #pragma pack(push, 1)
@@ -57,6 +59,7 @@ struct TelemetryV1 {
   uint8_t flags;
   uint16_t ground_vbat_mv;
   int32_t gps_alt_mm;
+  uint8_t telemetry_tx_power_dbm;
 };
 
 struct AlertV1 {

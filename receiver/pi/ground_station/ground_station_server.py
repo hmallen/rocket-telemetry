@@ -5,6 +5,7 @@ import mimetypes
 import os
 import queue
 import struct
+import subprocess
 import sys
 import threading
 import time
@@ -127,8 +128,30 @@ LORA_CMD_TELEM_ENABLE = 0x04
 LORA_CMD_TELEM_DISABLE = 0x05
 LORA_CMD_ALT_CALIBRATE = 0x06
 LORA_CMD_IMU_CALIBRATE = 0x07
+LORA_CMD_SET_TX_POWER = 0x08
 LORA_CMD_REPEAT_COUNT = 3
 LORA_CMD_REPEAT_DELAY_S = 0.1
+
+COMMAND_LOCKOUT_PHASES = {"ascent", "descent", "boost", "coast"}
+COMMAND_LOCKOUT_ACTIONS = {"sd_stop", "telemetry_disable", "shutdown"}
+
+
+def _command_lockout_active_from_snapshot(snapshot):
+    if not isinstance(snapshot, dict):
+        return False
+    recovery = snapshot.get("recovery", {})
+    phase = recovery.get("phase")
+    if not isinstance(phase, str):
+        return False
+    return phase.lower() in COMMAND_LOCKOUT_PHASES
+
+
+def _command_lockout_active():
+    return _command_lockout_active_from_snapshot(TELEMETRY.snapshot())
+
+
+def _is_action_locked_during_flight(action):
+    return action in COMMAND_LOCKOUT_ACTIONS and _command_lockout_active()
 
 
 def _clamp(value, low, high):
@@ -510,6 +533,7 @@ class TelemetryStore:
                 "enabled": None,
                 "last_command": None,
                 "ack_timestamp": None,
+                "active_power_dbm": None,
             },
             "voltage_monitor": {
                 "timestamp": None,
@@ -592,6 +616,13 @@ class TelemetryStore:
                 payload_type = parsed.get("type")
                 if payload_type == "id":
                     self._state["callsign"] = parsed.get("callsign")
+                    id_vbat_mv = parsed.get("vbat_mv")
+                    if id_vbat_mv is not None:
+                        self._state["battery"]["vbat_mv"] = id_vbat_mv
+                        self._state["battery"]["vbat_v"] = id_vbat_mv / 1000.0
+                    id_tx_power_dbm = parsed.get("tx_power_dbm")
+                    if id_tx_power_dbm is not None:
+                        self._state["telemetry_tx"]["active_power_dbm"] = int(id_tx_power_dbm)
                 elif payload_type == "gps":
                     lat_e7 = parsed.get("lat_e7")
                     lon_e7 = parsed.get("lon_e7")
@@ -725,6 +756,14 @@ class TelemetryStore:
                             "last_command": cmd,
                             "ack_timestamp": ack_ts,
                         })
+                    elif cmd == "telemetry_tx_power":
+                        self._state["telemetry_tx"].update({
+                            "last_command": cmd,
+                            "ack_timestamp": ack_ts,
+                        })
+                        tx_power_dbm = parsed.get("tx_power_dbm")
+                        if tx_power_dbm is not None:
+                            self._state["telemetry_tx"]["active_power_dbm"] = int(tx_power_dbm)
 
             return copy.deepcopy(self._state)
 
@@ -962,6 +1001,7 @@ def _build_companion_state(snapshot, seq=None):
 
     connected = age_s is not None and age_s <= 2.0
     phase = recovery.get("phase") or "unknown"
+    command_lockout_active = _command_lockout_active_from_snapshot(snapshot)
 
     alerts = []
     if age_s is None or age_s > 5.0:
@@ -1026,6 +1066,11 @@ def _build_companion_state(snapshot, seq=None):
             "enabled": telemetry_tx.get("enabled"),
             "last_command": telemetry_tx.get("last_command"),
             "ack_timestamp": telemetry_tx.get("ack_timestamp"),
+            "active_power_dbm": telemetry_tx.get("active_power_dbm"),
+        },
+        "command_lockout": {
+            "active": command_lockout_active,
+            "reason": "flight_in_progress" if command_lockout_active else None,
         },
         "recovery": {
             "enabled": recovery.get("enabled"),
@@ -1057,6 +1102,8 @@ class CompanionUartBridge:
     CMD_TELEM_DISABLE = 0x05
     CMD_ALT_CALIBRATE = 0x06
     CMD_IMU_CALIBRATE = 0x07
+    CMD_SHUTDOWN = 0x08
+    CMD_SET_TX_POWER = 0x09
 
     def __init__(self, port, baud):
         self._port = port
@@ -1133,6 +1180,7 @@ class CompanionUartBridge:
         flight = state.get("flight", {})
         sd_logging = state.get("sd_logging", {})
         telemetry_tx = state.get("telemetry_tx", {})
+        command_lockout = state.get("command_lockout", {})
 
         lat_deg = gps.get("lat_deg")
         lon_deg = gps.get("lon_deg")
@@ -1154,9 +1202,17 @@ class CompanionUartBridge:
             flags |= 0x08
         if telemetry_tx.get("enabled") is True:
             flags |= 0x10
+        if command_lockout.get("active") is True:
+            flags |= 0x20
+
+        tx_power_dbm = telemetry_tx.get("active_power_dbm")
+        if tx_power_dbm is None:
+            tx_power_dbm = 0
+        else:
+            tx_power_dbm = int(tx_power_dbm) & 0xFF
 
         payload = struct.pack(
-            "<IiiihhbBHHBHi",
+            "<IiiihhbBHHBHiB",
             int((state.get("ts") or time.time()) * 1000) & 0xFFFFFFFF,
             int((lat_deg or 0.0) * 1e7),
             int((lon_deg or 0.0) * 1e7),
@@ -1170,6 +1226,7 @@ class CompanionUartBridge:
             int(flags),
             int((battery.get("ground_vbat_v") or 0.0) * 1000) & 0xFFFF,
             gps_alt_mm,
+            tx_power_dbm,
         )
         frame = self._encode_frame(self.MSG_TELEM_SNAPSHOT, payload)
         with self._lock:
@@ -1208,6 +1265,10 @@ class CompanionUartBridge:
             ok, error = send_lora_command("alt_calibrate")
         elif cmd == self.CMD_IMU_CALIBRATE:
             ok, error = send_lora_command("imu_calibrate")
+        elif cmd == self.CMD_SET_TX_POWER:
+            ok, error = send_lora_command("telemetry_tx_power", tx_power_dbm=int(arg))
+        elif cmd == self.CMD_SHUTDOWN:
+            ok, error = request_pi_shutdown()
         else:
             ok, error = False, "Unknown UART command"
 
@@ -1416,7 +1477,10 @@ def lora_worker():
     print("LoRa worker thread exiting")
 
 
-def send_lora_command(action, duration_s=None):
+def send_lora_command(action, duration_s=None, tx_power_dbm=None):
+    if _is_action_locked_during_flight(action):
+        return False, f"{action} blocked after launch; wait for landing"
+
     if action == "sd_start":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_START])
     elif action == "sd_stop":
@@ -1429,6 +1493,14 @@ def send_lora_command(action, duration_s=None):
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_ALT_CALIBRATE])
     elif action == "imu_calibrate":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_IMU_CALIBRATE])
+    elif action == "telemetry_tx_power":
+        try:
+            tx_power = int(tx_power_dbm)
+        except (TypeError, ValueError):
+            return False, "tx_power_dbm must be a number"
+        if tx_power < 2 or tx_power > 17:
+            return False, "tx_power_dbm must be between 2 and 17"
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SET_TX_POWER, tx_power])
     elif action == "buzzer":
         try:
             duration = int(duration_s)
@@ -1463,6 +1535,28 @@ def send_lora_command(action, duration_s=None):
     if not ok:
         return False, "LoRa transmit failed"
     return True, None
+
+
+def request_pi_shutdown():
+    if _is_action_locked_during_flight("shutdown"):
+        return False, "shutdown blocked after launch; wait for landing"
+
+    def _shutdown_worker():
+        # Give the HTTP/UART ACK path a brief moment to flush before shutdown.
+        time.sleep(0.3)
+        subprocess.Popen(
+            ["sudo", "shutdown", "-h", "now"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    try:
+        threading.Thread(target=_shutdown_worker, daemon=True).start()
+        print("Pi shutdown requested via companion command")
+        return True, None
+    except Exception as exc:  # pylint: disable=broad-except
+        return False, f"Failed to schedule shutdown: {exc}"
 
 
 class GroundStationHandler(BaseHTTPRequestHandler):
@@ -1595,7 +1689,8 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             payload = self._read_json() or {}
             action = payload.get("action")
             duration_s = payload.get("duration_s")
-            ok, error = send_lora_command(action, duration_s)
+            tx_power_dbm = payload.get("tx_power_dbm")
+            ok, error = send_lora_command(action, duration_s, tx_power_dbm)
             if not ok:
                 return self._send_json({"ok": False, "error": error}, status=400)
             return self._send_json({"ok": True})
@@ -1606,7 +1701,11 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             payload = self._read_json() or {}
             action = payload.get("action")
             duration_s = payload.get("duration_s")
-            ok, error = send_lora_command(action, duration_s)
+            tx_power_dbm = payload.get("tx_power_dbm")
+            if action == "shutdown":
+                ok, error = request_pi_shutdown()
+            else:
+                ok, error = send_lora_command(action, duration_s, tx_power_dbm)
             if not ok:
                 return self._send_json({"ok": False, "error": error}, status=400)
             return self._send_json({"ok": True})

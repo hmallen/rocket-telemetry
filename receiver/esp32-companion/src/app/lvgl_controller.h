@@ -48,12 +48,20 @@ class LvglController {
   bool txPendingTargetEnabled_ = false;
   bool txPendingPreviousEnabled_ = false;
   uint32_t txPendingSinceMs_ = 0;
+  uint8_t txPowerDbm_ = 17;
+  bool hasTxPowerReadback_ = false;
+  uint8_t txPowerActiveDbm_ = 0;
+  bool commandLockoutActive_ = false;
 
   uint8_t buzzerDurationS_ = 3;
   bool buzzerConfigVisible_ = false;
 
   bool sseConnected_ = false;
   uint32_t lastRxMs_ = 0;
+  int32_t loraAgeBaseMs_ = -1;
+  uint32_t loraAgeBaseTickMs_ = 0;
+  bool hasLastLoraPacketCount_ = false;
+  uint32_t lastLoraPacketCount_ = 0;
   uint32_t lastReconnectAttemptMs_ = 0;
   uint32_t lastCompanionBatSampleMs_ = 0;
   uint32_t lastCompanionBatRawMv_ = 0;
@@ -87,7 +95,7 @@ class LvglController {
   bool touchDebugPressed_ = false;
   bool touchDebugIrqPressed_ = false;
   bool touchDebugMapOk_ = false;
-  bool touchDebugVisible_ = true;
+  bool touchDebugVisible_ = false;
   int32_t touchDebugRawX_ = -1;
   int32_t touchDebugRawY_ = -1;
   int32_t touchDebugRawZ_ = -1;
@@ -111,6 +119,11 @@ class LvglController {
   lv_obj_t* buzzerConfigRow_ = nullptr;
   lv_obj_t* buzzerDurationSlider_ = nullptr;
   lv_obj_t* buzzerDurationLabel_ = nullptr;
+  lv_obj_t* txPowerConfigRow_ = nullptr;
+  lv_obj_t* txPowerSlider_ = nullptr;
+  lv_obj_t* txPowerLabel_ = nullptr;
+  lv_obj_t* txPowerActiveLabel_ = nullptr;
+  lv_obj_t* shutdownBtn_ = nullptr;
   lv_obj_t* settingsBody_ = nullptr;
 
   lv_obj_t* linkLabel_ = nullptr;
@@ -172,9 +185,12 @@ class LvglController {
   static void onCalibrateEvent(lv_event_t* e);
   static void onAltCalibrateEvent(lv_event_t* e);
   static void onImuCalibrateEvent(lv_event_t* e);
+  static void onShutdownEvent(lv_event_t* e);
   static void onBuzzerToggleEvent(lv_event_t* e);
   static void onBuzzerDurationChangedEvent(lv_event_t* e);
   static void onBuzzerSendEvent(lv_event_t* e);
+  static void onTxPowerChangedEvent(lv_event_t* e);
+  static void onTxPowerSendEvent(lv_event_t* e);
   static void onSdToggleEvent(lv_event_t* e);
   static void onTxToggleEvent(lv_event_t* e);
 };

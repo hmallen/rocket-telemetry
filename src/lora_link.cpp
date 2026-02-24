@@ -13,6 +13,29 @@ static void lora_on_packet_sent_isr() {
   lora_tx_done_isr = true;
 }
 
+bool LoraLink::set_tx_power_dbm(uint8_t power_dbm) {
+  if (power_dbm < 2 || power_dbm > 17) {
+    return false;
+  }
+
+  const uint8_t prev_power = tx_power_dbm_;
+  tx_power_dbm_ = power_dbm;
+
+  if (!began_ || !config_ok_) {
+    return true;
+  }
+
+  const int state = radio.setOutputPower(tx_power_dbm_);
+  if (state != 0) {
+    tx_power_dbm_ = prev_power;
+    (void)radio.setOutputPower(tx_power_dbm_);
+    return false;
+  }
+
+  DBG_PRINTF("lora: tx power set to %udBm\n", (unsigned)tx_power_dbm_);
+  return true;
+}
+
 static bool nearly_equal(float a, float b, float eps = 0.15f) {
   return fabsf(a - b) <= eps;
 }
@@ -64,6 +87,7 @@ static constexpr uint8_t LORA_CMD_TELEM_ENABLE = 0x04;
 static constexpr uint8_t LORA_CMD_TELEM_DISABLE = 0x05;
 static constexpr uint8_t LORA_CMD_ALT_CALIBRATE = 0x06;
 static constexpr uint8_t LORA_CMD_IMU_CALIBRATE = 0x07;
+static constexpr uint8_t LORA_CMD_SET_TX_POWER = 0x08;
 static constexpr uint16_t LORA_RX_DONE_FLAG = 0x40;
 static constexpr uint8_t LORA_ACK_REPEAT_COUNT = 3;
 static constexpr uint32_t LORA_ACK_REPEAT_MS = 400;
@@ -100,7 +124,7 @@ bool LoraLink::begin() {
   (void)radio.setSpreadingFactor(LORA_SF);
   (void)radio.setBandwidth(LORA_BW_KHZ);
   (void)radio.setCodingRate(LORA_CR);
-  (void)radio.setOutputPower(LORA_TX_POWER_DBM);
+  (void)radio.setOutputPower(tx_power_dbm_);
   (void)radio.setCRC(true);
   // Match receiver scripts (Pi/Pico) which configure LoRa public sync word (0x34)
   // and preamble length 8.
@@ -297,6 +321,8 @@ void LoraLink::queue_command_ack(LoraCommand cmd, bool enabled_state) {
     cmd_byte = LORA_CMD_ALT_CALIBRATE;
   } else if (cmd == LoraCommand::kImuCalibrate) {
     cmd_byte = LORA_CMD_IMU_CALIBRATE;
+  } else if (cmd == LoraCommand::kSetTxPower) {
+    cmd_byte = LORA_CMD_SET_TX_POWER;
   } else {
     return;
   }
@@ -305,7 +331,12 @@ void LoraLink::queue_command_ack(LoraCommand cmd, bool enabled_state) {
   ack_buf_[1] = LORA_CMD_ACK;
   ack_buf_[2] = cmd_byte;
   ack_buf_[3] = enabled_state ? 1u : 0u;
-  ack_len_ = 4;
+  if (cmd == LoraCommand::kSetTxPower) {
+    ack_buf_[4] = tx_power_dbm_;
+    ack_len_ = 5;
+  } else {
+    ack_len_ = 4;
+  }
   ack_pending_ = true;
   ack_retry_after_ms_ = millis() + LORA_ACK_REPEAT_MS;
   ack_retries_left_ = LORA_ACK_REPEAT_COUNT;
@@ -464,7 +495,7 @@ void LoraLink::poll_telem(uint32_t now_ms,
   const bool want_id = id_due || id_retry_ready;
 
   if (want_id && !(id_retry_after_ms_ != 0 && (int32_t)(now_ms - id_retry_after_ms_) < 0)) {
-    if (!start_id_tx_(now_ms)) {
+    if (!start_id_tx_(now_ms, vbat_mv)) {
       if (id_retries_left_ == 0) id_retries_left_ = LORA_RETRY_LIMIT;
       if (id_retries_left_ != 0) {
         const uint8_t attempt = (uint8_t)(LORA_RETRY_LIMIT - id_retries_left_ + 1);
@@ -896,7 +927,7 @@ void LoraLink::log_params_() const {
     (double)LORA_BW_KHZ,
     (unsigned)LORA_SF,
     (unsigned)LORA_CR,
-    (int)LORA_TX_POWER_DBM,
+    (int)tx_power_dbm_,
     LORA_CALLSIGN,
     (unsigned long)LORA_MIN_TX_INTERVAL_MS,
     (unsigned)LORA_RETRY_LIMIT,
@@ -1005,6 +1036,8 @@ bool LoraLink::handle_command_(const uint8_t* data, size_t len) {
   const uint8_t cmd = data[1];
   if (cmd == LORA_CMD_BUZZER) {
     if (len < 3) return false;
+  } else if (cmd == LORA_CMD_SET_TX_POWER) {
+    if (len < 3) return false;
   } else if (cmd != LORA_CMD_SD_START &&
              cmd != LORA_CMD_SD_STOP &&
              cmd != LORA_CMD_TELEM_ENABLE &&
@@ -1017,22 +1050,24 @@ bool LoraLink::handle_command_(const uint8_t* data, size_t len) {
   DBG_PRINTF("lora: cmd rx 0x%02X\n", cmd);
 #endif
   pending_cmd_ = cmd;
-  pending_cmd_arg_ = (cmd == LORA_CMD_BUZZER && len >= 3) ? data[2] : 0;
+  pending_cmd_arg_ = ((cmd == LORA_CMD_BUZZER || cmd == LORA_CMD_SET_TX_POWER) && len >= 3) ? data[2] : 0;
   return true;
 }
 
-bool LoraLink::start_id_tx_(uint32_t now_ms) {
+bool LoraLink::start_id_tx_(uint32_t now_ms, uint16_t vbat_mv) {
   if (!allow_tx_()) return false;
 
   const size_t cs_len = strlen(LORA_CALLSIGN);
   if (cs_len == 0) return false;
-  if (cs_len > (sizeof(tx_buf_) - 3)) return false;
+  if (cs_len > (sizeof(tx_buf_) - 6)) return false;
 
   tx_buf_[0] = 0xA1;
   tx_buf_[1] = 1;
   tx_buf_[2] = (uint8_t)cs_len;
   memcpy(&tx_buf_[3], LORA_CALLSIGN, cs_len);
-  const size_t n = 3 + cs_len;
+  write_u16_le(&tx_buf_[3 + cs_len], vbat_mv);
+  tx_buf_[5 + cs_len] = tx_power_dbm_;
+  const size_t n = 6 + cs_len;
 
   lora_tx_done_isr = false;
   tx_start_ms_ = now_ms;

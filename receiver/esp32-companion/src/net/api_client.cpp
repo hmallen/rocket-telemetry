@@ -138,6 +138,8 @@ bool ApiClient::sendCommand(const String& action, int durationS) {
   doc["action"] = action;
   if (action == "buzzer") {
     doc["duration_s"] = durationS;
+  } else if (action == "telemetry_tx_power") {
+    doc["tx_power_dbm"] = durationS;
   }
 
   String body;
@@ -198,6 +200,22 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
     ioState.telemetryTxEnabled = telemetryTx["enabled"].as<bool>();
   } else {
     ioState.hasTelemetryTxState = false;
+  }
+  if (!telemetryTx.isNull() && !telemetryTx["active_power_dbm"].isNull()) {
+    ioState.hasTelemetryTxPowerState = true;
+    ioState.telemetryTxPowerDbm = static_cast<uint8_t>(telemetryTx["active_power_dbm"].as<unsigned int>());
+  } else {
+    ioState.hasTelemetryTxPowerState = false;
+    ioState.telemetryTxPowerDbm = 0;
+  }
+
+  JsonObject commandLockout = state["command_lockout"];
+  if (!commandLockout.isNull() && !commandLockout["active"].isNull()) {
+    ioState.hasCommandLockoutState = true;
+    ioState.commandLockoutActive = commandLockout["active"].as<bool>();
+  } else {
+    ioState.hasCommandLockoutState = false;
+    ioState.commandLockoutActive = false;
   }
 
   ioState.primaryAlert = "";

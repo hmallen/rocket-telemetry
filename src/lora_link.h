@@ -1,6 +1,7 @@
 #pragma once
 #include <stdint.h>
 #include <Arduino.h>
+#include "cfg.h"
  #include "gnss_ubx.h"
  #include "sensors.h"
 
@@ -13,6 +14,7 @@ enum class LoraCommand : uint8_t {
   kTelemDisable = 0x05,
   kAltCalibrate = 0x06,
   kImuCalibrate = 0x07,
+  kSetTxPower = 0x08,
 };
 
 class LoraLink {
@@ -20,6 +22,7 @@ public:
   bool begin();
 
   void enable_tx(bool enable);
+  bool set_tx_power_dbm(uint8_t power_dbm);
   void shutdown();
   void set_faulted(bool faulted);
 
@@ -54,7 +57,7 @@ private:
   bool handle_command_(const uint8_t* data, size_t len);
   void reset_recovery_state_();
   static int32_t agl_from_press_mm_(int32_t press_pa_x10, int32_t ref_press_pa_x10);
-  bool start_id_tx_(uint32_t now_ms);
+  bool start_id_tx_(uint32_t now_ms, uint16_t vbat_mv);
   bool start_alt_tx_(uint32_t now_ms,
                      int32_t press_pa_x10,
                      int16_t temp_c_x100);
@@ -75,6 +78,7 @@ private:
   bool tx_active_ = false;
   bool faulted_ = false;
   bool shutdown_ = false;
+  uint8_t tx_power_dbm_ = LORA_TX_POWER_DBM;
 
   uint32_t mission_start_ms_ = 0;
   uint32_t last_tx_ms_ = 0;
