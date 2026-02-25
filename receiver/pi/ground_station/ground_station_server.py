@@ -1288,7 +1288,7 @@ class CompanionUartBridge:
         elif cmd == self.CMD_SET_TX_POWER:
             ok, error = send_lora_command("telemetry_tx_power", tx_power_dbm=int(arg))
         elif cmd == self.CMD_LAUNCH_ARM:
-            ok, error = send_lora_command("launch_arm")
+            ok, error = send_lora_command("launch_arm", duration_s=int(arg))
         elif cmd == self.CMD_SHUTDOWN:
             ok, error = request_pi_shutdown()
         else:
@@ -1524,7 +1524,11 @@ def send_lora_command(action, duration_s=None, tx_power_dbm=None):
             return False, "tx_power_dbm must be between 2 and 17"
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SET_TX_POWER, tx_power])
     elif action == "launch_arm":
-        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_LAUNCH_ARM])
+        try:
+            allow_without_gps_fix = 1 if int(duration_s or 0) != 0 else 0
+        except (TypeError, ValueError):
+            return False, "duration_s must be 0 or 1 for launch_arm"
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_LAUNCH_ARM, allow_without_gps_fix])
     elif action == "buzzer":
         try:
             duration = int(duration_s)

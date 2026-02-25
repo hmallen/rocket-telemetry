@@ -24,7 +24,7 @@ public:
 
   void enable_tx(bool enable);
   bool set_tx_power_dbm(uint8_t power_dbm);
-  bool arm_launch_detect_mode();
+  bool arm_launch_detect_mode(bool allow_without_gps_fix = false);
   void shutdown();
   void set_faulted(bool faulted);
 

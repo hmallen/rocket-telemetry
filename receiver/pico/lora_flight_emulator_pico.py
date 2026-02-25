@@ -356,10 +356,10 @@ class RecoveryState:
         self.drogue_deploy_agl_mm = -1
         self.main_deploy_agl_mm = -1
 
-    def arm_launch_detect_mode(self):
+    def arm_launch_detect_mode(self, allow_without_gps_fix=False):
         if not self.initialized:
             return False
-        if not self.gps_fix_3d:
+        if (not allow_without_gps_fix) and (not self.gps_fix_3d):
             return False
         if self.phase != RECOVERY_PHASE_IDLE:
             return False
@@ -734,7 +734,8 @@ class FlightEmulator:
             self._queue_ack(CMD_SD_STOP, self.logging_enabled, now_ms)
             print("CMD sd_stop")
         elif cmd == CMD_LAUNCH_ARM:
-            armed = self.recovery.arm_launch_detect_mode()
+            allow_without_gps_fix = bool(payload[2]) if len(payload) >= 3 else False
+            armed = self.recovery.arm_launch_detect_mode(allow_without_gps_fix)
             self._queue_ack(CMD_LAUNCH_ARM, armed, now_ms)
             print("CMD launch_arm %s" % ("accepted" if armed else "rejected"))
 

@@ -592,6 +592,18 @@ void LvglController::buildUi() {
                    this,
                    kSettingsButtonHeight);
 
+  armNoGpsCheckbox_ = lv_checkbox_create(settingsActions_);
+  lv_checkbox_set_text(armNoGpsCheckbox_, "Allow arm without GPS 3D fix");
+  lv_obj_set_width(armNoGpsCheckbox_, LV_PCT(100));
+  lv_obj_set_style_text_color(armNoGpsCheckbox_, lv_color_hex(0xeaf1ff), 0);
+  lv_obj_set_style_text_color(armNoGpsCheckbox_, lv_color_hex(0xeaf1ff), LV_STATE_CHECKED);
+  if (allowArmWithoutGpsFix_) {
+    lv_obj_add_state(armNoGpsCheckbox_, LV_STATE_CHECKED);
+  } else {
+    lv_obj_clear_state(armNoGpsCheckbox_, LV_STATE_CHECKED);
+  }
+  lv_obj_add_event_cb(armNoGpsCheckbox_, onArmNoGpsToggleEvent, LV_EVENT_VALUE_CHANGED, this);
+
   lv_obj_t* txPowerTitle = lv_label_create(settingsActions_);
   lv_label_set_text(txPowerTitle, "TELEMETRY TX POWER");
   lv_obj_set_style_text_color(txPowerTitle, lv_color_hex(0xcfe0ff), 0);
@@ -802,6 +814,7 @@ void LvglController::begin() {
   prefs_.begin("companion-ui", false);
   soundEnabled_ = prefs_.getBool("sound_enabled", true);
   audioVolumePercent_ = prefs_.getUChar("sound_volume", 100);
+  allowArmWithoutGpsFix_ = prefs_.getBool("arm_no_gps", false);
   if (audioVolumePercent_ > 100) {
     audioVolumePercent_ = 100;
   }
@@ -1465,7 +1478,8 @@ void LvglController::updateDashboardActionButtons() {
   }
 
   if (armBtn_ != nullptr && armLabel_ != nullptr) {
-    const bool armGpsReady = state_.recoveryGpsFix3d;
+    const bool gpsFix3d = state_.recoveryGpsFix3d;
+    const bool armGpsReady = gpsFix3d || allowArmWithoutGpsFix_;
     const bool launchArmed = state_.recoveryLaunchArmed;
     const bool armLocked = commandLockoutActive_ || launchArmed || !armGpsReady;
     if (armLocked) {
@@ -1485,11 +1499,12 @@ void LvglController::updateDashboardActionButtons() {
       }
     } else {
       lv_obj_clear_state(armBtn_, LV_STATE_DISABLED);
-      lv_label_set_text(armLabel_, "ARM LAUNCH");
+      lv_label_set_text(armLabel_, gpsFix3d ? "ARM LAUNCH" : "ARM: NO GPS OK");
       lv_obj_set_style_bg_color(armBtn_, lv_color_hex(0x1f2a3b), 0);
       lv_obj_set_style_bg_color(armBtn_, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
     }
-    lv_obj_set_style_border_color(armBtn_, armGpsReady ? lv_color_hex(0x6ea4ff) : lv_color_hex(0xffb34f), 0);
+    const lv_color_t armBorderColor = gpsFix3d ? lv_color_hex(0x6ea4ff) : lv_color_hex(0xffb34f);
+    lv_obj_set_style_border_color(armBtn_, armBorderColor, 0);
     lv_obj_set_style_border_width(armBtn_, 1, 0);
   }
 
@@ -1703,6 +1718,8 @@ bool LvglController::sendAction(const String& action, int durationS) {
     pretty = "BUZZER " + String(durationS) + "s";
   } else if (action == "telemetry_tx_power") {
     pretty = "TELEM TX POWER " + String(durationS) + "dBm";
+  } else if (action == "launch_arm" && durationS != 0) {
+    pretty = "LAUNCH ARM (NO GPS)";
   }
 
   updateDashboardActionButtons();
@@ -1721,6 +1738,35 @@ void LvglController::togglePanel() {
     lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
   }
   lv_obj_update_layout(telemetryPanel_);
+}
+
+void LvglController::setAllowArmWithoutGpsFix(bool enabled) {
+  if (allowArmWithoutGpsFix_ == enabled) {
+    if (armNoGpsCheckbox_ != nullptr) {
+      if (allowArmWithoutGpsFix_) {
+        lv_obj_add_state(armNoGpsCheckbox_, LV_STATE_CHECKED);
+      } else {
+        lv_obj_clear_state(armNoGpsCheckbox_, LV_STATE_CHECKED);
+      }
+    }
+    return;
+  }
+
+  allowArmWithoutGpsFix_ = enabled;
+  prefs_.putBool("arm_no_gps", allowArmWithoutGpsFix_);
+
+  if (armNoGpsCheckbox_ != nullptr) {
+    if (allowArmWithoutGpsFix_) {
+      lv_obj_add_state(armNoGpsCheckbox_, LV_STATE_CHECKED);
+    } else {
+      lv_obj_clear_state(armNoGpsCheckbox_, LV_STATE_CHECKED);
+    }
+  }
+
+  setCommandStatus(allowArmWithoutGpsFix_ ? "Launch arm override enabled"
+                                         : "Launch arm now requires GPS 3D fix",
+                   true);
+  updateDashboardActionButtons();
 }
 
 void LvglController::setTouchDebugVisible(bool visible) {
@@ -2244,6 +2290,16 @@ void LvglController::onTouchDebugToggleEvent(lv_event_t* e) {
   self->setTouchDebugVisible(lv_obj_has_state(target, LV_STATE_CHECKED));
 }
 
+void LvglController::onArmNoGpsToggleEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+  if (self == nullptr || target == nullptr) {
+    return;
+  }
+  self->setAllowArmWithoutGpsFix(lv_obj_has_state(target, LV_STATE_CHECKED));
+  self->refreshUi();
+}
+
 void LvglController::onCalibrateEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
   self->startCalibration();
@@ -2331,7 +2387,7 @@ void LvglController::onArmEvent(lv_event_t* e) {
   if (self == nullptr) {
     return;
   }
-  if (!self->state_.recoveryGpsFix3d) {
+  if (!self->state_.recoveryGpsFix3d && !self->allowArmWithoutGpsFix_) {
     self->setCommandStatus("ARM blocked: waiting for GPS 3D fix", false);
     self->refreshUi();
     return;
@@ -2346,7 +2402,7 @@ void LvglController::onArmEvent(lv_event_t* e) {
     self->refreshUi();
     return;
   }
-  self->sendAction("launch_arm", 0);
+  self->sendAction("launch_arm", self->allowArmWithoutGpsFix_ ? 1 : 0);
   self->refreshUi();
 }
 

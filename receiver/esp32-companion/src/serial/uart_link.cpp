@@ -173,7 +173,7 @@ bool UartLink::sendCommand(const String& action, int durationS) {
     cmd.arg = static_cast<uint8_t>(durationS);
   } else if (action == "launch_arm") {
     cmd.cmd = CMD_LAUNCH_ARM;
-    cmd.arg = 0;
+    cmd.arg = (durationS > 0) ? 1 : 0;
   } else {
     return false;
   }

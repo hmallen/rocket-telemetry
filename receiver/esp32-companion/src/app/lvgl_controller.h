@@ -77,6 +77,7 @@ class LvglController {
   bool lastRecoveryMainDeployed_ = false;
   bool recoveryLaunchArmed_ = false;
   bool recoveryGpsFix3d_ = false;
+  bool allowArmWithoutGpsFix_ = false;
   float maxObservedAglM_ = NAN;
   bool apogeeCalloutPending_ = false;
   static constexpr uint8_t kSoundQueueCapacity = 8;
@@ -164,6 +165,7 @@ class LvglController {
   lv_obj_t* settingsBody_ = nullptr;
   lv_obj_t* settingsActions_ = nullptr;
   lv_obj_t* soundSettingsPanel_ = nullptr;
+  lv_obj_t* armNoGpsCheckbox_ = nullptr;
   lv_obj_t* soundEnabledCheckbox_ = nullptr;
   lv_obj_t* soundVolumeSlider_ = nullptr;
   lv_obj_t* soundVolumeLabel_ = nullptr;
@@ -215,6 +217,7 @@ class LvglController {
   bool sendAction(const String& action, int durationS = 0);
   void togglePanel();
   void toggleSettings();
+  void setAllowArmWithoutGpsFix(bool enabled);
   void setSoundEnabled(bool enabled);
   void setSoundSettingsVisible(bool visible);
   void setTouchDebugVisible(bool visible);
@@ -246,6 +249,7 @@ class LvglController {
   static void onTxPowerChangedEvent(lv_event_t* e);
   static void onTxPowerSendEvent(lv_event_t* e);
   static void onArmEvent(lv_event_t* e);
+  static void onArmNoGpsToggleEvent(lv_event_t* e);
   static void onSoundSettingsOpenEvent(lv_event_t* e);
   static void onSoundSettingsBackEvent(lv_event_t* e);
   static void onSoundEnableToggleEvent(lv_event_t* e);

@@ -1120,7 +1120,8 @@ void loop() {
         if (!buzzer_busy()) {
           buzzer_start_seq(60, 0, 1, now_ms);
         }
-        const bool launch_armed = lora.arm_launch_detect_mode();
+        const bool allow_without_gps_fix = (cmd_arg != 0);
+        const bool launch_armed = lora.arm_launch_detect_mode(allow_without_gps_fix);
         ack_enabled_state = launch_armed;
       }
       if (cmd != LoraCommand::kBuzzer) {

@@ -41,11 +41,11 @@ bool LoraLink::set_tx_power_dbm(uint8_t power_dbm) {
   return true;
 }
 
-bool LoraLink::arm_launch_detect_mode() {
+bool LoraLink::arm_launch_detect_mode(bool allow_without_gps_fix) {
   if (!recovery_initialized_) {
     return false;
   }
-  if (!recovery_gps_fix_3d_) {
+  if (!allow_without_gps_fix && !recovery_gps_fix_3d_) {
     return false;
   }
   if (recovery_phase_ != RECOVERY_PHASE_IDLE) {
@@ -1071,7 +1071,10 @@ bool LoraLink::handle_command_(const uint8_t* data, size_t len) {
   DBG_PRINTF("lora: cmd rx 0x%02X\n", cmd);
 #endif
   pending_cmd_ = cmd;
-  pending_cmd_arg_ = ((cmd == LORA_CMD_BUZZER || cmd == LORA_CMD_SET_TX_POWER) && len >= 3) ? data[2] : 0;
+  pending_cmd_arg_ =
+      ((cmd == LORA_CMD_BUZZER || cmd == LORA_CMD_SET_TX_POWER || cmd == LORA_CMD_LAUNCH_ARM) && len >= 3)
+          ? data[2]
+          : 0;
   return true;
 }
 
