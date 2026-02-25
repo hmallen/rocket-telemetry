@@ -133,8 +133,8 @@ static int32_t mapLinearRange(int32_t value,
 #define COMPANION_AUDIO_PWM_BITS 8
 #endif
 
-#ifndef COMPANION_SOUND_FILE_ARMED_WAIT
-#define COMPANION_SOUND_FILE_ARMED_WAIT "/sounds/armed_waiting.wav"
+#ifndef COMPANION_SOUND_FILE_ARMED
+#define COMPANION_SOUND_FILE_ARMED "/sounds/armed.wav"
 #endif
 
 #ifndef COMPANION_SOUND_FILE_LIFTOFF
@@ -145,16 +145,16 @@ static int32_t mapLinearRange(int32_t value,
 #define COMPANION_SOUND_FILE_APOGEE "/sounds/apogee.wav"
 #endif
 
-#ifndef COMPANION_SOUND_FILE_DROGUE
-#define COMPANION_SOUND_FILE_DROGUE "/sounds/drogue_deploy.wav"
+#ifndef COMPANION_SOUND_FILE_DROGUE_DEPLOYED
+#define COMPANION_SOUND_FILE_DROGUE_DEPLOYED "/sounds/drogue_deploy.wav"
 #endif
 
-#ifndef COMPANION_SOUND_FILE_MAIN
-#define COMPANION_SOUND_FILE_MAIN "/sounds/main_deploy.wav"
+#ifndef COMPANION_SOUND_FILE_MAIN_DEPLOYED
+#define COMPANION_SOUND_FILE_MAIN_DEPLOYED "/sounds/main_deploy.wav"
 #endif
 
-#ifndef COMPANION_SOUND_FILE_LANDING
-#define COMPANION_SOUND_FILE_LANDING "/sounds/landing.wav"
+#ifndef COMPANION_SOUND_FILE_LANDING_DETECTED
+#define COMPANION_SOUND_FILE_LANDING_DETECTED "/sounds/landing.wav"
 #endif
 
 #ifndef COMPANION_SOUND_FILE_ARMED
@@ -174,7 +174,7 @@ static int32_t mapLinearRange(int32_t value,
 #endif
 
 constexpr const char* kFallbackSoundFileArmedWait = "/sounds/waiting_for_location_fix.wav";
-constexpr const char* kFallbackSoundFileLiftoff = "/sounds/launch_detected.wav";
+constexpr const char* kFallbackSoundFileLaunchDetected = "/sounds/launch_detected.wav";
 constexpr const char* kFallbackSoundFileDrogue = "/sounds/drogue_deployed.wav";
 constexpr const char* kFallbackSoundFileMain = "/sounds/main_deployed.wav";
 constexpr const char* kFallbackSoundFileMainLegacyDir = "/sound/main_deployed.wav";
@@ -1016,18 +1016,18 @@ void LvglController::queueSoundCue(SoundCue cue) {
 
 const char* LvglController::cueFilePath(SoundCue cue) const {
   switch (cue) {
-    case SoundCue::kArmedWait:
-      return COMPANION_SOUND_FILE_ARMED_WAIT;
-    case SoundCue::kLiftoff:
+    case SoundCue::kArmed:
+      return COMPANION_SOUND_FILE_ARMED;
+    case SoundCue::kLaunchDetected:
       return COMPANION_SOUND_FILE_LIFTOFF;
     case SoundCue::kApogee:
       return COMPANION_SOUND_FILE_APOGEE;
     case SoundCue::kDrogueDeploy:
-      return COMPANION_SOUND_FILE_DROGUE;
+      return COMPANION_SOUND_FILE_DROGUE_DEPLOYED;
     case SoundCue::kMainDeploy:
-      return COMPANION_SOUND_FILE_MAIN;
+      return COMPANION_SOUND_FILE_MAIN_DEPLOYED;
     case SoundCue::kLanding:
-      return COMPANION_SOUND_FILE_LANDING;
+      return COMPANION_SOUND_FILE_LANDING_DETECTED;
     case SoundCue::kArmed:
       return COMPANION_SOUND_FILE_ARMED;
     case SoundCue::kLaunchDetectMode:
@@ -1063,7 +1063,7 @@ void LvglController::handleEventSoundTriggers(const String& previousPhase, bool 
 
   if (phaseChanged) {
     if (phaseEquals(currentPhase, "idle") && !phaseEquals(previousPhase, "idle")) {
-      queueSoundCue(SoundCue::kArmedWait);
+      queueSoundCue(SoundCue::kArmed);
       maxObservedAglM_ = NAN;
       apogeeCalloutPending_ = false;
     }
@@ -1074,7 +1074,7 @@ void LvglController::handleEventSoundTriggers(const String& previousPhase, bool 
                               phaseEquals(currentPhase, "coast");
 
     if (currInAscent && !prevInAscent) {
-      queueSoundCue(SoundCue::kLiftoff);
+      queueSoundCue(SoundCue::kLaunchDetected);
       maxObservedAglM_ = currentAglM;
       apogeeCalloutPending_ = false;
     }
@@ -1200,11 +1200,11 @@ void LvglController::playNextQueuedSound() {
   }
 
   switch (cue) {
-    case SoundCue::kArmedWait:
+    case SoundCue::kArmed:
       (void)playWavFromSd(kFallbackSoundFileArmedWait);
       break;
-    case SoundCue::kLiftoff:
-      (void)playWavFromSd(kFallbackSoundFileLiftoff);
+    case SoundCue::kLaunchDetected:
+      (void)playWavFromSd(kFallbackSoundFileLaunchDetected);
       break;
     case SoundCue::kDrogueDeploy:
       (void)playWavFromSd(kFallbackSoundFileDrogue);

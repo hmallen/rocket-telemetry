@@ -20,8 +20,8 @@ class LvglController {
 
  private:
   enum class SoundCue : uint8_t {
-    kArmedWait = 0,
-    kLiftoff,
+    kArmed = 0,
+    kLaunchDetected,
     kApogee,
     kDrogueDeploy,
     kMainDeploy,

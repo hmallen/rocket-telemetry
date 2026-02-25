@@ -68,24 +68,18 @@ Place WAV files under the SD sound directory (default: `/sounds`, configured by
 
 Primary event cues (via `COMPANION_SOUND_FILE_*` macros):
 
-- `armed_waiting.wav`
-- `liftoff.wav`
-- `apogee.wav`
-- `drogue_deploy.wav`
-- `main_deploy.wav`
-- `landing.wav`
 - `armed.wav`
-- `launch_detect_mode.wav`
-- `location_fix_acquired.wav`
+- `calibrating.wav`
+- `sensors_ready.wav`
 - `waiting_for_location_fix.wav`
+- `location_fix_acquired.wav`
+- `launch_detect_mode.wav`
+- `launch_detected.wav`
+- `apogee.wav`
+- `drogue_deployed.wav`
+- `main_deployed.wav`
+- `landing_detected.wav`
 - `audio_test.wav` (used by **Play Test Sound**)
-
-Fallback cue names currently supported by firmware:
-
-- `launch_detected.wav` (liftoff fallback)
-- `drogue_deployed.wav` (drogue fallback)
-- `main_deployed.wav` in `/sounds` and legacy `/sound`
-- `landing_detected.wav` (landing fallback)
 
 Spoken apogee altitude callout after landing requires numeric/unit clips:
 

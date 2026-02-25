@@ -82,16 +82,32 @@
 #define COMPANION_AUDIO_PWM_FREQ 32000
 #define COMPANION_AUDIO_PWM_BITS 8
 
-#define COMPANION_SOUND_FILE_ARMED_WAIT "/sounds/armed_waiting.wav"
-#define COMPANION_SOUND_FILE_LIFTOFF "/sounds/liftoff.wav"
-#define COMPANION_SOUND_FILE_APOGEE "/sounds/apogee.wav"
-#define COMPANION_SOUND_FILE_DROGUE "/sounds/drogue_deploy.wav"
-#define COMPANION_SOUND_FILE_MAIN "/sounds/main_deploy.wav"
-#define COMPANION_SOUND_FILE_LANDING "/sounds/landing.wav"
 #define COMPANION_SOUND_FILE_ARMED "/sounds/armed.wav"
-#define COMPANION_SOUND_FILE_LAUNCH_DETECT_MODE "/sounds/launch_detect_mode.wav"
-#define COMPANION_SOUND_FILE_LOCATION_FIX_ACQUIRED "/sounds/location_fix_acquired.wav"
+#define COMPANION_SOUND_FILE_CALIBRATING "/sounds/calibrating.wav"
+#define COMPANION_SOUND_FILE_SENSORS_READY "/sounds/sensors_ready.wav"
 #define COMPANION_SOUND_FILE_WAITING_FOR_LOCATION_FIX "/sounds/waiting_for_location_fix.wav"
+#define COMPANION_SOUND_FILE_LOCATION_FIX_ACQUIRED "/sounds/location_fix_acquired.wav"
+#define COMPANION_SOUND_FILE_LAUNCH_DETECT_MODE "/sounds/launch_detect_mode.wav"
+#define COMPANION_SOUND_FILE_LAUNCH_DETECTED "/sounds/launch_detected.wav"
+#define COMPANION_SOUND_FILE_APOGEE "/sounds/apogee.wav"
+#define COMPANION_SOUND_FILE_DROGUE_DEPLOYED "/sounds/drogue_deployed.wav"
+#define COMPANION_SOUND_FILE_MAIN_DEPLOYED "/sounds/main_deployed.wav"
+#define COMPANION_SOUND_FILE_LANDING_DETECTED "/sounds/landing_detected.wav"
+#define COMPANION_SOUND_FILE_HOME_POINT_SET "/sounds/home_point_set.wav"
+#define COMPANION_SOUND_FILE_AUDIO_TEST "/sounds/audio_test.wav"
+
+- `armed.wav`
+- `calibrating.wav`
+- `sensors_ready.wav`
+- `waiting_for_location_fix.wav`
+- `location_fix_acquired.wav`
+- `launch_detect_mode.wav`
+- `launch_detected.wav`
+- `apogee.wav`
+- `drogue_deployed.wav`
+- `main_deployed.wav`
+- `landing_detected.wav`
+- `audio_test.wav` (used by **Play Test Sound**)
 
 // OTA update settings.
 // When enabled, firmware keeps Wi-Fi active even in UART transport mode.
