@@ -211,7 +211,7 @@ class LvglController {
   bool playNumberCue(int value);
   bool playApogeeAltitudeCallout();
   const char* cueFilePath(SoundCue cue) const;
-  bool playWavFromSd(const char* path);
+  bool playWavFromSd(const char* path, const char** failReason = nullptr);
   bool ensureConnected();
 
   bool sendAction(const String& action, int durationS = 0);

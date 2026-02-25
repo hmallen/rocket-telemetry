@@ -1189,17 +1189,40 @@ void LvglController::playNextQueuedSound() {
   }
 }
 
-bool LvglController::playWavFromSd(const char* path) {
+bool LvglController::playWavFromSd(const char* path, const char** failReason) {
 #if !COMPANION_AUDIO_ENABLE
   (void)path;
+  if (failReason != nullptr) {
+    *failReason = "audio disabled";
+  }
   return false;
 #else
-  if (!audioOutputReady_ || !sdStorageReady_ || path == nullptr || path[0] == '\0') {
+  if (!audioOutputReady_) {
+    if (failReason != nullptr) {
+      *failReason = "audio output not ready";
+    }
+    return false;
+  }
+
+  if (!sdStorageReady_) {
+    if (failReason != nullptr) {
+      *failReason = "sd storage not ready";
+    }
+    return false;
+  }
+
+  if (path == nullptr || path[0] == '\0') {
+    if (failReason != nullptr) {
+      *failReason = "invalid path";
+    }
     return false;
   }
 
   File wav = SD.open(path, FILE_READ);
   if (!wav || wav.isDirectory()) {
+    if (failReason != nullptr) {
+      *failReason = "file open failed";
+    }
     return false;
   }
 
@@ -1207,6 +1230,9 @@ bool LvglController::playWavFromSd(const char* path) {
   if (wav.read(riffHeader, sizeof(riffHeader)) != static_cast<int>(sizeof(riffHeader)) ||
       memcmp(riffHeader, "RIFF", 4) != 0 || memcmp(riffHeader + 8, "WAVE", 4) != 0) {
     wav.close();
+    if (failReason != nullptr) {
+      *failReason = "invalid wav header";
+    }
     return false;
   }
 
@@ -1255,14 +1281,28 @@ bool LvglController::playWavFromSd(const char* path) {
 
   const bool formatOk = (audioFormat == 1U) && ((bitsPerSample == 8U) || (bitsPerSample == 16U)) &&
                         (numChannels >= 1U) && (sampleRate > 0U) && (dataBytes > 0U);
-  if (!formatOk || !wav.seek(dataOffset)) {
+  if (!formatOk) {
     wav.close();
+    if (failReason != nullptr) {
+      *failReason = "unsupported wav format";
+    }
+    return false;
+  }
+
+  if (!wav.seek(dataOffset)) {
+    wav.close();
+    if (failReason != nullptr) {
+      *failReason = "wav seek failed";
+    }
     return false;
   }
 
   const uint32_t bytesPerSample = (bitsPerSample / 8U) * static_cast<uint32_t>(numChannels);
   if (bytesPerSample == 0U) {
     wav.close();
+    if (failReason != nullptr) {
+      *failReason = "invalid bytes per sample";
+    }
     return false;
   }
 
@@ -1330,6 +1370,11 @@ bool LvglController::playWavFromSd(const char* path) {
 
   ledcWrite(COMPANION_AUDIO_PWM_CHANNEL, audioPwmMaxDuty_ / 2U);
   wav.close();
+  if (!readOk && failReason != nullptr) {
+    *failReason = "wav read underrun";
+  } else if (failReason != nullptr) {
+    *failReason = nullptr;
+  }
   return readOk;
 #endif
 }
@@ -2437,8 +2482,24 @@ void LvglController::onSoundTestEvent(lv_event_t* e) {
   if (self == nullptr) {
     return;
   }
-  const bool ok = self->playWavFromSd(kSoundTestFilePath);
-  self->setCommandStatus(ok ? "AUDIO TEST played" : "AUDIO TEST failed", ok);
+  const char* failReason = nullptr;
+  const bool ok = self->playWavFromSd(kSoundTestFilePath, &failReason);
+  if (ok) {
+    self->setCommandStatus("AUDIO TEST played", true);
+  } else {
+    String msg = "AUDIO TEST failed";
+    if (failReason != nullptr && failReason[0] != '\0') {
+      msg += " (";
+      msg += failReason;
+      msg += ")";
+    }
+    self->setCommandStatus(msg, false);
+    Serial.printf("[audio-test] failed: %s | path=%s | sd_ready=%d | audio_ready=%d\n",
+                  (failReason != nullptr) ? failReason : "unknown",
+                  kSoundTestFilePath,
+                  self->sdStorageReady_ ? 1 : 0,
+                  self->audioOutputReady_ ? 1 : 0);
+  }
   self->refreshUi();
 }
 
