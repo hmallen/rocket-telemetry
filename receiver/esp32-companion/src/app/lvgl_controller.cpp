@@ -549,9 +549,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_pad_gap(settingsBody_, kSettingsGapPx, 0);
   lv_obj_set_flex_flow(settingsBody_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(settingsBody_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-  lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_scroll_dir(settingsBody_, LV_DIR_VER);
-  lv_obj_set_scrollbar_mode(settingsBody_, LV_SCROLLBAR_MODE_AUTO);
+  lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_align(settingsBody_, LV_ALIGN_TOP_RIGHT, 0, kSettingsPanelTopOffsetPx);
 
@@ -567,14 +565,16 @@ void LvglController::buildUi() {
 
   settingsActions_ = lv_obj_create(settingsBody_);
   lv_obj_set_width(settingsActions_, LV_PCT(100));
-  lv_obj_set_height(settingsActions_, LV_SIZE_CONTENT);
+  lv_obj_set_height(settingsActions_, 0);
+  lv_obj_set_flex_grow(settingsActions_, 1);
   lv_obj_set_style_bg_opa(settingsActions_, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(settingsActions_, 0, 0);
   lv_obj_set_style_pad_all(settingsActions_, 0, 0);
   lv_obj_set_style_pad_gap(settingsActions_, kSettingsGapPx, 0);
   lv_obj_set_flex_flow(settingsActions_, LV_FLEX_FLOW_COLUMN);
-  lv_obj_clear_flag(settingsActions_, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_clear_flag(settingsActions_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(settingsActions_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(settingsActions_, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(settingsActions_, LV_SCROLLBAR_MODE_AUTO);
 
   makeActionButton(settingsActions_,
                    "ALTITUDE ZERO",
@@ -692,14 +692,16 @@ void LvglController::buildUi() {
 
   soundSettingsPanel_ = lv_obj_create(settingsBody_);
   lv_obj_set_width(soundSettingsPanel_, LV_PCT(100));
-  lv_obj_set_height(soundSettingsPanel_, LV_SIZE_CONTENT);
+  lv_obj_set_height(soundSettingsPanel_, 0);
+  lv_obj_set_flex_grow(soundSettingsPanel_, 1);
   lv_obj_set_style_bg_opa(soundSettingsPanel_, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(soundSettingsPanel_, 0, 0);
   lv_obj_set_style_pad_all(soundSettingsPanel_, 0, 0);
   lv_obj_set_style_pad_gap(soundSettingsPanel_, kSettingsGapPx, 0);
   lv_obj_set_flex_flow(soundSettingsPanel_, LV_FLEX_FLOW_COLUMN);
-  lv_obj_clear_flag(soundSettingsPanel_, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_clear_flag(soundSettingsPanel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_flag(soundSettingsPanel_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(soundSettingsPanel_, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(soundSettingsPanel_, LV_SCROLLBAR_MODE_AUTO);
 
   soundEnabledCheckbox_ = lv_checkbox_create(soundSettingsPanel_);
   lv_checkbox_set_text(soundEnabledCheckbox_, "Enable sound cues");
@@ -1840,7 +1842,9 @@ void LvglController::toggleSettings() {
   } else {
     lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
     setSoundSettingsVisible(false);
-    lv_obj_scroll_to_y(settingsBody_, 0, LV_ANIM_OFF);
+    if (settingsActions_ != nullptr) {
+      lv_obj_scroll_to_y(settingsActions_, 0, LV_ANIM_OFF);
+    }
     panelCollapsed_ = true;
     lv_obj_add_flag(actionPanel_, LV_OBJ_FLAG_HIDDEN);
   }
@@ -1888,13 +1892,14 @@ void LvglController::setSoundSettingsVisible(bool visible) {
   if (soundSettingsVisible_) {
     lv_obj_add_flag(settingsActions_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(soundSettingsPanel_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_scroll_to_y(soundSettingsPanel_, 0, LV_ANIM_OFF);
   } else {
     lv_obj_clear_flag(settingsActions_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(soundSettingsPanel_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_scroll_to_y(settingsActions_, 0, LV_ANIM_OFF);
   }
 
   if (settingsBody_ != nullptr) {
-    lv_obj_scroll_to_y(settingsBody_, 0, LV_ANIM_OFF);
     lv_obj_update_layout(settingsBody_);
   }
 }
