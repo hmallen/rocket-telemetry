@@ -21,15 +21,17 @@ class LvglController {
  private:
   enum class SoundCue : uint8_t {
     kArmed = 0,
+    kCalibrating,
+    kSensorsReady,
+    kWaitingForLocationFix,
+    kLocationFixAcquired,
+    kLaunchDetectMode,
     kLaunchDetected,
     kApogee,
     kDrogueDeploy,
     kMainDeploy,
-    kLanding,
-    kArmed,
-    kLaunchDetectMode,
-    kLocationFixAcquired,
-    kWaitingForLocationFix,
+    KLandingDetected,
+    kHomePointSet,
   };
 
   struct TouchCalibration {
@@ -83,7 +85,7 @@ class LvglController {
   bool allowArmWithoutGpsFix_ = false;
   float maxObservedAglM_ = NAN;
   bool apogeeCalloutPending_ = false;
-  static constexpr uint8_t kSoundQueueCapacity = 8;
+  static constexpr uint8_t kSoundQueueCapacity = 16;
   SoundCue soundQueue_[kSoundQueueCapacity] = {};
   uint8_t soundQueueHead_ = 0;
   uint8_t soundQueueTail_ = 0;

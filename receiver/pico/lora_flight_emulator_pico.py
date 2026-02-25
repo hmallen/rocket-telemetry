@@ -42,6 +42,7 @@ LORA_BAT_INTERVAL_MS = 1000
 LORA_NAVSAT_INTERVAL_MS = 2000
 LORA_RECOVERY_INTERVAL_MS = 500
 LORA_MAX_MISSION_TX_MS = 20 * 60 * 1000
+SIM_LANDING_RESET_DELAY_MS = 30_000
 
 LORA_ACK_REPEAT_COUNT = 3
 LORA_ACK_REPEAT_MS = 400
@@ -681,6 +682,7 @@ class FlightEmulator:
         self.ack_retries_left = 0
         self.ack_buf = bytearray()
         self.next_status_ms = 0
+        self.landed_since_ms = None
 
     def _can_tx(self, now_ms):
         if now_ms < self.next_tx_ms:
@@ -690,6 +692,23 @@ class FlightEmulator:
     def _record_tx(self, now_ms):
         self.last_tx_ms = now_ms
         self.next_tx_ms = now_ms + LORA_MIN_TX_INTERVAL_MS
+
+    def _reset_launch_cycle(self, now_ms):
+        self.profile = FlightProfile(self.rng)
+        self.recovery = RecoveryState()
+        self.landed_since_ms = None
+
+        # Nudge schedulers to promptly emit the reset/idle state after cycling.
+        self.next_tx_ms = now_ms
+        self.last_id_tx_ms = 0
+        self.last_gps_tx_ms = 0
+        self.last_alt_tx_ms = 0
+        self.last_imu_tx_ms = 0
+        self.last_bat_tx_ms = 0
+        self.last_navsat_tx_ms = 0
+        self.last_recovery_tx_ms = 0
+
+        print("Simulation reset; waiting for CMD launch_arm")
 
     def _queue_ack(self, cmd, enabled_state, now_ms, tx_power_dbm=None):
         self.ack_buf = bytearray([CMD_MAGIC, CMD_ACK, cmd & 0xFF, 1 if enabled_state else 0])
@@ -899,6 +918,16 @@ class FlightEmulator:
                 self._handle_command(payload, now_ms)
 
         sample = self.profile.sample(now_ms)
+        if sample["phase"] == "landed":
+            if self.landed_since_ms is None:
+                self.landed_since_ms = now_ms
+                print("Landing detected; reset in %ds" % (SIM_LANDING_RESET_DELAY_MS // 1000))
+            elif (now_ms - self.landed_since_ms) >= SIM_LANDING_RESET_DELAY_MS:
+                self._reset_launch_cycle(now_ms)
+                sample = self.profile.sample(now_ms)
+        else:
+            self.landed_since_ms = None
+
         self.recovery.gps_fix_3d = bool(sample["gps_valid"])
         if sample["gps_valid"]:
             self.recovery.update(now_ms, sample["height_mm"], sample["press_pa_x10"])

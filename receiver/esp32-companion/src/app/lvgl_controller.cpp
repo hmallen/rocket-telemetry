@@ -12,7 +12,6 @@ constexpr uint32_t kUiRefreshIntervalMs = 120;
 constexpr uint32_t kCommandStatusShowMs = 3000;
 constexpr uint32_t kCommandConfirmTimeoutMs = 5000;
 constexpr uint32_t kGroundStationOfflineDetectMs = 8000;
-constexpr const char* kSoundTestFilePath = "/sounds/audio_test.wav";
 constexpr uint8_t kCalPointCount = 4;
 constexpr uint8_t kTelemetryTxPowerMinDbm = 2;
 constexpr uint8_t kTelemetryTxPowerMaxDbm = 17;
@@ -137,8 +136,28 @@ static int32_t mapLinearRange(int32_t value,
 #define COMPANION_SOUND_FILE_ARMED "/sounds/armed.wav"
 #endif
 
-#ifndef COMPANION_SOUND_FILE_LIFTOFF
-#define COMPANION_SOUND_FILE_LIFTOFF "/sounds/liftoff.wav"
+#ifndef COMPANION_SOUND_FILE_CALIBRATING
+#define COMPANION_SOUND_FILE_CALIBRATING "/sounds/calibrating.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_SENSORS_READY
+#define COMPANION_SOUND_FILE_SENSORS_READY "/sounds/sensors_ready.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_WAITING_FOR_LOCATION_FIX
+#define COMPANION_SOUND_FILE_WAITING_FOR_LOCATION_FIX "/sounds/waiting_for_location_fix.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_LOCATION_FIX_ACQUIRED
+#define COMPANION_SOUND_FILE_LOCATION_FIX_ACQUIRED "/sounds/location_fix_acquired.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_LAUNCH_DETECT_MODE
+#define COMPANION_SOUND_FILE_LAUNCH_DETECT_MODE "/sounds/launch_detect_mode.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_LAUNCH_DETECTED
+#define COMPANION_SOUND_FILE_LAUNCH_DETECTED "/sounds/launch_detected.wav"
 #endif
 
 #ifndef COMPANION_SOUND_FILE_APOGEE
@@ -146,39 +165,38 @@ static int32_t mapLinearRange(int32_t value,
 #endif
 
 #ifndef COMPANION_SOUND_FILE_DROGUE_DEPLOYED
-#define COMPANION_SOUND_FILE_DROGUE_DEPLOYED "/sounds/drogue_deploy.wav"
+#define COMPANION_SOUND_FILE_DROGUE_DEPLOYED "/sounds/drogue_deployed.wav"
 #endif
 
 #ifndef COMPANION_SOUND_FILE_MAIN_DEPLOYED
-#define COMPANION_SOUND_FILE_MAIN_DEPLOYED "/sounds/main_deploy.wav"
+#define COMPANION_SOUND_FILE_MAIN_DEPLOYED "/sounds/main_deployed.wav"
 #endif
 
 #ifndef COMPANION_SOUND_FILE_LANDING_DETECTED
-#define COMPANION_SOUND_FILE_LANDING_DETECTED "/sounds/landing.wav"
+#define COMPANION_SOUND_FILE_LANDING_DETECTED "/sounds/landing_detected.wav"
 #endif
 
-#ifndef COMPANION_SOUND_FILE_ARMED
-#define COMPANION_SOUND_FILE_ARMED "/sounds/armed.wav"
+#ifndef COMPANION_SOUND_FILE_HOME_POINT_SET
+#define COMPANION_SOUND_FILE_HOME_POINT_SET "/sounds/home_point_set.wav"
 #endif
 
-#ifndef COMPANION_SOUND_FILE_LAUNCH_DETECT_MODE
-#define COMPANION_SOUND_FILE_LAUNCH_DETECT_MODE "/sounds/launch_detect_mode.wav"
+#ifndef COMPANION_SOUND_FILE_AUDIO_TEST
+#define COMPANION_SOUND_FILE_AUDIO_TEST "/sounds/audio_test.wav"
 #endif
 
-#ifndef COMPANION_SOUND_FILE_LOCATION_FIX_ACQUIRED
-#define COMPANION_SOUND_FILE_LOCATION_FIX_ACQUIRED "/sounds/location_fix_acquired.wav"
-#endif
-
-#ifndef COMPANION_SOUND_FILE_WAITING_FOR_LOCATION_FIX
-#define COMPANION_SOUND_FILE_WAITING_FOR_LOCATION_FIX "/sounds/waiting_for_location_fix.wav"
-#endif
-
-constexpr const char* kFallbackSoundFileArmedWait = "/sounds/waiting_for_location_fix.wav";
+constexpr const char* kFallbackSoundFileArmed = "/sounds/armed.wav";
+constexpr const char* kFallbackSoundFileCalibrating = "/sounds/calibrating.wav";
+constexpr const char* kFallbackSoundFileSensorsReady = "/sounds/sensors_ready.wav";
+constexpr const char* kFallbackSoundFileWaitingForFix = "/sounds/waiting_for_location_fix.wav";
+constexpr const char* kFallbackSoundFileLocationFixAcquired = "/sounds/location_fix_acquired.wav";
+constexpr const char* kFallbackSoundFileLaunchDetectMode = "/sounds/launch_detect_mode.wav";
 constexpr const char* kFallbackSoundFileLaunchDetected = "/sounds/launch_detected.wav";
+constexpr const char* kFallbackSoundFileApogee = "/sounds/apogee.wav";
 constexpr const char* kFallbackSoundFileDrogue = "/sounds/drogue_deployed.wav";
 constexpr const char* kFallbackSoundFileMain = "/sounds/main_deployed.wav";
 constexpr const char* kFallbackSoundFileMainLegacyDir = "/sound/main_deployed.wav";
 constexpr const char* kFallbackSoundFileLanding = "/sounds/landing_detected.wav";
+constexpr const char* kFallbackSoundFileHomePointSet = "/sounds/home_point_set.wav";
 
 constexpr uint32_t kBatterySampleIntervalMs = COMPANION_BAT_SAMPLE_INTERVAL_MS;
 constexpr float kLipoCellEmptyV = 3.3f;
@@ -833,7 +851,8 @@ void LvglController::begin() {
   prefs_.begin("companion-ui", false);
   soundEnabled_ = prefs_.getBool("sound_enabled", true);
   audioVolumePercent_ = prefs_.getUChar("sound_volume", 100);
-  allowArmWithoutGpsFix_ = prefs_.getBool("arm_no_gps", false);
+  allowArmWithoutGpsFix_ = false;
+  prefs_.putBool("arm_no_gps", false);
   if (audioVolumePercent_ > 100) {
     audioVolumePercent_ = 100;
   }
@@ -880,6 +899,15 @@ void LvglController::begin() {
   recoveryLaunchArmed_ = state_.recoveryLaunchArmed;
   recoveryGpsFix3d_ = state_.recoveryGpsFix3d;
   lastLvTickMs_ = millis();
+
+  queueSoundCue(SoundCue::kArmed);
+  queueSoundCue(SoundCue::kCalibrating);
+  queueSoundCue(SoundCue::kSensorsReady);
+  if (state_.recoveryGpsFix3d) {
+    queueSoundCue(SoundCue::kLocationFixAcquired);
+  } else if (!allowArmWithoutGpsFix_) {
+    queueSoundCue(SoundCue::kWaitingForLocationFix);
+  }
 
   if (lastRxMs_ != 0) {
     hasLastLoraPacketCount_ = true;
@@ -1018,24 +1046,28 @@ const char* LvglController::cueFilePath(SoundCue cue) const {
   switch (cue) {
     case SoundCue::kArmed:
       return COMPANION_SOUND_FILE_ARMED;
+    case SoundCue::kCalibrating:
+      return COMPANION_SOUND_FILE_CALIBRATING;
+    case SoundCue::kSensorsReady:
+      return COMPANION_SOUND_FILE_SENSORS_READY;
+    case SoundCue::kWaitingForLocationFix:
+      return COMPANION_SOUND_FILE_WAITING_FOR_LOCATION_FIX;
+    case SoundCue::kLocationFixAcquired:
+      return COMPANION_SOUND_FILE_LOCATION_FIX_ACQUIRED;
+    case SoundCue::kLaunchDetectMode:
+      return COMPANION_SOUND_FILE_LAUNCH_DETECT_MODE;
     case SoundCue::kLaunchDetected:
-      return COMPANION_SOUND_FILE_LIFTOFF;
+      return COMPANION_SOUND_FILE_LAUNCH_DETECTED;
     case SoundCue::kApogee:
       return COMPANION_SOUND_FILE_APOGEE;
     case SoundCue::kDrogueDeploy:
       return COMPANION_SOUND_FILE_DROGUE_DEPLOYED;
     case SoundCue::kMainDeploy:
       return COMPANION_SOUND_FILE_MAIN_DEPLOYED;
-    case SoundCue::kLanding:
+    case SoundCue::KLandingDetected:
       return COMPANION_SOUND_FILE_LANDING_DETECTED;
-    case SoundCue::kArmed:
-      return COMPANION_SOUND_FILE_ARMED;
-    case SoundCue::kLaunchDetectMode:
-      return COMPANION_SOUND_FILE_LAUNCH_DETECT_MODE;
-    case SoundCue::kLocationFixAcquired:
-      return COMPANION_SOUND_FILE_LOCATION_FIX_ACQUIRED;
-    case SoundCue::kWaitingForLocationFix:
-      return COMPANION_SOUND_FILE_WAITING_FOR_LOCATION_FIX;
+    case SoundCue::kHomePointSet:
+      return COMPANION_SOUND_FILE_HOME_POINT_SET;
     default:
       return "";
   }
@@ -1050,13 +1082,18 @@ void LvglController::handleEventSoundTriggers(const String& previousPhase, bool 
   }
 
   if (state_.recoveryGpsFix3d != recoveryGpsFix3d_) {
-    queueSoundCue(state_.recoveryGpsFix3d ? SoundCue::kLocationFixAcquired
-                                          : SoundCue::kWaitingForLocationFix);
+    if (state_.recoveryGpsFix3d) {
+      queueSoundCue(SoundCue::kLocationFixAcquired);
+    } else if (!allowArmWithoutGpsFix_ && !state_.recoveryLaunchArmed) {
+      queueSoundCue(SoundCue::kWaitingForLocationFix);
+    }
   }
 
   if (state_.recoveryLaunchArmed && !recoveryLaunchArmed_) {
-    queueSoundCue(SoundCue::kArmed);
-    queueSoundCue(SoundCue::kLaunchDetectMode);
+    const bool armedWithoutGpsFix = !state_.recoveryGpsFix3d && allowArmWithoutGpsFix_;
+    if (!armedWithoutGpsFix) {
+      queueSoundCue(SoundCue::kLaunchDetectMode);
+    }
   }
   recoveryLaunchArmed_ = state_.recoveryLaunchArmed;
   recoveryGpsFix3d_ = state_.recoveryGpsFix3d;
@@ -1064,6 +1101,13 @@ void LvglController::handleEventSoundTriggers(const String& previousPhase, bool 
   if (phaseChanged) {
     if (phaseEquals(currentPhase, "idle") && !phaseEquals(previousPhase, "idle")) {
       queueSoundCue(SoundCue::kArmed);
+      queueSoundCue(SoundCue::kCalibrating);
+      queueSoundCue(SoundCue::kSensorsReady);
+      if (state_.recoveryGpsFix3d) {
+        queueSoundCue(SoundCue::kLocationFixAcquired);
+      } else if (!allowArmWithoutGpsFix_) {
+        queueSoundCue(SoundCue::kWaitingForLocationFix);
+      }
       maxObservedAglM_ = NAN;
       apogeeCalloutPending_ = false;
     }
@@ -1084,7 +1128,7 @@ void LvglController::handleEventSoundTriggers(const String& previousPhase, bool 
     }
 
     if (phaseEquals(currentPhase, "landed") && !phaseEquals(previousPhase, "landed")) {
-      queueSoundCue(SoundCue::kLanding);
+      queueSoundCue(SoundCue::KLandingDetected);
       apogeeCalloutPending_ = true;
     }
   }
@@ -1201,10 +1245,28 @@ void LvglController::playNextQueuedSound() {
 
   switch (cue) {
     case SoundCue::kArmed:
-      (void)playWavFromSd(kFallbackSoundFileArmedWait);
+      (void)playWavFromSd(kFallbackSoundFileArmed);
+      break;
+    case SoundCue::kCalibrating:
+      (void)playWavFromSd(kFallbackSoundFileCalibrating);
+      break;
+    case SoundCue::kSensorsReady:
+      (void)playWavFromSd(kFallbackSoundFileSensorsReady);
+      break;
+    case SoundCue::kWaitingForLocationFix:
+      (void)playWavFromSd(kFallbackSoundFileWaitingForFix);
+      break;
+    case SoundCue::kLocationFixAcquired:
+      (void)playWavFromSd(kFallbackSoundFileLocationFixAcquired);
+      break;
+    case SoundCue::kLaunchDetectMode:
+      (void)playWavFromSd(kFallbackSoundFileLaunchDetectMode);
       break;
     case SoundCue::kLaunchDetected:
       (void)playWavFromSd(kFallbackSoundFileLaunchDetected);
+      break;
+    case SoundCue::kApogee:
+      (void)playWavFromSd(kFallbackSoundFileApogee);
       break;
     case SoundCue::kDrogueDeploy:
       (void)playWavFromSd(kFallbackSoundFileDrogue);
@@ -1215,8 +1277,11 @@ void LvglController::playNextQueuedSound() {
         (void)playWavFromSd(kFallbackSoundFileMainLegacyDir);
       }
       break;
-    case SoundCue::kLanding:
+    case SoundCue::KLandingDetected:
       (void)playWavFromSd(kFallbackSoundFileLanding);
+      break;
+    case SoundCue::kHomePointSet:
+      (void)playWavFromSd(kFallbackSoundFileHomePointSet);
       break;
     default:
       break;
@@ -2391,13 +2456,19 @@ void LvglController::onCalibrateEvent(lv_event_t* e) {
 
 void LvglController::onAltCalibrateEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
-  self->sendAction("alt_calibrate", 0);
+  if (self->sendAction("alt_calibrate", 0)) {
+    self->queueSoundCue(SoundCue::kCalibrating);
+    self->queueSoundCue(SoundCue::kSensorsReady);
+  }
   self->refreshUi();
 }
 
 void LvglController::onImuCalibrateEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
-  self->sendAction("imu_calibrate", 0);
+  if (self->sendAction("imu_calibrate", 0)) {
+    self->queueSoundCue(SoundCue::kCalibrating);
+    self->queueSoundCue(SoundCue::kSensorsReady);
+  }
   self->refreshUi();
 }
 
@@ -2522,7 +2593,7 @@ void LvglController::onSoundTestEvent(lv_event_t* e) {
     return;
   }
   const char* failReason = nullptr;
-  const bool ok = self->playWavFromSd(kSoundTestFilePath, &failReason);
+  const bool ok = self->playWavFromSd(COMPANION_SOUND_FILE_AUDIO_TEST, &failReason);
   if (ok) {
     self->setCommandStatus("AUDIO TEST played", true);
   } else {
@@ -2535,7 +2606,7 @@ void LvglController::onSoundTestEvent(lv_event_t* e) {
     self->setCommandStatus(msg, false);
     Serial.printf("[audio-test] failed: %s | path=%s | sd_ready=%d | audio_ready=%d\n",
                   (failReason != nullptr) ? failReason : "unknown",
-                  kSoundTestFilePath,
+                  COMPANION_SOUND_FILE_AUDIO_TEST,
                   self->sdStorageReady_ ? 1 : 0,
                   self->audioOutputReady_ ? 1 : 0);
   }
