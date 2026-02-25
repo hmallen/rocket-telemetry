@@ -1899,6 +1899,25 @@ void LvglController::setAllowArmWithoutGpsFix(bool enabled) {
   allowArmWithoutGpsFix_ = enabled;
   prefs_.putBool("arm_no_gps", allowArmWithoutGpsFix_);
 
+  if (allowArmWithoutGpsFix_ && soundQueueCount_ > 0) {
+    SoundCue filteredQueue[kSoundQueueCapacity] = {};
+    uint8_t filteredCount = 0;
+    for (uint8_t i = 0; i < soundQueueCount_; ++i) {
+      const uint8_t idx = static_cast<uint8_t>((soundQueueHead_ + i) % kSoundQueueCapacity);
+      const SoundCue queued = soundQueue_[idx];
+      if (queued == SoundCue::kWaitingForLocationFix) {
+        continue;
+      }
+      filteredQueue[filteredCount++] = queued;
+    }
+    for (uint8_t i = 0; i < filteredCount; ++i) {
+      soundQueue_[i] = filteredQueue[i];
+    }
+    soundQueueHead_ = 0;
+    soundQueueTail_ = static_cast<uint8_t>(filteredCount % kSoundQueueCapacity);
+    soundQueueCount_ = filteredCount;
+  }
+
   if (armNoGpsCheckbox_ != nullptr) {
     if (allowArmWithoutGpsFix_) {
       lv_obj_add_state(armNoGpsCheckbox_, LV_STATE_CHECKED);

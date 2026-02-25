@@ -378,7 +378,7 @@ class RecoveryState:
         if not self.initialized:
             self.initialized = True
             self.launch_alt_mm = alt_mm
-            self.last_alt_mm = alt_mm
+            self.last_alt_mm = 0
             self.last_t_ms = now_ms
             return
 
@@ -390,12 +390,12 @@ class RecoveryState:
         self.vspeed_cms = 0
         dt_ms = now_ms - self.last_t_ms
         if dt_ms > 0 and dt_ms <= 10_000:
-            self.vspeed_cms = clamp_i((alt_mm - self.last_alt_mm) * 100 / dt_ms, -32768, 32767)
+            # Mirror rocket firmware behavior: derive vertical speed from AGL, not raw GPS altitude.
+            self.vspeed_cms = clamp_i((self.agl_mm - self.last_alt_mm) * 100 / dt_ms, -32768, 32767)
 
-        if self.launch_armed and (not self.liftoff_detected) and (
-            self.agl_mm >= RECOVERY_LIFTOFF_CONFIRM_AGL_MM
-            or self.vspeed_cms >= RECOVERY_LAUNCH_VSPEED_CMS
-        ):
+        # Require explicit altitude gain to declare liftoff; this prevents pad jitter
+        # from tripping drogue/main/landing logic before launch.
+        if self.launch_armed and (not self.liftoff_detected) and self.agl_mm >= RECOVERY_LIFTOFF_CONFIRM_AGL_MM:
             self.liftoff_detected = True
 
         if press_pa_x10 > 0:
@@ -467,7 +467,7 @@ class RecoveryState:
         if self.main_deployed and self.agl_mm <= RECOVERY_LANDED_AGL_MM:
             self.phase = RECOVERY_PHASE_LANDED
 
-        self.last_alt_mm = alt_mm
+        self.last_alt_mm = self.agl_mm
         self.last_t_ms = now_ms
 
 
