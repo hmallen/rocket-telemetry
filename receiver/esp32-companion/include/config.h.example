@@ -96,19 +96,6 @@
 #define COMPANION_SOUND_FILE_HOME_POINT_SET "/sounds/home_point_set.wav"
 #define COMPANION_SOUND_FILE_AUDIO_TEST "/sounds/audio_test.wav"
 
-- `armed.wav`
-- `calibrating.wav`
-- `sensors_ready.wav`
-- `waiting_for_location_fix.wav`
-- `location_fix_acquired.wav`
-- `launch_detect_mode.wav`
-- `launch_detected.wav`
-- `apogee.wav`
-- `drogue_deployed.wav`
-- `main_deployed.wav`
-- `landing_detected.wav`
-- `audio_test.wav` (used by **Play Test Sound**)
-
 // OTA update settings.
 // When enabled, firmware keeps Wi-Fi active even in UART transport mode.
 // First flash should be done over USB, then OTA can be used for updates.
