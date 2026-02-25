@@ -13,6 +13,11 @@ static void lora_on_packet_sent_isr() {
   lora_tx_done_isr = true;
 }
 
+static constexpr uint8_t RECOVERY_PHASE_IDLE = 0;
+static constexpr uint8_t RECOVERY_PHASE_ASCENT = 1;
+static constexpr uint8_t RECOVERY_PHASE_DESCENT = 2;
+static constexpr uint8_t RECOVERY_PHASE_LANDED = 3;
+
 bool LoraLink::set_tx_power_dbm(uint8_t power_dbm) {
   if (power_dbm < 2 || power_dbm > 17) {
     return false;
@@ -75,10 +80,6 @@ static int32_t abs_i32(int32_t x) {
   return (x < 0) ? -x : x;
 }
 
-static int16_t abs_i16(int16_t x) {
-  return (x < 0) ? (int16_t)-x : x;
-}
-
 static void write_u16_le(uint8_t* p, uint16_t v) {
   p[0] = (uint8_t)(v & 0xFFu);
   p[1] = (uint8_t)((v >> 8) & 0xFFu);
@@ -109,11 +110,6 @@ static constexpr uint8_t LORA_CMD_LAUNCH_ARM = 0x09;
 static constexpr uint16_t LORA_RX_DONE_FLAG = 0x40;
 static constexpr uint8_t LORA_ACK_REPEAT_COUNT = 3;
 static constexpr uint32_t LORA_ACK_REPEAT_MS = 400;
-
-static constexpr uint8_t RECOVERY_PHASE_IDLE = 0;
-static constexpr uint8_t RECOVERY_PHASE_ASCENT = 1;
-static constexpr uint8_t RECOVERY_PHASE_DESCENT = 2;
-static constexpr uint8_t RECOVERY_PHASE_LANDED = 3;
 
 static constexpr uint8_t RECOVERY_REASON_NONE = 0;
 static constexpr uint8_t RECOVERY_DROGUE_REASON_APOGEE_VOTE = 1;
