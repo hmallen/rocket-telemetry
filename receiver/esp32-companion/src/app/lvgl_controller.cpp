@@ -20,6 +20,7 @@ constexpr int32_t kTouchPressThreshold = 140;
 constexpr int32_t kTouchReleaseThreshold = 90;
 constexpr lv_coord_t kSettingsButtonHeight = 28;
 constexpr lv_coord_t kSettingsGapPx = 4;
+constexpr lv_coord_t kSettingsPanelMaxHeight = 262;
 
 static uint16_t median3(uint16_t a, uint16_t b, uint16_t c) {
   if (a > b) {
@@ -457,7 +458,7 @@ void LvglController::buildUi() {
 
   settingsBody_ = lv_obj_create(telemetryPanel_);
   lv_obj_set_width(settingsBody_, kSettingsPanelWidth);
-  lv_obj_set_height(settingsBody_, LV_SIZE_CONTENT);
+  lv_obj_set_height(settingsBody_, kSettingsPanelMaxHeight);
   lv_obj_set_style_bg_color(settingsBody_, lv_color_hex(0x111c2e), 0);
   lv_obj_set_style_border_color(settingsBody_, lv_color_hex(0x2a446a), 0);
   lv_obj_set_style_border_width(settingsBody_, 1, 0);
@@ -466,7 +467,9 @@ void LvglController::buildUi() {
   lv_obj_set_style_pad_gap(settingsBody_, kSettingsGapPx, 0);
   lv_obj_set_flex_flow(settingsBody_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(settingsBody_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-  lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(settingsBody_, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(settingsBody_, LV_SCROLLBAR_MODE_AUTO);
+  lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_align(settingsBody_, LV_ALIGN_TOP_RIGHT, 0, 38);
 
@@ -1127,6 +1130,7 @@ void LvglController::toggleSettings() {
     lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_scroll_to_y(settingsBody_, 0, LV_ANIM_OFF);
     panelCollapsed_ = true;
     lv_obj_add_flag(actionPanel_, LV_OBJ_FLAG_HIDDEN);
   }
