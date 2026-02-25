@@ -12,6 +12,7 @@ constexpr uint32_t kUiRefreshIntervalMs = 120;
 constexpr uint32_t kCommandStatusShowMs = 3000;
 constexpr uint32_t kCommandConfirmTimeoutMs = 5000;
 constexpr uint32_t kGroundStationOfflineDetectMs = 8000;
+constexpr const char* kSoundTestFilePath = "/sounds/audio_test.wav";
 constexpr uint8_t kCalPointCount = 4;
 constexpr uint8_t kTelemetryTxPowerMinDbm = 2;
 constexpr uint8_t kTelemetryTxPowerMaxDbm = 17;
@@ -519,39 +520,44 @@ void LvglController::buildUi() {
   // lv_obj_set_style_text_color(settingsInfo, lv_color_hex(0xc2d4f4), 0);
   // lv_obj_clear_flag(settingsInfo, LV_OBJ_FLAG_CLICKABLE);
 
-  lv_obj_t* settingsActions = lv_obj_create(settingsBody_);
-  lv_obj_set_width(settingsActions, LV_PCT(100));
-  lv_obj_set_height(settingsActions, LV_SIZE_CONTENT);
-  lv_obj_set_style_bg_opa(settingsActions, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(settingsActions, 0, 0);
-  lv_obj_set_style_pad_all(settingsActions, 0, 0);
-  lv_obj_set_style_pad_gap(settingsActions, kSettingsGapPx, 0);
-  lv_obj_set_flex_flow(settingsActions, LV_FLEX_FLOW_COLUMN);
-  lv_obj_clear_flag(settingsActions, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_clear_flag(settingsActions, LV_OBJ_FLAG_CLICKABLE);
+  settingsActions_ = lv_obj_create(settingsBody_);
+  lv_obj_set_width(settingsActions_, LV_PCT(100));
+  lv_obj_set_height(settingsActions_, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(settingsActions_, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(settingsActions_, 0, 0);
+  lv_obj_set_style_pad_all(settingsActions_, 0, 0);
+  lv_obj_set_style_pad_gap(settingsActions_, kSettingsGapPx, 0);
+  lv_obj_set_flex_flow(settingsActions_, LV_FLEX_FLOW_COLUMN);
+  lv_obj_clear_flag(settingsActions_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(settingsActions_, LV_OBJ_FLAG_CLICKABLE);
 
-  makeActionButton(settingsActions,
+  makeActionButton(settingsActions_,
                    "ALTITUDE ZERO",
                    onAltCalibrateEvent,
                    this,
                    kSettingsButtonHeight);
-  makeActionButton(settingsActions,
+  makeActionButton(settingsActions_,
                    "IMU CALIBRATION",
                    onImuCalibrateEvent,
                    this,
                    kSettingsButtonHeight);
-  makeActionButton(settingsActions,
+  makeActionButton(settingsActions_,
                    "SCREEN CALIBRATION",
                    onCalibrateEvent,
                    this,
                    kSettingsButtonHeight);
+  makeActionButton(settingsActions_,
+                   "SOUND SETTINGS",
+                   onSoundSettingsOpenEvent,
+                   this,
+                   kSettingsButtonHeight);
 
-  lv_obj_t* txPowerTitle = lv_label_create(settingsActions);
+  lv_obj_t* txPowerTitle = lv_label_create(settingsActions_);
   lv_label_set_text(txPowerTitle, "TELEMETRY TX POWER");
   lv_obj_set_style_text_color(txPowerTitle, lv_color_hex(0xcfe0ff), 0);
   lv_obj_clear_flag(txPowerTitle, LV_OBJ_FLAG_CLICKABLE);
 
-  txPowerConfigRow_ = lv_obj_create(settingsActions);
+  txPowerConfigRow_ = lv_obj_create(settingsActions_);
   lv_obj_set_width(txPowerConfigRow_, LV_PCT(100));
   lv_obj_set_height(txPowerConfigRow_, LV_SIZE_CONTENT);
   lv_obj_set_style_bg_opa(txPowerConfigRow_, LV_OPA_TRANSP, 0);
@@ -592,13 +598,13 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(txPowerSendLabel, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_center(txPowerSendLabel);
 
-  txPowerActiveLabel_ = lv_label_create(settingsActions);
+  txPowerActiveLabel_ = lv_label_create(settingsActions_);
   lv_obj_set_width(txPowerActiveLabel_, LV_PCT(100));
   lv_obj_set_style_text_color(txPowerActiveLabel_, lv_color_hex(0x9fb7df), 0);
   lv_obj_clear_flag(txPowerActiveLabel_, LV_OBJ_FLAG_CLICKABLE);
   lv_label_set_text(txPowerActiveLabel_, "Active: -- dBm");
 
-  shutdownBtn_ = lv_btn_create(settingsActions);
+  shutdownBtn_ = lv_btn_create(settingsActions_);
   lv_obj_add_flag(shutdownBtn_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_width(shutdownBtn_, LV_PCT(100));
   lv_obj_set_height(shutdownBtn_, kSettingsButtonHeight);
@@ -615,7 +621,7 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(shutdownLabel, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_center(shutdownLabel);
 
-  lv_obj_t* touchDebugCheckbox = lv_checkbox_create(settingsActions);
+  lv_obj_t* touchDebugCheckbox = lv_checkbox_create(settingsActions_);
   lv_checkbox_set_text(touchDebugCheckbox, "Touchscreen debug");
   lv_obj_set_width(touchDebugCheckbox, LV_PCT(100));
   lv_obj_set_style_text_color(touchDebugCheckbox, lv_color_hex(0xeaf1ff), 0);
@@ -626,6 +632,60 @@ void LvglController::buildUi() {
     lv_obj_clear_state(touchDebugCheckbox, LV_STATE_CHECKED);
   }
   lv_obj_add_event_cb(touchDebugCheckbox, onTouchDebugToggleEvent, LV_EVENT_VALUE_CHANGED, this);
+
+  soundSettingsPanel_ = lv_obj_create(settingsBody_);
+  lv_obj_set_width(soundSettingsPanel_, LV_PCT(100));
+  lv_obj_set_height(soundSettingsPanel_, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(soundSettingsPanel_, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(soundSettingsPanel_, 0, 0);
+  lv_obj_set_style_pad_all(soundSettingsPanel_, 0, 0);
+  lv_obj_set_style_pad_gap(soundSettingsPanel_, kSettingsGapPx, 0);
+  lv_obj_set_flex_flow(soundSettingsPanel_, LV_FLEX_FLOW_COLUMN);
+  lv_obj_clear_flag(soundSettingsPanel_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(soundSettingsPanel_, LV_OBJ_FLAG_CLICKABLE);
+
+  makeActionButton(soundSettingsPanel_,
+                   "BACK",
+                   onSoundSettingsBackEvent,
+                   this,
+                   kSettingsButtonHeight);
+  makeActionButton(soundSettingsPanel_,
+                   "PLAY TEST SOUND",
+                   onSoundTestEvent,
+                   this,
+                   kSettingsButtonHeight);
+
+  lv_obj_t* soundVolumeTitle = lv_label_create(soundSettingsPanel_);
+  lv_label_set_text(soundVolumeTitle, "SOUND VOLUME");
+  lv_obj_set_style_text_color(soundVolumeTitle, lv_color_hex(0xcfe0ff), 0);
+  lv_obj_clear_flag(soundVolumeTitle, LV_OBJ_FLAG_CLICKABLE);
+
+  lv_obj_t* soundVolumeRow = lv_obj_create(soundSettingsPanel_);
+  lv_obj_set_width(soundVolumeRow, LV_PCT(100));
+  lv_obj_set_height(soundVolumeRow, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(soundVolumeRow, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(soundVolumeRow, 0, 0);
+  lv_obj_set_style_pad_all(soundVolumeRow, 0, 0);
+  lv_obj_set_style_pad_gap(soundVolumeRow, kSettingsGapPx, 0);
+  lv_obj_set_flex_flow(soundVolumeRow, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(soundVolumeRow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_clear_flag(soundVolumeRow, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(soundVolumeRow, LV_OBJ_FLAG_CLICKABLE);
+
+  soundVolumeSlider_ = lv_slider_create(soundVolumeRow);
+  lv_obj_set_width(soundVolumeSlider_, 170);
+  lv_slider_set_range(soundVolumeSlider_, 0, 100);
+  lv_slider_set_value(soundVolumeSlider_, audioVolumePercent_, LV_ANIM_OFF);
+  lv_obj_add_event_cb(soundVolumeSlider_, onSoundVolumeChangedEvent, LV_EVENT_VALUE_CHANGED, this);
+
+  soundVolumeLabel_ = lv_label_create(soundVolumeRow);
+  lv_obj_set_width(soundVolumeLabel_, 52);
+  lv_obj_set_style_text_align(soundVolumeLabel_, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_set_style_text_color(soundVolumeLabel_, lv_color_hex(0xcfe0ff), 0);
+  lv_obj_clear_flag(soundVolumeLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_label_set_text_fmt(soundVolumeLabel_, "%u%%", static_cast<unsigned>(audioVolumePercent_));
+
+  setSoundSettingsVisible(false);
 
   lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
 
@@ -1033,6 +1093,9 @@ bool LvglController::playWavFromSd(const char* path) {
       mixed /= static_cast<int32_t>(numChannels);
     }
 
+    const uint8_t clampedVolume = (audioVolumePercent_ > 100U) ? 100U : audioVolumePercent_;
+    mixed = (mixed * static_cast<int32_t>(clampedVolume)) / 100;
+
     int32_t sampleU8 = (mixed + 32768) >> 8;
     if (sampleU8 < 0) {
       sampleU8 = 0;
@@ -1426,6 +1489,7 @@ void LvglController::togglePanel() {
   } else {
     lv_obj_clear_flag(actionPanel_, LV_OBJ_FLAG_HIDDEN);
     settingsCollapsed_ = true;
+    setSoundSettingsVisible(false);
     lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
   }
   lv_obj_update_layout(telemetryPanel_);
@@ -1447,13 +1511,34 @@ void LvglController::setTouchDebugVisible(bool visible) {
 void LvglController::toggleSettings() {
   settingsCollapsed_ = !settingsCollapsed_;
   if (settingsCollapsed_) {
+    setSoundSettingsVisible(false);
     lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
+    setSoundSettingsVisible(false);
     panelCollapsed_ = true;
     lv_obj_add_flag(actionPanel_, LV_OBJ_FLAG_HIDDEN);
   }
   lv_obj_update_layout(telemetryPanel_);
+}
+
+void LvglController::setSoundSettingsVisible(bool visible) {
+  soundSettingsVisible_ = visible;
+  if (settingsActions_ == nullptr || soundSettingsPanel_ == nullptr) {
+    return;
+  }
+
+  if (soundSettingsVisible_) {
+    lv_obj_add_flag(settingsActions_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(soundSettingsPanel_, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_clear_flag(settingsActions_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(soundSettingsPanel_, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  if (settingsBody_ != nullptr) {
+    lv_obj_update_layout(settingsBody_);
+  }
 }
 
 void LvglController::advanceCalibrationTarget() {
@@ -1974,6 +2059,49 @@ void LvglController::onTxPowerSendEvent(lv_event_t* e) {
   }
   self->sendAction("telemetry_tx_power", self->txPowerDbm_);
   self->refreshUi();
+}
+
+void LvglController::onSoundSettingsOpenEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  self->setSoundSettingsVisible(true);
+}
+
+void LvglController::onSoundSettingsBackEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  self->setSoundSettingsVisible(false);
+}
+
+void LvglController::onSoundTestEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  const bool ok = self->playWavFromSd(kSoundTestFilePath);
+  self->setCommandStatus(ok ? "AUDIO TEST played" : "AUDIO TEST failed", ok);
+  self->refreshUi();
+}
+
+void LvglController::onSoundVolumeChangedEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr || self->soundVolumeSlider_ == nullptr) {
+    return;
+  }
+  int value = lv_slider_get_value(self->soundVolumeSlider_);
+  if (value < 0) {
+    value = 0;
+  } else if (value > 100) {
+    value = 100;
+  }
+  self->audioVolumePercent_ = static_cast<uint8_t>(value);
+  if (self->soundVolumeLabel_ != nullptr) {
+    lv_label_set_text_fmt(self->soundVolumeLabel_, "%u%%", static_cast<unsigned>(self->audioVolumePercent_));
+  }
 }
 
 void LvglController::onSdToggleEvent(lv_event_t* e) {

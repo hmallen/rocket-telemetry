@@ -105,6 +105,7 @@ class LvglController {
 
   bool panelCollapsed_ = true;
   bool settingsCollapsed_ = true;
+  bool soundSettingsVisible_ = false;
 
   bool calibrationActive_ = false;
   bool calibrationTouchLatch_ = false;
@@ -150,6 +151,11 @@ class LvglController {
   lv_obj_t* txPowerActiveLabel_ = nullptr;
   lv_obj_t* shutdownBtn_ = nullptr;
   lv_obj_t* settingsBody_ = nullptr;
+  lv_obj_t* settingsActions_ = nullptr;
+  lv_obj_t* soundSettingsPanel_ = nullptr;
+  lv_obj_t* soundVolumeSlider_ = nullptr;
+  lv_obj_t* soundVolumeLabel_ = nullptr;
+  uint8_t audioVolumePercent_ = 100;
 
   lv_obj_t* linkLabel_ = nullptr;
   lv_obj_t* linkMetaLabel_ = nullptr;
@@ -195,6 +201,7 @@ class LvglController {
   bool sendAction(const String& action, int durationS = 0);
   void togglePanel();
   void toggleSettings();
+  void setSoundSettingsVisible(bool visible);
   void setTouchDebugVisible(bool visible);
 
   void loadTouchCalibration();
@@ -223,6 +230,10 @@ class LvglController {
   static void onBuzzerSendEvent(lv_event_t* e);
   static void onTxPowerChangedEvent(lv_event_t* e);
   static void onTxPowerSendEvent(lv_event_t* e);
+  static void onSoundSettingsOpenEvent(lv_event_t* e);
+  static void onSoundSettingsBackEvent(lv_event_t* e);
+  static void onSoundTestEvent(lv_event_t* e);
+  static void onSoundVolumeChangedEvent(lv_event_t* e);
   static void onSdToggleEvent(lv_event_t* e);
   static void onTxToggleEvent(lv_event_t* e);
 };
