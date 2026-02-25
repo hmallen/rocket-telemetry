@@ -54,7 +54,7 @@ cp include/config.h.example include/config.h
 - UART pins/baud for your board revision
 - Wi-Fi + host settings if using API/SSE mode
 - auth token if `/api/companion/cmd` is protected
-- optional SD bootstrap (`COMPANION_SD_ENABLE`, `COMPANION_SD_CS_PIN`, `COMPANION_SD_SPI_FREQ`, `COMPANION_SD_SOUND_DIR`) for future sound assets
+- optional SD bootstrap (`COMPANION_SD_ENABLE`, `COMPANION_SD_CS_PIN`, `COMPANION_SD_SPI_FREQ`, `COMPANION_SD_SCK_PIN`, `COMPANION_SD_MISO_PIN`, `COMPANION_SD_MOSI_PIN`, `COMPANION_SD_SOUND_DIR`) for future sound assets
 - optional event audio output (`COMPANION_AUDIO_ENABLE`, `COMPANION_AUDIO_SPK_PIN`, `COMPANION_AUDIO_PWM_*`) and per-event WAV file paths (`COMPANION_SOUND_FILE_*`)
 - OTA settings (`OTA_ENABLE`, `OTA_HOSTNAME`, `OTA_PORT`, `OTA_PASSWORD`) if using OTA updates
 

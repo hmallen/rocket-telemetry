@@ -51,6 +51,9 @@ class LvglController {
   CompanionState state_;
   TFT_eSPI& tft_;
   Preferences prefs_;
+#if defined(ESP32)
+  SPIClass sdSpi_{HSPI};
+#endif
 
   bool sdLoggingEnabled_ = false;
   bool telemetryTxEnabled_ = false;

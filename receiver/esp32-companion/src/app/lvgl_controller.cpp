@@ -97,6 +97,18 @@ static int32_t mapLinearRange(int32_t value,
 #define COMPANION_SD_SPI_FREQ 10000000
 #endif
 
+#ifndef COMPANION_SD_SCK_PIN
+#define COMPANION_SD_SCK_PIN 18
+#endif
+
+#ifndef COMPANION_SD_MISO_PIN
+#define COMPANION_SD_MISO_PIN 19
+#endif
+
+#ifndef COMPANION_SD_MOSI_PIN
+#define COMPANION_SD_MOSI_PIN 23
+#endif
+
 #ifndef COMPANION_SD_SOUND_DIR
 #define COMPANION_SD_SOUND_DIR "/sounds"
 #endif
@@ -928,9 +940,24 @@ void LvglController::initSdStorage() {
   pinMode(COMPANION_SD_CS_PIN, OUTPUT);
   digitalWrite(COMPANION_SD_CS_PIN, HIGH);
 
+#if defined(ESP32)
+  SPIClass* sdBus = &SPI;
+  if (COMPANION_SD_SCK_PIN >= 0 && COMPANION_SD_MISO_PIN >= 0 && COMPANION_SD_MOSI_PIN >= 0) {
+    sdSpi_.begin(COMPANION_SD_SCK_PIN,
+                 COMPANION_SD_MISO_PIN,
+                 COMPANION_SD_MOSI_PIN,
+                 COMPANION_SD_CS_PIN);
+    sdBus = &sdSpi_;
+  }
+
+  if (!SD.begin(COMPANION_SD_CS_PIN, *sdBus, COMPANION_SD_SPI_FREQ)) {
+    return;
+  }
+#else
   if (!SD.begin(COMPANION_SD_CS_PIN, SPI, COMPANION_SD_SPI_FREQ)) {
     return;
   }
+#endif
 
   const uint8_t cardType = SD.cardType();
   if (cardType == CARD_NONE) {

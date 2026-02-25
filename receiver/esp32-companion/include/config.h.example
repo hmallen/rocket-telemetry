@@ -64,9 +64,13 @@
 
 // Optional SD card bootstrap for future on-device assets (for example: sounds).
 // Set COMPANION_SD_CS_PIN to your board's SD/TF CS pin (or -1 to disable).
+// By default, SD uses a dedicated SPI bus (18/19/23) so TFT/touch SPI is not reconfigured.
 #define COMPANION_SD_ENABLE 0
 #define COMPANION_SD_CS_PIN -1
 #define COMPANION_SD_SPI_FREQ 10000000
+#define COMPANION_SD_SCK_PIN 18
+#define COMPANION_SD_MISO_PIN 19
+#define COMPANION_SD_MOSI_PIN 23
 #define COMPANION_SD_SOUND_DIR "/sounds"
 
 // Optional speaker playback for flight events using WAV files on SD.
