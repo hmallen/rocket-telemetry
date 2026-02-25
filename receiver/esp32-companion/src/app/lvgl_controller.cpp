@@ -16,6 +16,8 @@ constexpr const char* kSoundTestFilePath = "/sounds/audio_test.wav";
 constexpr uint8_t kCalPointCount = 4;
 constexpr uint8_t kTelemetryTxPowerMinDbm = 2;
 constexpr uint8_t kTelemetryTxPowerMaxDbm = 17;
+constexpr lv_coord_t kSettingsPanelTopOffsetPx = 38;
+constexpr lv_coord_t kSettingsPanelBottomMarginPx = 4;
 constexpr int kCalMarginPx = 24;
 constexpr int32_t kCalRetouchDistancePx = 120;
 constexpr int32_t kTouchPressThreshold = 140;
@@ -537,7 +539,8 @@ void LvglController::buildUi() {
 
   settingsBody_ = lv_obj_create(telemetryPanel_);
   lv_obj_set_width(settingsBody_, kSettingsPanelWidth);
-  lv_obj_set_height(settingsBody_, LV_SIZE_CONTENT);
+  lv_obj_set_height(settingsBody_,
+                    kScreenHeight - kSettingsPanelTopOffsetPx - kSettingsPanelBottomMarginPx);
   lv_obj_set_style_bg_color(settingsBody_, lv_color_hex(0x111c2e), 0);
   lv_obj_set_style_border_color(settingsBody_, lv_color_hex(0x2a446a), 0);
   lv_obj_set_style_border_width(settingsBody_, 1, 0);
@@ -546,9 +549,11 @@ void LvglController::buildUi() {
   lv_obj_set_style_pad_gap(settingsBody_, kSettingsGapPx, 0);
   lv_obj_set_flex_flow(settingsBody_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(settingsBody_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-  lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(settingsBody_, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(settingsBody_, LV_SCROLLBAR_MODE_AUTO);
   lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_align(settingsBody_, LV_ALIGN_TOP_RIGHT, 0, 38);
+  lv_obj_align(settingsBody_, LV_ALIGN_TOP_RIGHT, 0, kSettingsPanelTopOffsetPx);
 
   lv_obj_t* settingsTitle = lv_label_create(settingsBody_);
   lv_label_set_text(settingsTitle, "SETTINGS");
@@ -1835,6 +1840,7 @@ void LvglController::toggleSettings() {
   } else {
     lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
     setSoundSettingsVisible(false);
+    lv_obj_scroll_to_y(settingsBody_, 0, LV_ANIM_OFF);
     panelCollapsed_ = true;
     lv_obj_add_flag(actionPanel_, LV_OBJ_FLAG_HIDDEN);
   }
@@ -1888,6 +1894,7 @@ void LvglController::setSoundSettingsVisible(bool visible) {
   }
 
   if (settingsBody_ != nullptr) {
+    lv_obj_scroll_to_y(settingsBody_, 0, LV_ANIM_OFF);
     lv_obj_update_layout(settingsBody_);
   }
 }
