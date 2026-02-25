@@ -26,6 +26,11 @@ static BlockBuilder block;
 static SdLogger sdlog;
 static uint32_t block_seq = 0;
 static bool sd_logging_enabled = false;
+constexpr uint32_t SD_ROTATE_DRAIN_MAX_MS = 3000;
+
+static inline bool build_and_write_block_from_source(uint32_t now_ms, bool force_write = false);
+static inline void pump_ring_to_spool();
+static void sd_logging_flush_pending(uint32_t now_ms, uint32_t max_drain_ms);
 
 #if ENABLE_SD_DUMP
 static const char* sd_dump_record_name(uint8_t type) {
@@ -339,6 +344,8 @@ static void sd_rotate_log() {
     snprintf(old_name, sizeof(old_name), "%s", log_name);
   }
 
+  sd_logging_flush_pending(millis(), SD_ROTATE_DRAIN_MAX_MS);
+
   if (!sdlog.close_log()) {
     Serial.println("sd: close failed");
   }
@@ -369,6 +376,25 @@ static void sd_dump_print_help() {
 }
 #endif
 
+#if !ENABLE_SD_DUMP
+static void sd_rotate_log() {
+#if !ENABLE_SD_LOGGER
+  return;
+#else
+  sd_logging_flush_pending(millis(), SD_ROTATE_DRAIN_MAX_MS);
+  if (!sdlog.close_log()) {
+    DBG_PRINTLN("sd: close failed");
+  }
+  if (!sdlog.open_new_log(PREALLOC_BYTES)) {
+    DBG_PRINTLN("sd: open new log failed");
+    sd_logging_enabled = false;
+    return;
+  }
+  sd_logging_enabled = true;
+#endif
+}
+#endif
+
 static void sd_logging_reset_buffers() {
   block_seq = 0;
   block.reset(block_seq, micros());
@@ -378,11 +404,44 @@ static void sd_logging_reset_buffers() {
 #endif
 }
 
+static void sd_logging_flush_pending(uint32_t now_ms, uint32_t max_drain_ms) {
+#if !ENABLE_SD_LOGGER
+  (void)now_ms;
+  (void)max_drain_ms;
+  return;
+#else
+  if (!sd_logging_enabled) return;
+
+  const uint32_t start_ms = now_ms;
+  while (true) {
+    pump_ring_to_spool();
+    const bool wrote = build_and_write_block_from_source(now_ms, true);
+
+    bool pending = (ring.available() != 0) || (block.payload_len() != 0);
+#if ENABLE_PSRAM_SPOOL
+    pending = pending || (spool.available() != 0);
+#endif
+
+    if (!pending || !wrote) {
+      break;
+    }
+
+    now_ms = millis();
+    if ((uint32_t)(now_ms - start_ms) >= max_drain_ms) {
+      break;
+    }
+  }
+
+  sdlog.force_sync();
+#endif
+}
+
 static void sd_logging_stop() {
 #if !ENABLE_SD_LOGGER
   return;
 #endif
   if (!sd_logging_enabled) return;
+  sd_logging_flush_pending(millis(), SD_ROTATE_DRAIN_MAX_MS);
   sdlog.force_sync();
   sdlog.close_log();
   sd_logging_enabled = false;
@@ -572,7 +631,7 @@ static inline void ring_write_imu(uint32_t t_us, const ImuSample& s) {
   ring.write(&r, sizeof(r));
 }
 
-static inline bool build_and_write_block_from_source(uint32_t now_ms) {
+static inline bool build_and_write_block_from_source(uint32_t now_ms, bool force_write) {
   // Fill a block payload from spool (preferred) or ring (direct)
   BlockHdr hdr{};
   if (block.payload_len() == 0) block.reset(block_seq, micros());
@@ -604,6 +663,7 @@ static inline bool build_and_write_block_from_source(uint32_t now_ms) {
 
   // Write when block is reasonably full or when backlog exists and SD should drain
   const bool should_write =
+    (force_write && block.payload_len() > 0) ||
     (block.payload_len() >= (LOG_BLOCK_BYTES - sizeof(BlockHdr) - 512)) ||
 #if ENABLE_PSRAM_SPOOL
     (spool.available() > (SPOOL_BYTES / 2)) ||
@@ -1058,6 +1118,10 @@ void loop() {
                   g_bat_state,
                   lora_gps,
                   have_imu_sample ? &last_imu_sample : nullptr);
+
+  if (sd_logging_enabled && lora.consume_landing_detected_event()) {
+    sd_rotate_log();
+  }
 
   {
     LoraCommand cmd = LoraCommand::kNone;
