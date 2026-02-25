@@ -51,6 +51,8 @@ struct CompanionState {
   bool hasRecoveryDeploymentState = false;
   bool recoveryDrogueDeployed = false;
   bool recoveryMainDeployed = false;
+  bool recoveryLaunchArmed = false;
+  bool recoveryGpsFix3d = false;
   String primaryAlert;
   bool stale = true;
 };

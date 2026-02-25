@@ -15,6 +15,7 @@ enum class LoraCommand : uint8_t {
   kAltCalibrate = 0x06,
   kImuCalibrate = 0x07,
   kSetTxPower = 0x08,
+  kLaunchArm = 0x09,
 };
 
 class LoraLink {
@@ -23,6 +24,7 @@ public:
 
   void enable_tx(bool enable);
   bool set_tx_power_dbm(uint8_t power_dbm);
+  bool arm_launch_detect_mode();
   void shutdown();
   void set_faulted(bool faulted);
 
@@ -126,6 +128,7 @@ private:
   int16_t recovery_vspeed_cms_ = 0;
   uint8_t recovery_phase_ = 0;
   bool recovery_launch_armed_ = false;
+  bool recovery_gps_fix_3d_ = false;
   bool recovery_liftoff_detected_ = false;
   bool recovery_have_min_press_ = false;
   int32_t recovery_min_press_pa_x10_ = 0;

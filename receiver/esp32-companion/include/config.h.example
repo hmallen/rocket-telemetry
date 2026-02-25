@@ -84,6 +84,10 @@
 #define COMPANION_SOUND_FILE_DROGUE "/sounds/drogue_deploy.wav"
 #define COMPANION_SOUND_FILE_MAIN "/sounds/main_deploy.wav"
 #define COMPANION_SOUND_FILE_LANDING "/sounds/landing.wav"
+#define COMPANION_SOUND_FILE_ARMED "/sounds/armed.wav"
+#define COMPANION_SOUND_FILE_LAUNCH_DETECT_MODE "/sounds/launch_detect_mode.wav"
+#define COMPANION_SOUND_FILE_LOCATION_FIX_ACQUIRED "/sounds/location_fix_acquired.wav"
+#define COMPANION_SOUND_FILE_WAITING_FOR_LOCATION_FIX "/sounds/waiting_for_location_fix.wav"
 
 // OTA update settings.
 // When enabled, firmware keeps Wi-Fi active even in UART transport mode.

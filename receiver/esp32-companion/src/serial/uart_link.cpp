@@ -52,6 +52,8 @@ void UartLink::applyTelemetry(const TelemetryV1& t, bool hasTxPower, CompanionSt
   ioState.hasRecoveryDeploymentState = true;
   ioState.recoveryDrogueDeployed = (t.flags & 0x02) != 0;
   ioState.recoveryMainDeployed = (t.flags & 0x04) != 0;
+  ioState.recoveryLaunchArmed = (t.flags & 0x40) != 0;
+  ioState.recoveryGpsFix3d = (t.flags & 0x80) != 0;
 
   ioState.stale = false;
 }
@@ -112,6 +114,8 @@ bool UartLink::poll(CompanionState& ioState) {
         ioState.hasRecoveryDeploymentState = true;
         ioState.recoveryDrogueDeployed = (t.flags & 0x02) != 0;
         ioState.recoveryMainDeployed = (t.flags & 0x04) != 0;
+        ioState.recoveryLaunchArmed = false;
+        ioState.recoveryGpsFix3d = false;
 
         ioState.stale = false;
         updated = true;
@@ -167,6 +171,9 @@ bool UartLink::sendCommand(const String& action, int durationS) {
     }
     cmd.cmd = CMD_SET_TX_POWER;
     cmd.arg = static_cast<uint8_t>(durationS);
+  } else if (action == "launch_arm") {
+    cmd.cmd = CMD_LAUNCH_ARM;
+    cmd.arg = 0;
   } else {
     return false;
   }

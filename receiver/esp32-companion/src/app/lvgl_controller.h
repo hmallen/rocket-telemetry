@@ -26,6 +26,10 @@ class LvglController {
     kDrogueDeploy,
     kMainDeploy,
     kLanding,
+    kArmed,
+    kLaunchDetectMode,
+    kLocationFixAcquired,
+    kWaitingForLocationFix,
   };
 
   struct TouchCalibration {
@@ -67,9 +71,14 @@ class LvglController {
   uint64_t sdStorageUsedBytes_ = 0;
   bool audioOutputReady_ = false;
   uint16_t audioPwmMaxDuty_ = 255;
+  bool soundEnabled_ = true;
   bool hasRecoveryDeployHistory_ = false;
   bool lastRecoveryDrogueDeployed_ = false;
   bool lastRecoveryMainDeployed_ = false;
+  bool recoveryLaunchArmed_ = false;
+  bool recoveryGpsFix3d_ = false;
+  float maxObservedAglM_ = NAN;
+  bool apogeeCalloutPending_ = false;
   static constexpr uint8_t kSoundQueueCapacity = 8;
   SoundCue soundQueue_[kSoundQueueCapacity] = {};
   uint8_t soundQueueHead_ = 0;
@@ -149,10 +158,13 @@ class LvglController {
   lv_obj_t* txPowerSlider_ = nullptr;
   lv_obj_t* txPowerLabel_ = nullptr;
   lv_obj_t* txPowerActiveLabel_ = nullptr;
+  lv_obj_t* armBtn_ = nullptr;
+  lv_obj_t* armLabel_ = nullptr;
   lv_obj_t* shutdownBtn_ = nullptr;
   lv_obj_t* settingsBody_ = nullptr;
   lv_obj_t* settingsActions_ = nullptr;
   lv_obj_t* soundSettingsPanel_ = nullptr;
+  lv_obj_t* soundEnabledCheckbox_ = nullptr;
   lv_obj_t* soundVolumeSlider_ = nullptr;
   lv_obj_t* soundVolumeLabel_ = nullptr;
   uint8_t audioVolumePercent_ = 100;
@@ -194,6 +206,8 @@ class LvglController {
   void queueSoundCue(SoundCue cue);
   void handleEventSoundTriggers(const String& previousPhase, bool phaseChanged);
   void playNextQueuedSound();
+  bool playNumberCue(int value);
+  bool playApogeeAltitudeCallout();
   const char* cueFilePath(SoundCue cue) const;
   bool playWavFromSd(const char* path);
   bool ensureConnected();
@@ -201,6 +215,7 @@ class LvglController {
   bool sendAction(const String& action, int durationS = 0);
   void togglePanel();
   void toggleSettings();
+  void setSoundEnabled(bool enabled);
   void setSoundSettingsVisible(bool visible);
   void setTouchDebugVisible(bool visible);
 
@@ -230,8 +245,10 @@ class LvglController {
   static void onBuzzerSendEvent(lv_event_t* e);
   static void onTxPowerChangedEvent(lv_event_t* e);
   static void onTxPowerSendEvent(lv_event_t* e);
+  static void onArmEvent(lv_event_t* e);
   static void onSoundSettingsOpenEvent(lv_event_t* e);
   static void onSoundSettingsBackEvent(lv_event_t* e);
+  static void onSoundEnableToggleEvent(lv_event_t* e);
   static void onSoundTestEvent(lv_event_t* e);
   static void onSoundVolumeChangedEvent(lv_event_t* e);
   static void onSdToggleEvent(lv_event_t* e);

@@ -27,6 +27,8 @@ const elements = {
   altTempC: document.getElementById("alt-temp-c"),
   recoveryMode: document.getElementById("recovery-mode"),
   recoveryPhase: document.getElementById("recovery-phase"),
+  recoveryArmed: document.getElementById("recovery-armed"),
+  recoveryGpsFix: document.getElementById("recovery-gps-fix"),
   recoveryAgl: document.getElementById("recovery-agl"),
   recoveryVspeed: document.getElementById("recovery-vspeed"),
   recoveryDrogue: document.getElementById("recovery-drogue"),
@@ -73,6 +75,13 @@ const elements = {
   altCalStatus: document.getElementById("alt-cal-status"),
   imuCalibrate: document.getElementById("imu-calibrate"),
   imuCalStatus: document.getElementById("imu-cal-status"),
+  launchArm: document.getElementById("launch-arm"),
+  launchArmStatus: document.getElementById("launch-arm-status"),
+  soundEnabled: document.getElementById("sound-enabled"),
+  soundVolume: document.getElementById("sound-volume"),
+  soundVolumeValue: document.getElementById("sound-volume-value"),
+  soundTest: document.getElementById("sound-test"),
+  soundStatus: document.getElementById("sound-status"),
   telemetryWaiting: document.getElementById("telemetry-waiting"),
 };
 
@@ -108,6 +117,15 @@ const state = {
   buzzerCommandPending: false,
   altCalCommandPending: false,
   imuCalCommandPending: false,
+  launchArmPending: false,
+  launchArmAwaitingAck: false,
+  launchArmAwaitingSinceMs: 0,
+  launchArmAckTs: null,
+  recoveryLaunchArmed: false,
+  recoveryGpsFix3d: false,
+  soundEnabled: true,
+  soundVolumePct: 70,
+  soundSettingsLoaded: false,
 };
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -119,6 +137,8 @@ const FILTER_LABELS = {
   "accel-threshold": "Accel Threshold",
 };
 const MAP_PATH_LIMIT = 200;
+const SOUND_ENABLED_STORAGE_KEY = "gs_sound_enabled";
+const SOUND_VOLUME_STORAGE_KEY = "gs_sound_volume";
 const ROCKET_COLORS = {
   body: [198, 222, 235],
   nose: [244, 252, 255],
@@ -126,6 +146,8 @@ const ROCKET_COLORS = {
   nozzle: [46, 62, 78],
   wire: [120, 236, 204],
 };
+
+let soundAudioContext = null;
 
 const rocketScene = {
   stars: [],
@@ -315,6 +337,167 @@ function setTelemetryTxPowerStatus(message, statusClass) {
   elements.telemTxPowerStatus.classList.remove("ok", "pending", "error");
   if (statusClass) {
     elements.telemTxPowerStatus.classList.add(statusClass);
+  }
+}
+
+function setSoundVolumeInlineValue(volumePct) {
+  if (!elements.soundVolumeValue) {
+    return;
+  }
+  if (!Number.isFinite(volumePct)) {
+    elements.soundVolumeValue.textContent = "--%";
+    return;
+  }
+  elements.soundVolumeValue.textContent = `${Math.round(volumePct)}%`;
+}
+
+function setSoundStatus(message, statusClass) {
+  if (!elements.soundStatus) {
+    return;
+  }
+  elements.soundStatus.textContent = message;
+  elements.soundStatus.classList.remove("ok", "pending", "error");
+  if (statusClass) {
+    elements.soundStatus.classList.add(statusClass);
+  }
+}
+
+function updateSoundControlState() {
+  const enabled = state.soundEnabled;
+  if (elements.soundVolume) {
+    elements.soundVolume.disabled = !enabled;
+  }
+  if (elements.soundTest) {
+    elements.soundTest.disabled = !enabled;
+  }
+}
+
+function persistSoundSettings() {
+  if (!state.soundSettingsLoaded) {
+    return;
+  }
+  try {
+    localStorage.setItem(SOUND_ENABLED_STORAGE_KEY, state.soundEnabled ? "1" : "0");
+    localStorage.setItem(SOUND_VOLUME_STORAGE_KEY, String(Math.round(state.soundVolumePct)));
+  } catch (_err) {
+    // Ignore storage failures (private mode / restricted browser policies).
+  }
+}
+
+function loadSoundSettings() {
+  let enabled = true;
+  let volumePct = 70;
+
+  try {
+    const enabledRaw = localStorage.getItem(SOUND_ENABLED_STORAGE_KEY);
+    if (enabledRaw === "0" || enabledRaw === "false") {
+      enabled = false;
+    }
+
+    const volumeRaw = localStorage.getItem(SOUND_VOLUME_STORAGE_KEY);
+    const parsedVolume = Number(volumeRaw);
+    if (Number.isFinite(parsedVolume)) {
+      volumePct = clamp(Math.round(parsedVolume), 0, 100);
+    }
+  } catch (_err) {
+    // Keep defaults if local storage is unavailable.
+  }
+
+  state.soundEnabled = enabled;
+  state.soundVolumePct = volumePct;
+  state.soundSettingsLoaded = true;
+
+  if (elements.soundEnabled) {
+    elements.soundEnabled.checked = enabled;
+  }
+  if (elements.soundVolume) {
+    elements.soundVolume.value = String(volumePct);
+  }
+  setSoundVolumeInlineValue(volumePct);
+  setSoundStatus(enabled ? "Sound cues enabled" : "Sound cues muted", enabled ? "ok" : "pending");
+  updateSoundControlState();
+}
+
+function ensureSoundAudioContext() {
+  const AudioCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtor) {
+    return null;
+  }
+  if (!soundAudioContext) {
+    soundAudioContext = new AudioCtor();
+  }
+  if (soundAudioContext.state === "suspended") {
+    soundAudioContext.resume().catch(() => {});
+  }
+  return soundAudioContext;
+}
+
+function playSoundPattern(pattern) {
+  if (!state.soundEnabled) {
+    return false;
+  }
+  const ctx = ensureSoundAudioContext();
+  if (!ctx) {
+    setSoundStatus("Browser audio unavailable", "error");
+    return false;
+  }
+
+  const gain = ctx.createGain();
+  gain.gain.value = clamp((state.soundVolumePct / 100) * 0.16, 0, 0.25);
+  gain.connect(ctx.destination);
+
+  let t = ctx.currentTime + 0.01;
+  pattern.forEach((step) => {
+    const freqHz = step[0];
+    const durationS = step[1] / 1000;
+    if (freqHz > 0) {
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freqHz, t);
+      osc.connect(gain);
+      osc.start(t);
+      osc.stop(t + durationS);
+    }
+    t += durationS;
+  });
+
+  return true;
+}
+
+function playSoundTestTone() {
+  const played = playSoundPattern([
+    [784, 110],
+    [0, 40],
+    [1047, 130],
+  ]);
+  if (played) {
+    setSoundStatus(`Test tone played (${Math.round(state.soundVolumePct)}%)`, "ok");
+  }
+}
+
+function playLaunchArmCue(accepted) {
+  if (accepted) {
+    playSoundPattern([
+      [740, 100],
+      [988, 120],
+      [1319, 140],
+    ]);
+  } else {
+    playSoundPattern([
+      [392, 150],
+      [262, 190],
+    ]);
+  }
+}
+
+function playHomePointSetCue() {
+  const played = playSoundPattern([
+    [523, 90],
+    [659, 100],
+    [784, 120],
+  ]);
+  if (played) {
+    setSoundStatus("Home point set cue played", "ok");
   }
 }
 
@@ -591,6 +774,47 @@ if (elements.altCalibrate) {
 if (elements.imuCalibrate) {
   elements.imuCalibrate.addEventListener("click", () => {
     postImuCalibrateCommand();
+  });
+}
+
+if (elements.launchArm) {
+  elements.launchArm.addEventListener("click", () => {
+    postLaunchArmCommand();
+  });
+}
+
+if (elements.soundEnabled) {
+  elements.soundEnabled.addEventListener("change", () => {
+    state.soundEnabled = Boolean(elements.soundEnabled.checked);
+    persistSoundSettings();
+    updateSoundControlState();
+    if (state.soundEnabled) {
+      setSoundStatus("Sound cues enabled", "ok");
+      playSoundPattern([[988, 90]]);
+    } else {
+      setSoundStatus("Sound cues muted", "pending");
+    }
+  });
+}
+
+if (elements.soundVolume) {
+  elements.soundVolume.addEventListener("input", () => {
+    const value = Number(elements.soundVolume.value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+    state.soundVolumePct = clamp(Math.round(value), 0, 100);
+    setSoundVolumeInlineValue(state.soundVolumePct);
+    persistSoundSettings();
+    if (state.soundEnabled) {
+      setSoundStatus(`Volume ${state.soundVolumePct}%`, "ok");
+    }
+  });
+}
+
+if (elements.soundTest) {
+  elements.soundTest.addEventListener("click", () => {
+    playSoundTestTone();
   });
 }
 
@@ -926,6 +1150,115 @@ function postImuCalibrateCommand() {
     });
 }
 
+function setLaunchArmStatus(message, statusClass) {
+  if (!elements.launchArmStatus) {
+    return;
+  }
+  elements.launchArmStatus.textContent = message;
+  elements.launchArmStatus.classList.remove("ok", "pending", "error");
+  if (statusClass) {
+    elements.launchArmStatus.classList.add(statusClass);
+  }
+}
+
+function updateLaunchArmControlState() {
+  if (!elements.launchArm) {
+    return;
+  }
+
+  let preserveStatus = false;
+
+  if (state.launchArmPending) {
+    elements.launchArm.disabled = true;
+    return;
+  }
+
+  if (state.launchArmAwaitingAck) {
+    const waitingAgeMs = Date.now() - state.launchArmAwaitingSinceMs;
+    if (waitingAgeMs <= 10000) {
+      elements.launchArm.disabled = true;
+      setLaunchArmStatus("Launch-arm command sent. Awaiting ack...", "pending");
+      return;
+    }
+    state.launchArmAwaitingAck = false;
+    state.launchArmAwaitingSinceMs = 0;
+    setLaunchArmStatus("Launch-arm ack timeout; you can retry", "error");
+    preserveStatus = true;
+  }
+
+  if (state.commandLockoutActive) {
+    elements.launchArm.disabled = true;
+    if (!preserveStatus) {
+      setLaunchArmStatus("Arm locked: flight in progress", "error");
+    }
+    return;
+  }
+
+  if (state.recoveryLaunchArmed) {
+    elements.launchArm.disabled = true;
+    if (!preserveStatus) {
+      setLaunchArmStatus("Launch detect armed", "ok");
+    }
+    return;
+  }
+
+  if (!state.recoveryGpsFix3d) {
+    elements.launchArm.disabled = true;
+    if (!preserveStatus) {
+      setLaunchArmStatus("Waiting for GPS 3D fix", "pending");
+    }
+    return;
+  }
+
+  elements.launchArm.disabled = false;
+  if (!preserveStatus) {
+    setLaunchArmStatus("Ready to arm launch detect", "ok");
+  }
+}
+
+function postLaunchArmCommand() {
+  if (state.commandLockoutActive) {
+    setLaunchArmStatus("Arm locked: flight in progress", "error");
+    return;
+  }
+  if (state.recoveryLaunchArmed) {
+    setLaunchArmStatus("Launch detect already armed", "ok");
+    return;
+  }
+  if (!state.recoveryGpsFix3d) {
+    setLaunchArmStatus("Arm blocked: waiting for GPS 3D fix", "error");
+    return;
+  }
+
+  state.launchArmPending = true;
+  updateLaunchArmControlState();
+  setLaunchArmStatus("Sending launch-arm command...", "pending");
+
+  fetch("/api/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "launch_arm" }),
+  })
+    .then((res) => res.json())
+    .then((payload) => {
+      if (!payload.ok) {
+        throw new Error(payload.error || "Command failed");
+      }
+      state.launchArmAwaitingAck = true;
+      state.launchArmAwaitingSinceMs = Date.now();
+      setLaunchArmStatus("Launch-arm command sent. Awaiting ack...", "pending");
+    })
+    .catch((err) => {
+      state.launchArmAwaitingAck = false;
+      state.launchArmAwaitingSinceMs = 0;
+      setLaunchArmStatus(err.message || "Command failed", "error");
+    })
+    .finally(() => {
+      state.launchArmPending = false;
+      updateLaunchArmControlState();
+    });
+}
+
 function postThresholdUpdate(value) {
   const previous = state.attitudeThreshold;
   fetch("/api/attitude/threshold", {
@@ -1007,9 +1340,28 @@ function updateFromTelemetry(snapshot) {
   elements.altTempC.textContent = alt.temp_c !== null && alt.temp_c !== undefined ? formatNumber(alt.temp_c, 2) : "--";
 
   const recovery = snapshot.recovery || {};
-  state.commandLockoutActive = phaseIndicatesInFlight(recovery.phase);
+  const commandLockout = snapshot.command_lockout || {};
+  if (commandLockout.active === null || commandLockout.active === undefined) {
+    state.commandLockoutActive = phaseIndicatesInFlight(recovery.phase);
+  } else {
+    state.commandLockoutActive = Boolean(commandLockout.active);
+  }
+  state.recoveryLaunchArmed = recovery.launch_armed === true;
+  state.recoveryGpsFix3d = recovery.gps_fix_3d === true;
+  if (state.recoveryLaunchArmed) {
+    state.launchArmAwaitingAck = false;
+    state.launchArmAwaitingSinceMs = 0;
+  }
+  const launchArmAckTs = recovery.launch_arm_ack_timestamp;
+  const launchArmAckEnabled = recovery.launch_arm_ack_enabled === true;
   elements.recoveryMode.textContent = recovery.mode || "--";
   elements.recoveryPhase.textContent = recovery.phase || "--";
+  if (elements.recoveryArmed) {
+    elements.recoveryArmed.textContent = state.recoveryLaunchArmed ? "ARMED" : "NO";
+  }
+  if (elements.recoveryGpsFix) {
+    elements.recoveryGpsFix.textContent = state.recoveryGpsFix3d ? "3D FIX" : "NO FIX";
+  }
   elements.recoveryAgl.textContent = recovery.altitude_agl_m !== null && recovery.altitude_agl_m !== undefined
     ? `${formatNumber(recovery.altitude_agl_m, 1)} m`
     : "--";
@@ -1146,6 +1498,43 @@ function updateFromTelemetry(snapshot) {
   syncThreshold(attitude);
   updateSdControlState();
   updateTelemetryControlState();
+  updateLaunchArmControlState();
+  if (launchArmAckTs && launchArmAckTs !== state.launchArmAckTs) {
+    state.launchArmAckTs = launchArmAckTs;
+    state.launchArmAwaitingAck = false;
+    state.launchArmAwaitingSinceMs = 0;
+    const timeLabel = formatTimestamp(launchArmAckTs);
+    const ackAgeSec = (Date.now() / 1000) - Number(launchArmAckTs);
+    const ackRecent = Number.isFinite(ackAgeSec) && ackAgeSec >= 0 && ackAgeSec <= 8;
+    if (launchArmAckEnabled) {
+      setLaunchArmStatus(`Launch detect armed (${timeLabel})`, "ok");
+      if (ackRecent) {
+        playLaunchArmCue(true);
+      }
+    } else if (state.commandLockoutActive) {
+      setLaunchArmStatus(`Launch-arm rejected: flight in progress (${timeLabel})`, "error");
+      if (ackRecent) {
+        playLaunchArmCue(false);
+      }
+    } else if (!state.recoveryGpsFix3d) {
+      setLaunchArmStatus(`Launch-arm rejected: GPS 3D fix required (${timeLabel})`, "error");
+      if (ackRecent) {
+        playLaunchArmCue(false);
+      }
+    } else {
+      setLaunchArmStatus(`Launch-arm rejected (${timeLabel})`, "error");
+      if (ackRecent) {
+        playLaunchArmCue(false);
+      }
+    }
+    if (elements.launchArm) {
+      elements.launchArm.disabled = state.launchArmPending
+        || state.launchArmAwaitingAck
+        || state.commandLockoutActive
+        || state.recoveryLaunchArmed
+        || !state.recoveryGpsFix3d;
+    }
+  }
   updateMap(gps);
 }
 
@@ -1549,6 +1938,7 @@ if (elements.mapSetHome) {
       state.mapHomeMarker.remove();
       state.mapHomeMarker = null;
     }
+    playHomePointSetCue();
   });
 }
 
@@ -1559,6 +1949,8 @@ if (elements.telemTxPower) {
     setTelemetryTxPowerInlineValue(initial);
   }
 }
+
+loadSoundSettings();
 
 setInterval(updateClock, 500);
 

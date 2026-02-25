@@ -36,6 +36,23 @@ bool LoraLink::set_tx_power_dbm(uint8_t power_dbm) {
   return true;
 }
 
+bool LoraLink::arm_launch_detect_mode() {
+  if (!recovery_initialized_) {
+    return false;
+  }
+  if (!recovery_gps_fix_3d_) {
+    return false;
+  }
+  if (recovery_phase_ != RECOVERY_PHASE_IDLE) {
+    return false;
+  }
+  if (recovery_liftoff_detected_) {
+    return false;
+  }
+  recovery_launch_armed_ = true;
+  return true;
+}
+
 static bool nearly_equal(float a, float b, float eps = 0.15f) {
   return fabsf(a - b) <= eps;
 }
@@ -88,6 +105,7 @@ static constexpr uint8_t LORA_CMD_TELEM_DISABLE = 0x05;
 static constexpr uint8_t LORA_CMD_ALT_CALIBRATE = 0x06;
 static constexpr uint8_t LORA_CMD_IMU_CALIBRATE = 0x07;
 static constexpr uint8_t LORA_CMD_SET_TX_POWER = 0x08;
+static constexpr uint8_t LORA_CMD_LAUNCH_ARM = 0x09;
 static constexpr uint16_t LORA_RX_DONE_FLAG = 0x40;
 static constexpr uint8_t LORA_ACK_REPEAT_COUNT = 3;
 static constexpr uint32_t LORA_ACK_REPEAT_MS = 400;
@@ -211,6 +229,7 @@ void LoraLink::reset_recovery_state_() {
   recovery_vspeed_cms_ = 0;
   recovery_phase_ = RECOVERY_PHASE_IDLE;
   recovery_launch_armed_ = false;
+  recovery_gps_fix_3d_ = false;
   recovery_liftoff_detected_ = false;
   recovery_have_min_press_ = false;
   recovery_min_press_pa_x10_ = 0;
@@ -261,7 +280,8 @@ bool LoraLink::start_recovery_tx_(uint32_t now_ms) {
   // [1]    u8   6                   packet type (recovery)
   // [2:6]  u32  t_ms                telemetry timestamp (ms)
   // [6]    u8   phase               0=idle,1=ascent,2=descent,3=landed
-  // [7]    u8   flags               bit0=drogue deployed, bit1=main deployed
+  // [7]    u8   flags               bit0=drogue deployed, bit1=main deployed,
+  //                                  bit2=launch armed, bit3=gps 3d fix
   // [8:12] i32  agl_mm              current altitude AGL (mm)
   // [12:16]i32  max_agl_mm          max altitude AGL reached (mm)
   // [16:18]i16  vspeed_cms          vertical speed (cm/s)
@@ -274,7 +294,10 @@ bool LoraLink::start_recovery_tx_(uint32_t now_ms) {
   tx_buf_[1] = 6;
   write_u32_le(&tx_buf_[2], (uint32_t)now_ms);
   tx_buf_[6] = recovery_phase_;
-  tx_buf_[7] = (recovery_drogue_deployed_ ? 0x01u : 0x00u) | (recovery_main_deployed_ ? 0x02u : 0x00u);
+  tx_buf_[7] = (recovery_drogue_deployed_ ? 0x01u : 0x00u) |
+               (recovery_main_deployed_ ? 0x02u : 0x00u) |
+               (recovery_launch_armed_ ? 0x04u : 0x00u) |
+               (recovery_gps_fix_3d_ ? 0x08u : 0x00u);
   write_u32_le(&tx_buf_[8], (uint32_t)recovery_agl_mm_);
   write_u32_le(&tx_buf_[12], (uint32_t)recovery_max_agl_mm_);
   write_i16_le(&tx_buf_[16], recovery_vspeed_cms_);
@@ -323,6 +346,8 @@ void LoraLink::queue_command_ack(LoraCommand cmd, bool enabled_state) {
     cmd_byte = LORA_CMD_IMU_CALIBRATE;
   } else if (cmd == LoraCommand::kSetTxPower) {
     cmd_byte = LORA_CMD_SET_TX_POWER;
+  } else if (cmd == LoraCommand::kLaunchArm) {
+    cmd_byte = LORA_CMD_LAUNCH_ARM;
   } else {
     return;
   }
@@ -539,6 +564,7 @@ void LoraLink::poll_telem(uint32_t now_ms,
   const uint32_t recovery_int_ms = LORA_RECOVERY_INTERVAL_MS;
 
   const bool gps_valid = (gps != nullptr) && (gps->last_pvt_ms != 0) && gps->fix_ok && (gps->fix_type >= 3);
+  recovery_gps_fix_3d_ = gps_valid;
 
   if (recovery_calibration_pending_) {
     if (!recovery_baro_cal_done_) {
@@ -602,6 +628,7 @@ void LoraLink::poll_telem(uint32_t now_ms,
       recovery_vspeed_cms_ = 0;
       recovery_phase_ = RECOVERY_PHASE_IDLE;
       recovery_launch_armed_ = false;
+      recovery_gps_fix_3d_ = gps_valid;
       recovery_liftoff_detected_ = false;
       recovery_have_min_press_ = false;
       recovery_min_press_pa_x10_ = 0;
@@ -632,10 +659,7 @@ void LoraLink::poll_telem(uint32_t now_ms,
         }
       }
 
-      if (!recovery_launch_armed_ && recovery_max_agl_mm_ >= RECOVERY_MIN_ASCENT_AGL_MM) {
-        recovery_launch_armed_ = true;
-      }
-      if (!recovery_liftoff_detected_ &&
+      if (recovery_launch_armed_ && !recovery_liftoff_detected_ &&
           (recovery_agl_mm_ >= RECOVERY_LIFTOFF_CONFIRM_AGL_MM
             || recovery_vspeed_cms_ >= RECOVERY_LAUNCH_VSPEED_CMS)) {
         recovery_liftoff_detected_ = true;
@@ -1043,7 +1067,8 @@ bool LoraLink::handle_command_(const uint8_t* data, size_t len) {
              cmd != LORA_CMD_TELEM_ENABLE &&
              cmd != LORA_CMD_TELEM_DISABLE &&
              cmd != LORA_CMD_ALT_CALIBRATE &&
-             cmd != LORA_CMD_IMU_CALIBRATE) {
+             cmd != LORA_CMD_IMU_CALIBRATE &&
+             cmd != LORA_CMD_LAUNCH_ARM) {
     return false;
   }
 #if DEBUG_MODE

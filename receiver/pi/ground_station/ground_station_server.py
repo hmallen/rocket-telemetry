@@ -129,6 +129,7 @@ LORA_CMD_TELEM_DISABLE = 0x05
 LORA_CMD_ALT_CALIBRATE = 0x06
 LORA_CMD_IMU_CALIBRATE = 0x07
 LORA_CMD_SET_TX_POWER = 0x08
+LORA_CMD_LAUNCH_ARM = 0x09
 LORA_CMD_REPEAT_COUNT = 3
 LORA_CMD_REPEAT_DELAY_S = 0.1
 
@@ -563,6 +564,10 @@ class TelemetryStore:
                 "enabled": True,
                 "mode": "downlink",
                 "phase": "idle",
+                "launch_armed": False,
+                "gps_fix_3d": False,
+                "launch_arm_ack_timestamp": None,
+                "launch_arm_ack_enabled": None,
                 "launch_alt_m": None,
                 "altitude_agl_m": None,
                 "max_altitude_agl_m": None,
@@ -723,6 +728,8 @@ class TelemetryStore:
                         "enabled": True,
                         "mode": "downlink",
                         "phase": parsed.get("phase") or "unknown",
+                        "launch_armed": bool(parsed.get("launch_armed")),
+                        "gps_fix_3d": bool(parsed.get("gps_fix_3d")),
                         "launch_alt_m": None,
                         "altitude_agl_m": parsed.get("altitude_agl_m"),
                         "max_altitude_agl_m": parsed.get("max_altitude_agl_m"),
@@ -764,6 +771,12 @@ class TelemetryStore:
                         tx_power_dbm = parsed.get("tx_power_dbm")
                         if tx_power_dbm is not None:
                             self._state["telemetry_tx"]["active_power_dbm"] = int(tx_power_dbm)
+                    elif cmd == "launch_arm":
+                        launch_arm_enabled = bool(parsed.get("enabled"))
+                        if launch_arm_enabled:
+                            self._state["recovery"]["launch_armed"] = True
+                        self._state["recovery"]["launch_arm_ack_timestamp"] = ack_ts
+                        self._state["recovery"]["launch_arm_ack_enabled"] = launch_arm_enabled
 
             return copy.deepcopy(self._state)
 
@@ -1075,6 +1088,8 @@ def _build_companion_state(snapshot, seq=None):
         "recovery": {
             "enabled": recovery.get("enabled"),
             "phase": recovery.get("phase"),
+            "launch_armed": recovery.get("launch_armed"),
+            "gps_fix_3d": recovery.get("gps_fix_3d"),
             "altitude_agl_m": recovery.get("altitude_agl_m"),
             "max_altitude_agl_m": recovery.get("max_altitude_agl_m"),
             "vertical_speed_mps": recovery.get("vertical_speed_mps"),
@@ -1104,6 +1119,7 @@ class CompanionUartBridge:
     CMD_IMU_CALIBRATE = 0x07
     CMD_SHUTDOWN = 0x08
     CMD_SET_TX_POWER = 0x09
+    CMD_LAUNCH_ARM = 0x0A
 
     def __init__(self, port, baud):
         self._port = port
@@ -1204,6 +1220,10 @@ class CompanionUartBridge:
             flags |= 0x10
         if command_lockout.get("active") is True:
             flags |= 0x20
+        if recovery.get("launch_armed") is True:
+            flags |= 0x40
+        if recovery.get("gps_fix_3d") is True:
+            flags |= 0x80
 
         tx_power_dbm = telemetry_tx.get("active_power_dbm")
         if tx_power_dbm is None:
@@ -1267,6 +1287,8 @@ class CompanionUartBridge:
             ok, error = send_lora_command("imu_calibrate")
         elif cmd == self.CMD_SET_TX_POWER:
             ok, error = send_lora_command("telemetry_tx_power", tx_power_dbm=int(arg))
+        elif cmd == self.CMD_LAUNCH_ARM:
+            ok, error = send_lora_command("launch_arm")
         elif cmd == self.CMD_SHUTDOWN:
             ok, error = request_pi_shutdown()
         else:
@@ -1501,6 +1523,8 @@ def send_lora_command(action, duration_s=None, tx_power_dbm=None):
         if tx_power < 2 or tx_power > 17:
             return False, "tx_power_dbm must be between 2 and 17"
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SET_TX_POWER, tx_power])
+    elif action == "launch_arm":
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_LAUNCH_ARM])
     elif action == "buzzer":
         try:
             duration = int(duration_s)

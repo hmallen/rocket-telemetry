@@ -61,6 +61,41 @@ cp include/config.h.example include/config.h
 When `OTA_ENABLE=1`, firmware keeps Wi-Fi active even in UART transport mode so OTA
 updates remain available.
 
+## Sound asset checklist (SD card)
+
+Place WAV files under the SD sound directory (default: `/sounds`, configured by
+`COMPANION_SD_SOUND_DIR`).
+
+Primary event cues (via `COMPANION_SOUND_FILE_*` macros):
+
+- `armed_waiting.wav`
+- `liftoff.wav`
+- `apogee.wav`
+- `drogue_deploy.wav`
+- `main_deploy.wav`
+- `landing.wav`
+- `armed.wav`
+- `launch_detect_mode.wav`
+- `location_fix_acquired.wav`
+- `waiting_for_location_fix.wav`
+- `audio_test.wav` (used by **Play Test Sound**)
+
+Fallback cue names currently supported by firmware:
+
+- `launch_detected.wav` (liftoff fallback)
+- `drogue_deployed.wav` (drogue fallback)
+- `main_deployed.wav` in `/sounds` and legacy `/sound`
+- `landing_detected.wav` (landing fallback)
+
+Spoken apogee altitude callout after landing requires numeric/unit clips:
+
+- Number clips as `/sounds/<N>.wav` for:
+  - 1..20
+  - multiples of 10 below 100
+  - multiples of 100 below 1000
+  - multiples of 1000 up to 10000
+- Unit clip: `meters.wav`
+
 ## CrowPanel pin notes
 
 `platformio.ini` is configured for CrowPanel 3.5 with ILI9488 + XPT2046 defaults.

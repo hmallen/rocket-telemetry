@@ -179,6 +179,17 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
   ioState.alt.gpsAltitudeM = gpsAlt;
   ioState.alt.verticalSpeedMps = recovery["vertical_speed_mps"].isNull() ? NAN : (float)recovery["vertical_speed_mps"].as<float>();
 
+  if (!recovery.isNull() && !recovery["launch_armed"].isNull()) {
+    ioState.recoveryLaunchArmed = recovery["launch_armed"].as<bool>();
+  } else {
+    ioState.recoveryLaunchArmed = false;
+  }
+  if (!recovery.isNull() && !recovery["gps_fix_3d"].isNull()) {
+    ioState.recoveryGpsFix3d = recovery["gps_fix_3d"].as<bool>();
+  } else {
+    ioState.recoveryGpsFix3d = false;
+  }
+
   JsonObject recoveryDrogue = recovery["drogue"];
   JsonObject recoveryMain = recovery["main"];
   if (!recoveryDrogue.isNull() && !recoveryMain.isNull() &&

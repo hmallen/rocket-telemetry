@@ -103,6 +103,29 @@
                 </div>
                 <p class="control-status" id="imu-cal-status">Idle</p>
               </div>
+              <div class="control-panel">
+                <span class="label">Launch Detect</span>
+                <div class="control-buttons">
+                  <button class="control-button" id="launch-arm" type="button">Arm launch detect</button>
+                </div>
+                <p class="control-status" id="launch-arm-status">Waiting for GPS 3D fix</p>
+              </div>
+              <div class="control-panel">
+                <span class="label">Sound Cues</span>
+                <div class="control-buttons">
+                  <label class="control-toggle" for="sound-enabled">
+                    <input id="sound-enabled" type="checkbox" checked />
+                    <span>Enable sound cues</span>
+                  </label>
+                  <div class="control-input">
+                    <label for="sound-volume">Volume</label>
+                    <input id="sound-volume" class="control-range" type="range" min="0" max="100" step="1" value="70" />
+                    <div class="control-inline-value" id="sound-volume-value">70%</div>
+                  </div>
+                  <button class="control-button" id="sound-test" type="button">Play test tone</button>
+                </div>
+                <p class="control-status" id="sound-status">Sound cues enabled</p>
+              </div>
               <a class="ghost-button" href="/map-setup">Offline map setup</a>
             </div>
           </details>
@@ -255,6 +278,8 @@
             <dl>
               <div><dt>Mode</dt><dd id="recovery-mode">--</dd></div>
               <div><dt>Phase</dt><dd id="recovery-phase">--</dd></div>
+              <div><dt>Launch Armed</dt><dd id="recovery-armed">--</dd></div>
+              <div><dt>GPS 3D Fix</dt><dd id="recovery-gps-fix">--</dd></div>
               <div><dt>AGL Altitude</dt><dd id="recovery-agl">--</dd></div>
               <div><dt>Vertical Speed</dt><dd id="recovery-vspeed">--</dd></div>
               <div><dt>Drogue</dt><dd><span id="recovery-drogue" class="deploy-state">--</span></dd></div>

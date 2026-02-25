@@ -23,6 +23,7 @@ CMD_ACK = 0x10
 CMD_SD_START = 0x01
 CMD_SD_STOP = 0x02
 CMD_BUZZER = 0x03
+CMD_LAUNCH_ARM = 0x09
 
 LORA_CALLSIGN = "CALLSIGN"
 
@@ -343,6 +344,7 @@ class RecoveryState:
         self.max_agl_mm = 0
         self.vspeed_cms = 0
         self.phase = RECOVERY_PHASE_IDLE
+        self.gps_fix_3d = False
         self.launch_armed = False
         self.liftoff_detected = False
         self.have_min_press = False
@@ -353,6 +355,18 @@ class RecoveryState:
         self.main_reason = RECOVERY_REASON_NONE
         self.drogue_deploy_agl_mm = -1
         self.main_deploy_agl_mm = -1
+
+    def arm_launch_detect_mode(self):
+        if not self.initialized:
+            return False
+        if not self.gps_fix_3d:
+            return False
+        if self.phase != RECOVERY_PHASE_IDLE:
+            return False
+        if self.liftoff_detected:
+            return False
+        self.launch_armed = True
+        return True
 
     def update(self, now_ms, alt_mm, press_pa_x10):
         if not self.initialized:
@@ -372,9 +386,7 @@ class RecoveryState:
         if dt_ms > 0 and dt_ms <= 10_000:
             self.vspeed_cms = clamp_i((alt_mm - self.last_alt_mm) * 100 / dt_ms, -32768, 32767)
 
-        if (not self.launch_armed) and self.max_agl_mm >= RECOVERY_MIN_ASCENT_AGL_MM:
-            self.launch_armed = True
-        if (not self.liftoff_detected) and (
+        if self.launch_armed and (not self.liftoff_detected) and (
             self.agl_mm >= RECOVERY_LIFTOFF_CONFIRM_AGL_MM
             or self.vspeed_cms >= RECOVERY_LAUNCH_VSPEED_CMS
         ):
@@ -665,8 +677,8 @@ class FlightEmulator:
         self.last_tx_ms = now_ms
         self.next_tx_ms = now_ms + LORA_MIN_TX_INTERVAL_MS
 
-    def _queue_ack(self, cmd, now_ms):
-        self.ack_buf = bytearray([CMD_MAGIC, CMD_ACK, cmd & 0xFF, 1 if self.logging_enabled else 0])
+    def _queue_ack(self, cmd, enabled_state, now_ms):
+        self.ack_buf = bytearray([CMD_MAGIC, CMD_ACK, cmd & 0xFF, 1 if enabled_state else 0])
         self.ack_pending = True
         self.ack_retries_left = LORA_ACK_REPEAT_COUNT
         self.ack_retry_after_ms = now_ms + LORA_ACK_REPEAT_MS
@@ -714,13 +726,17 @@ class FlightEmulator:
             self.logging_enabled = True
             if not self.shutdown:
                 self.tx_enabled = True
-            self._queue_ack(CMD_SD_START, now_ms)
+            self._queue_ack(CMD_SD_START, self.logging_enabled, now_ms)
             print("CMD sd_start")
         elif cmd == CMD_SD_STOP:
             self.logging_enabled = False
             self.tx_enabled = False
-            self._queue_ack(CMD_SD_STOP, now_ms)
+            self._queue_ack(CMD_SD_STOP, self.logging_enabled, now_ms)
             print("CMD sd_stop")
+        elif cmd == CMD_LAUNCH_ARM:
+            armed = self.recovery.arm_launch_detect_mode()
+            self._queue_ack(CMD_LAUNCH_ARM, armed, now_ms)
+            print("CMD launch_arm %s" % ("accepted" if armed else "rejected"))
 
     def _build_id(self):
         c = LORA_CALLSIGN.encode("ascii")
@@ -770,7 +786,12 @@ class FlightEmulator:
 
     def _build_recovery(self, now_ms):
         r = self.recovery
-        flags = (1 if r.drogue_deployed else 0) | (2 if r.main_deployed else 0)
+        flags = (
+            (1 if r.drogue_deployed else 0)
+            | (2 if r.main_deployed else 0)
+            | (4 if r.launch_armed else 0)
+            | (8 if r.gps_fix_3d else 0)
+        )
         b = bytearray([PROTO_MAGIC, 6])
         append_u32_le(b, now_ms)
         b.append(r.phase & 0xFF)
@@ -832,6 +853,7 @@ class FlightEmulator:
                 self._handle_command(payload, now_ms)
 
         sample = self.profile.sample(now_ms)
+        self.recovery.gps_fix_3d = bool(sample["gps_valid"])
         if sample["gps_valid"]:
             self.recovery.update(now_ms, sample["height_mm"], sample["press_pa_x10"])
 
