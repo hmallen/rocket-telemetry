@@ -593,7 +593,7 @@ void LvglController::buildUi() {
                    kSettingsButtonHeight);
 
   armNoGpsCheckbox_ = lv_checkbox_create(settingsActions_);
-  lv_checkbox_set_text(armNoGpsCheckbox_, "Allow arm without GPS 3D fix");
+  lv_checkbox_set_text(armNoGpsCheckbox_, "Allow arm without GPS fix");
   lv_obj_set_width(armNoGpsCheckbox_, LV_PCT(100));
   lv_obj_set_style_text_color(armNoGpsCheckbox_, lv_color_hex(0xeaf1ff), 0);
   lv_obj_set_style_text_color(armNoGpsCheckbox_, lv_color_hex(0xeaf1ff), LV_STATE_CHECKED);
