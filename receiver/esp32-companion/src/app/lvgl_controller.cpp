@@ -918,15 +918,6 @@ void LvglController::begin() {
   recoveryGpsFix3d_ = state_.recoveryGpsFix3d;
   lastLvTickMs_ = millis();
 
-  queueSoundCue(SoundCue::kArmed);
-  queueSoundCue(SoundCue::kCalibrating);
-  queueSoundCue(SoundCue::kSensorsReady);
-  if (state_.recoveryGpsFix3d) {
-    queueSoundCue(SoundCue::kLocationFixAcquired);
-  } else if (!allowArmWithoutGpsFix_) {
-    queueSoundCue(SoundCue::kWaitingForLocationFix);
-  }
-
   if (lastRxMs_ != 0) {
     hasLastLoraPacketCount_ = true;
     lastLoraPacketCount_ = state_.flight.packetCount;
@@ -1123,6 +1114,9 @@ void LvglController::handleEventSoundTriggers(const String& previousPhase,
 
   if (phaseChanged) {
     if (phaseEquals(currentPhase, "idle") && !phaseEquals(previousPhase, "idle")) {
+      soundQueueHead_ = 0;
+      soundQueueTail_ = 0;
+      soundQueueCount_ = 0;
       queueSoundCue(SoundCue::kArmed);
       queueSoundCue(SoundCue::kCalibrating);
       queueSoundCue(SoundCue::kSensorsReady);
@@ -1146,6 +1140,28 @@ void LvglController::handleEventSoundTriggers(const String& previousPhase,
                               phaseEquals(currentPhase, "coast");
 
     if (currInAscent && !prevInAscent) {
+      if (soundQueueCount_ > 0) {
+        SoundCue filteredQueue[kSoundQueueCapacity] = {};
+        uint8_t filteredCount = 0;
+        for (uint8_t i = 0; i < soundQueueCount_; ++i) {
+          const uint8_t idx = static_cast<uint8_t>((soundQueueHead_ + i) % kSoundQueueCapacity);
+          const SoundCue queued = soundQueue_[idx];
+          if (queued == SoundCue::kArmed || queued == SoundCue::kCalibrating || queued == SoundCue::kSensorsReady ||
+              queued == SoundCue::kWaitingForLocationFix || queued == SoundCue::kLocationFixAcquired ||
+              queued == SoundCue::kLaunchDetectMode) {
+            continue;
+          }
+          if (filteredCount < kSoundQueueCapacity) {
+            filteredQueue[filteredCount++] = queued;
+          }
+        }
+        for (uint8_t i = 0; i < filteredCount; ++i) {
+          soundQueue_[i] = filteredQueue[i];
+        }
+        soundQueueHead_ = 0;
+        soundQueueTail_ = static_cast<uint8_t>(filteredCount % kSoundQueueCapacity);
+        soundQueueCount_ = filteredCount;
+      }
       queueSoundCue(SoundCue::kLaunchDetected);
       maxObservedAglM_ = currentAglM;
       apogeeCalloutPending_ = false;
@@ -2545,6 +2561,9 @@ void LvglController::onCalibrateEvent(lv_event_t* e) {
 void LvglController::onAltCalibrateEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
   if (self->sendAction("alt_calibrate", 0)) {
+    self->soundQueueHead_ = 0;
+    self->soundQueueTail_ = 0;
+    self->soundQueueCount_ = 0;
     self->phaseResetRequested_ = true;
     self->hasRecoveryDeployHistory_ = true;
     self->lastRecoveryDrogueDeployed_ = false;
