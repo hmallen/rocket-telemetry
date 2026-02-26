@@ -132,6 +132,10 @@ static int32_t mapLinearRange(int32_t value,
 #define COMPANION_AUDIO_PWM_BITS 8
 #endif
 
+#ifndef COMPANION_SOUND_FILE_POWER_ON
+#define COMPANION_SOUND_FILE_POWER_ON "/sounds/power_on.wav"
+#endif
+
 #ifndef COMPANION_SOUND_FILE_ARMED
 #define COMPANION_SOUND_FILE_ARMED "/sounds/armed.wav"
 #endif
@@ -184,6 +188,7 @@ static int32_t mapLinearRange(int32_t value,
 #define COMPANION_SOUND_FILE_AUDIO_TEST "/sounds/audio_test.wav"
 #endif
 
+constexpr const char* kFallbackSoundFilePowerOn = "/sounds/power_on.wav";
 constexpr const char* kFallbackSoundFileArmed = "/sounds/armed.wav";
 constexpr const char* kFallbackSoundFileCalibrating = "/sounds/calibrating.wav";
 constexpr const char* kFallbackSoundFileSensorsReady = "/sounds/sensors_ready.wav";
@@ -914,6 +919,10 @@ void LvglController::begin() {
   lastConnected_ = state_.link.connected;
   lastStale_ = state_.stale;
   lastPrimaryAlert_ = state_.primaryAlert;
+  hasRecoveryEventHistory_ = state_.hasRecoveryEventState;
+  lastRecoveryLaunchDetected_ = state_.recoveryLaunchDetected;
+  lastRecoveryApogee_ = state_.recoveryApogee;
+  lastRecoveryLandingDetected_ = state_.recoveryLandingDetected;
   recoveryLaunchArmed_ = state_.recoveryLaunchArmed;
   recoveryGpsFix3d_ = state_.recoveryGpsFix3d;
   lastLvTickMs_ = millis();
@@ -1053,6 +1062,8 @@ void LvglController::queueSoundCue(SoundCue cue) {
 
 const char* LvglController::cueFilePath(SoundCue cue) const {
   switch (cue) {
+    case SoundCue::kPowerOn:
+      return COMPANION_SOUND_FILE_POWER_ON;
     case SoundCue::kArmed:
       return COMPANION_SOUND_FILE_ARMED;
     case SoundCue::kCalibrating:
@@ -1112,12 +1123,57 @@ void LvglController::handleEventSoundTriggers(const String& previousPhase,
   recoveryLaunchArmed_ = state_.recoveryLaunchArmed;
   recoveryGpsFix3d_ = state_.recoveryGpsFix3d;
 
-  if (phaseChanged) {
+  if (state_.hasRecoveryEventState) {
+    if (hasRecoveryEventHistory_) {
+      if (!lastRecoveryLaunchDetected_ && state_.recoveryLaunchDetected) {
+        if (soundQueueCount_ > 0) {
+          SoundCue filteredQueue[kSoundQueueCapacity] = {};
+          uint8_t filteredCount = 0;
+          for (uint8_t i = 0; i < soundQueueCount_; ++i) {
+            const uint8_t idx = static_cast<uint8_t>((soundQueueHead_ + i) % kSoundQueueCapacity);
+            const SoundCue queued = soundQueue_[idx];
+            if (queued == SoundCue::kPowerOn || queued == SoundCue::kArmed || queued == SoundCue::kCalibrating ||
+                queued == SoundCue::kSensorsReady ||
+                queued == SoundCue::kWaitingForLocationFix || queued == SoundCue::kLocationFixAcquired ||
+                queued == SoundCue::kLaunchDetectMode) {
+              continue;
+            }
+            if (filteredCount < kSoundQueueCapacity) {
+              filteredQueue[filteredCount++] = queued;
+            }
+          }
+          for (uint8_t i = 0; i < filteredCount; ++i) {
+            soundQueue_[i] = filteredQueue[i];
+          }
+          soundQueueHead_ = 0;
+          soundQueueTail_ = static_cast<uint8_t>(filteredCount % kSoundQueueCapacity);
+          soundQueueCount_ = filteredCount;
+        }
+        queueSoundCue(SoundCue::kLaunchDetected);
+        maxObservedAglM_ = currentAglM;
+        apogeeCalloutPending_ = false;
+      }
+
+      if (!lastRecoveryApogee_ && state_.recoveryApogee) {
+        queueSoundCue(SoundCue::kApogee);
+      }
+
+      if (!lastRecoveryLandingDetected_ && state_.recoveryLandingDetected) {
+        queueSoundCue(SoundCue::KLandingDetected);
+        apogeeCalloutPending_ = true;
+      }
+    }
+
+    lastRecoveryLaunchDetected_ = state_.recoveryLaunchDetected;
+    lastRecoveryApogee_ = state_.recoveryApogee;
+    lastRecoveryLandingDetected_ = state_.recoveryLandingDetected;
+    hasRecoveryEventHistory_ = true;
+  } else if (phaseChanged) {
     if (phaseEquals(currentPhase, "idle") && !phaseEquals(previousPhase, "idle")) {
       soundQueueHead_ = 0;
       soundQueueTail_ = 0;
       soundQueueCount_ = 0;
-      queueSoundCue(SoundCue::kArmed);
+      queueSoundCue(SoundCue::kPowerOn);
       queueSoundCue(SoundCue::kCalibrating);
       queueSoundCue(SoundCue::kSensorsReady);
       if (state_.recoveryGpsFix3d) {
@@ -1130,6 +1186,10 @@ void LvglController::handleEventSoundTriggers(const String& previousPhase,
       hasRecoveryDeployHistory_ = true;
       lastRecoveryDrogueDeployed_ = false;
       lastRecoveryMainDeployed_ = false;
+      hasRecoveryEventHistory_ = true;
+      lastRecoveryLaunchDetected_ = false;
+      lastRecoveryApogee_ = false;
+      lastRecoveryLandingDetected_ = false;
       maxObservedAglM_ = NAN;
       apogeeCalloutPending_ = false;
     }
@@ -1146,7 +1206,8 @@ void LvglController::handleEventSoundTriggers(const String& previousPhase,
         for (uint8_t i = 0; i < soundQueueCount_; ++i) {
           const uint8_t idx = static_cast<uint8_t>((soundQueueHead_ + i) % kSoundQueueCapacity);
           const SoundCue queued = soundQueue_[idx];
-          if (queued == SoundCue::kArmed || queued == SoundCue::kCalibrating || queued == SoundCue::kSensorsReady ||
+          if (queued == SoundCue::kPowerOn || queued == SoundCue::kArmed || queued == SoundCue::kCalibrating ||
+              queued == SoundCue::kSensorsReady ||
               queued == SoundCue::kWaitingForLocationFix || queued == SoundCue::kLocationFixAcquired ||
               queued == SoundCue::kLaunchDetectMode) {
             continue;
@@ -1288,6 +1349,9 @@ void LvglController::playNextQueuedSound() {
   }
 
   switch (cue) {
+    case SoundCue::kPowerOn:
+      (void)playWavFromSd(kFallbackSoundFilePowerOn);
+      break;
     case SoundCue::kArmed:
       (void)playWavFromSd(kFallbackSoundFileArmed);
       break;
@@ -2568,6 +2632,10 @@ void LvglController::onAltCalibrateEvent(lv_event_t* e) {
     self->hasRecoveryDeployHistory_ = true;
     self->lastRecoveryDrogueDeployed_ = false;
     self->lastRecoveryMainDeployed_ = false;
+    self->hasRecoveryEventHistory_ = true;
+    self->lastRecoveryLaunchDetected_ = false;
+    self->lastRecoveryApogee_ = false;
+    self->lastRecoveryLandingDetected_ = false;
     self->queueSoundCue(SoundCue::kArmed);
     self->queueSoundCue(SoundCue::kCalibrating);
     self->queueSoundCue(SoundCue::kSensorsReady);

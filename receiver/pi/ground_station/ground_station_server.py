@@ -564,8 +564,12 @@ class TelemetryStore:
                 "enabled": True,
                 "mode": "downlink",
                 "phase": "idle",
+                "sensors_calibrated": False,
                 "launch_armed": False,
                 "gps_fix_3d": False,
+                "launch_detected": False,
+                "apogee": False,
+                "landing_detected": False,
                 "launch_arm_ack_timestamp": None,
                 "launch_arm_ack_enabled": None,
                 "launch_alt_m": None,
@@ -724,12 +728,20 @@ class TelemetryStore:
                 elif payload_type == "recovery":
                     drogue_deployed = bool(parsed.get("drogue_deployed"))
                     main_deployed = bool(parsed.get("main_deployed"))
+                    sensors_calibrated = bool(parsed.get("sensors_calibrated"))
+                    launch_detected = bool(parsed.get("launch_detected"))
+                    apogee = bool(parsed.get("apogee"))
+                    landing_detected = bool(parsed.get("landing_detected"))
                     self._state["recovery"].update({
                         "enabled": True,
                         "mode": "downlink",
                         "phase": parsed.get("phase") or "unknown",
+                        "sensors_calibrated": sensors_calibrated,
                         "launch_armed": bool(parsed.get("launch_armed")),
                         "gps_fix_3d": bool(parsed.get("gps_fix_3d")),
+                        "launch_detected": launch_detected,
+                        "apogee": apogee,
+                        "landing_detected": landing_detected,
                         "launch_alt_m": None,
                         "altitude_agl_m": parsed.get("altitude_agl_m"),
                         "max_altitude_agl_m": parsed.get("max_altitude_agl_m"),
@@ -785,7 +797,12 @@ class TelemetryStore:
                                 "enabled": True,
                                 "mode": "downlink",
                                 "phase": "idle",
+                                "sensors_calibrated": False,
                                 "launch_armed": False,
+                                "gps_fix_3d": False,
+                                "launch_detected": False,
+                                "apogee": False,
+                                "landing_detected": False,
                                 "launch_alt_m": None,
                                 "altitude_agl_m": None,
                                 "max_altitude_agl_m": None,
@@ -1115,13 +1132,27 @@ def _build_companion_state(snapshot, seq=None):
         "recovery": {
             "enabled": recovery.get("enabled"),
             "phase": recovery.get("phase"),
+            "sensors_calibrated": recovery.get("sensors_calibrated"),
             "launch_armed": recovery.get("launch_armed"),
             "gps_fix_3d": recovery.get("gps_fix_3d"),
+            "launch_detected": recovery.get("launch_detected"),
+            "apogee": recovery.get("apogee"),
+            "landing_detected": recovery.get("landing_detected"),
             "altitude_agl_m": recovery.get("altitude_agl_m"),
             "max_altitude_agl_m": recovery.get("max_altitude_agl_m"),
             "vertical_speed_mps": recovery.get("vertical_speed_mps"),
             "drogue": {"deployed": recovery.get("drogue", {}).get("deployed")},
             "main": {"deployed": recovery.get("main", {}).get("deployed")},
+            "events": {
+                "sensors_calibrated": recovery.get("sensors_calibrated"),
+                "gps_fix_3d": recovery.get("gps_fix_3d"),
+                "armed": recovery.get("launch_armed"),
+                "launch_detected": recovery.get("launch_detected"),
+                "apogee": recovery.get("apogee"),
+                "drogue_deployed": recovery.get("drogue", {}).get("deployed"),
+                "main_deployed": recovery.get("main", {}).get("deployed"),
+                "landing_detected": recovery.get("landing_detected"),
+            },
         },
         "alerts": alerts,
     }
@@ -1210,7 +1241,7 @@ class CompanionUartBridge:
 
     def _phase_to_code(self, phase):
         phase = (phase or "").lower()
-        mapping = {"idle": 0, "pad": 1, "boost": 2, "coast": 3, "descent": 4, "landed": 5}
+        mapping = {"idle": 0, "pad": 1, "boost": 2, "coast": 3, "ascent": 2, "descent": 4, "landed": 5}
         return mapping.get(phase, 0)
 
     def send_companion_state(self, state):
@@ -1252,6 +1283,24 @@ class CompanionUartBridge:
         if recovery.get("gps_fix_3d") is True:
             flags |= 0x80
 
+        event_flags = 0
+        if recovery.get("sensors_calibrated") is True:
+            event_flags |= 0x01
+        if recovery.get("gps_fix_3d") is True:
+            event_flags |= 0x02
+        if recovery.get("launch_armed") is True:
+            event_flags |= 0x04
+        if recovery.get("launch_detected") is True:
+            event_flags |= 0x08
+        if recovery.get("apogee") is True:
+            event_flags |= 0x10
+        if recovery.get("drogue", {}).get("deployed") is True:
+            event_flags |= 0x20
+        if recovery.get("main", {}).get("deployed") is True:
+            event_flags |= 0x40
+        if recovery.get("landing_detected") is True:
+            event_flags |= 0x80
+
         tx_power_dbm = telemetry_tx.get("active_power_dbm")
         if tx_power_dbm is None:
             tx_power_dbm = 0
@@ -1259,7 +1308,7 @@ class CompanionUartBridge:
             tx_power_dbm = int(tx_power_dbm) & 0xFF
 
         payload = struct.pack(
-            "<IiiihhbBHHBHiB",
+            "<IiiihhbBHHBHiBB",
             int((state.get("ts") or time.time()) * 1000) & 0xFFFFFFFF,
             int((lat_deg or 0.0) * 1e7),
             int((lon_deg or 0.0) * 1e7),
@@ -1274,6 +1323,7 @@ class CompanionUartBridge:
             int((battery.get("ground_vbat_v") or 0.0) * 1000) & 0xFFFF,
             gps_alt_mm,
             tx_power_dbm,
+            int(event_flags),
         )
         frame = self._encode_frame(self.MSG_TELEM_SNAPSHOT, payload)
         with self._lock:

@@ -68,6 +68,7 @@ Place WAV files under the SD sound directory (default: `/sounds`, configured by
 
 Primary event cues (via `COMPANION_SOUND_FILE_*` macros):
 
+- `power_on.wav`
 - `armed.wav`
 - `calibrating.wav`
 - `sensors_ready.wav`

@@ -351,8 +351,13 @@ class RecoveryState:
         self.vspeed_cms = 0
         self.phase = RECOVERY_PHASE_IDLE
         self.gps_fix_3d = False
+        self.gps_fix_3d_latched = False
+        self.sensors_calibrated = False
         self.launch_armed = False
         self.liftoff_detected = False
+        self.launch_detected = False
+        self.apogee_detected = False
+        self.landing_detected = False
         self.have_min_press = False
         self.min_press_pa_x10 = 0
         self.drogue_deployed = False
@@ -377,10 +382,14 @@ class RecoveryState:
     def update(self, now_ms, alt_mm, press_pa_x10):
         if not self.initialized:
             self.initialized = True
+            self.sensors_calibrated = True
             self.launch_alt_mm = alt_mm
             self.last_alt_mm = 0
             self.last_t_ms = now_ms
             return
+
+        if self.gps_fix_3d:
+            self.gps_fix_3d_latched = True
 
         agl_raw = alt_mm - self.launch_alt_mm
         self.agl_mm = agl_raw if agl_raw > 0 else 0
@@ -397,6 +406,7 @@ class RecoveryState:
         # from tripping drogue/main/landing logic before launch.
         if self.launch_armed and (not self.liftoff_detected) and self.agl_mm >= RECOVERY_LIFTOFF_CONFIRM_AGL_MM:
             self.liftoff_detected = True
+            self.launch_detected = True
 
         if press_pa_x10 > 0:
             if not self.have_min_press:
@@ -430,6 +440,7 @@ class RecoveryState:
             if pressure_rise:
                 votes += 1
             if votes >= RECOVERY_APOGEE_VOTE_MIN:
+                self.apogee_detected = True
                 self.drogue_deployed = True
                 self.drogue_reason = RECOVERY_DROGUE_REASON_APOGEE_VOTE
                 self.drogue_deploy_agl_mm = self.agl_mm
@@ -465,6 +476,9 @@ class RecoveryState:
                 self.main_deploy_agl_mm = self.agl_mm
 
         if self.main_deployed and self.agl_mm <= RECOVERY_LANDED_AGL_MM:
+            self.landing_detected = True
+
+        if self.landing_detected:
             self.phase = RECOVERY_PHASE_LANDED
 
         self.last_alt_mm = self.agl_mm
@@ -852,10 +866,14 @@ class FlightEmulator:
     def _build_recovery(self, now_ms):
         r = self.recovery
         flags = (
-            (1 if r.drogue_deployed else 0)
-            | (2 if r.main_deployed else 0)
+            (1 if r.sensors_calibrated else 0)
+            | (2 if r.gps_fix_3d_latched else 0)
             | (4 if r.launch_armed else 0)
-            | (8 if r.gps_fix_3d else 0)
+            | (8 if r.launch_detected else 0)
+            | (16 if r.apogee_detected else 0)
+            | (32 if r.drogue_deployed else 0)
+            | (64 if r.main_deployed else 0)
+            | (128 if r.landing_detected else 0)
         )
         b = bytearray([PROTO_MAGIC, 6])
         append_u32_le(b, now_ms)
@@ -929,6 +947,8 @@ class FlightEmulator:
             self.landed_since_ms = None
 
         self.recovery.gps_fix_3d = bool(sample["gps_valid"])
+        if self.recovery.gps_fix_3d:
+            self.recovery.gps_fix_3d_latched = True
         if sample["gps_valid"]:
             self.recovery.update(now_ms, sample["height_mm"], sample["press_pa_x10"])
 

@@ -19,7 +19,10 @@ void UartLink::begin() {
   serial_.begin(baud_, SERIAL_8N1, rxPin_, txPin_);
 }
 
-void UartLink::applyTelemetry(const TelemetryV1& t, bool hasTxPower, CompanionState& ioState) {
+void UartLink::applyTelemetry(const TelemetryV1& t,
+                              bool hasTxPower,
+                              bool hasRecoveryEvents,
+                              CompanionState& ioState) {
   ioState.tsMs = millis();
   ioState.seq++;
 
@@ -50,16 +53,36 @@ void UartLink::applyTelemetry(const TelemetryV1& t, bool hasTxPower, CompanionSt
   ioState.hasCommandLockoutState = true;
   ioState.commandLockoutActive = (t.flags & 0x20) != 0;
   ioState.hasRecoveryDeploymentState = true;
-  ioState.recoveryDrogueDeployed = (t.flags & 0x02) != 0;
-  ioState.recoveryMainDeployed = (t.flags & 0x04) != 0;
-  ioState.recoveryLaunchArmed = (t.flags & 0x40) != 0;
-  ioState.recoveryGpsFix3d = (t.flags & 0x80) != 0;
+  if (hasRecoveryEvents) {
+    const uint8_t events = t.recovery_event_flags;
+    ioState.hasRecoveryEventState = true;
+    ioState.recoverySensorsCalibrated = (events & 0x01) != 0;
+    ioState.recoveryGpsFix3d = (events & 0x02) != 0;
+    ioState.recoveryLaunchArmed = (events & 0x04) != 0;
+    ioState.recoveryLaunchDetected = (events & 0x08) != 0;
+    ioState.recoveryApogee = (events & 0x10) != 0;
+    ioState.recoveryDrogueDeployed = (events & 0x20) != 0;
+    ioState.recoveryMainDeployed = (events & 0x40) != 0;
+    ioState.recoveryLandingDetected = (events & 0x80) != 0;
+  } else {
+    ioState.hasRecoveryEventState = false;
+    ioState.recoverySensorsCalibrated = false;
+    ioState.recoveryLaunchDetected = false;
+    ioState.recoveryApogee = false;
+    ioState.recoveryLandingDetected = false;
+    ioState.recoveryDrogueDeployed = (t.flags & 0x02) != 0;
+    ioState.recoveryMainDeployed = (t.flags & 0x04) != 0;
+    ioState.recoveryLaunchArmed = (t.flags & 0x40) != 0;
+    ioState.recoveryGpsFix3d = (t.flags & 0x80) != 0;
+  }
 
   ioState.stale = false;
 }
 
 bool UartLink::poll(CompanionState& ioState) {
-  static constexpr size_t kTelemetryV1NoTxPowerLen = sizeof(TelemetryV1) - sizeof(uint8_t);
+  static constexpr size_t kTelemetryV1NoEventFlagsLen = sizeof(TelemetryV1) - sizeof(uint8_t);
+  static constexpr size_t kTelemetryV1NoTxPowerOrEventsLen =
+      sizeof(TelemetryV1) - sizeof(uint8_t) - sizeof(uint8_t);
   bool updated = false;
   while (serial_.available() > 0) {
     uint8_t b = static_cast<uint8_t>(serial_.read());
@@ -70,13 +93,19 @@ bool UartLink::poll(CompanionState& ioState) {
       if (frame.len >= sizeof(TelemetryV1)) {
         TelemetryV1 t{};
         memcpy(&t, frame.payload, sizeof(TelemetryV1));
-        applyTelemetry(t, true, ioState);
+        applyTelemetry(t, true, true, ioState);
         updated = true;
         rxFrames_++;
-      } else if (frame.len >= kTelemetryV1NoTxPowerLen) {
+      } else if (frame.len >= kTelemetryV1NoEventFlagsLen) {
         TelemetryV1 t{};
-        memcpy(&t, frame.payload, kTelemetryV1NoTxPowerLen);
-        applyTelemetry(t, false, ioState);
+        memcpy(&t, frame.payload, kTelemetryV1NoEventFlagsLen);
+        applyTelemetry(t, true, false, ioState);
+        updated = true;
+        rxFrames_++;
+      } else if (frame.len >= kTelemetryV1NoTxPowerOrEventsLen) {
+        TelemetryV1 t{};
+        memcpy(&t, frame.payload, kTelemetryV1NoTxPowerOrEventsLen);
+        applyTelemetry(t, false, false, ioState);
         updated = true;
         rxFrames_++;
       } else if (frame.len >= sizeof(TelemetryV1Legacy)) {
@@ -114,8 +143,13 @@ bool UartLink::poll(CompanionState& ioState) {
         ioState.hasRecoveryDeploymentState = true;
         ioState.recoveryDrogueDeployed = (t.flags & 0x02) != 0;
         ioState.recoveryMainDeployed = (t.flags & 0x04) != 0;
+        ioState.hasRecoveryEventState = false;
+        ioState.recoverySensorsCalibrated = false;
         ioState.recoveryLaunchArmed = false;
         ioState.recoveryGpsFix3d = false;
+        ioState.recoveryLaunchDetected = false;
+        ioState.recoveryApogee = false;
+        ioState.recoveryLandingDetected = false;
 
         ioState.stale = false;
         updated = true;

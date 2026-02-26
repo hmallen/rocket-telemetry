@@ -25,6 +25,9 @@ class UartLink {
   uint32_t txFrames_ = 0;
   uint32_t lastDbgMs_ = 0;
 
-  void applyTelemetry(const companion_proto::TelemetryV1& t, bool hasTxPower, CompanionState& ioState);
+  void applyTelemetry(const companion_proto::TelemetryV1& t,
+                      bool hasTxPower,
+                      bool hasRecoveryEvents,
+                      CompanionState& ioState);
   void debugTick();
 };

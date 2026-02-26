@@ -20,7 +20,8 @@ class LvglController {
 
  private:
   enum class SoundCue : uint8_t {
-    kArmed = 0,
+    kPowerOn = 0,
+    kArmed,
     kCalibrating,
     kSensorsReady,
     kWaitingForLocationFix,
@@ -80,6 +81,10 @@ class LvglController {
   bool hasRecoveryDeployHistory_ = false;
   bool lastRecoveryDrogueDeployed_ = false;
   bool lastRecoveryMainDeployed_ = false;
+  bool hasRecoveryEventHistory_ = false;
+  bool lastRecoveryLaunchDetected_ = false;
+  bool lastRecoveryApogee_ = false;
+  bool lastRecoveryLandingDetected_ = false;
   bool recoveryLaunchArmed_ = false;
   bool recoveryGpsFix3d_ = false;
   bool allowArmWithoutGpsFix_ = false;

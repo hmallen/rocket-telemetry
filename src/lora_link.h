@@ -129,11 +129,14 @@ private:
   uint8_t recovery_phase_ = 0;
   bool recovery_launch_armed_ = false;
   bool recovery_gps_fix_3d_ = false;
+  bool recovery_gps_fix_3d_latched_ = false;
   bool recovery_liftoff_detected_ = false;
+  bool recovery_apogee_detected_ = false;
   bool recovery_have_min_press_ = false;
   int32_t recovery_min_press_pa_x10_ = 0;
   bool recovery_drogue_deployed_ = false;
   bool recovery_main_deployed_ = false;
+  bool recovery_landing_detected_ = false;
   uint8_t recovery_drogue_reason_ = 0;
   uint8_t recovery_main_reason_ = 0;
   int32_t recovery_drogue_deploy_agl_mm_ = -1;

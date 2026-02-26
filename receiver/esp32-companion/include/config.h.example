@@ -82,6 +82,7 @@
 #define COMPANION_AUDIO_PWM_FREQ 32000
 #define COMPANION_AUDIO_PWM_BITS 8
 
+#define COMPANION_SOUND_FILE_POWER_ON "/sounds/power_on.wav"
 #define COMPANION_SOUND_FILE_ARMED "/sounds/armed.wav"
 #define COMPANION_SOUND_FILE_CALIBRATING "/sounds/calibrating.wav"
 #define COMPANION_SOUND_FILE_SENSORS_READY "/sounds/sensors_ready.wav"

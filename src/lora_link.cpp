@@ -226,11 +226,14 @@ void LoraLink::reset_recovery_state_() {
   recovery_phase_ = RECOVERY_PHASE_IDLE;
   recovery_launch_armed_ = false;
   recovery_gps_fix_3d_ = false;
+  recovery_gps_fix_3d_latched_ = false;
   recovery_liftoff_detected_ = false;
+  recovery_apogee_detected_ = false;
   recovery_have_min_press_ = false;
   recovery_min_press_pa_x10_ = 0;
   recovery_drogue_deployed_ = false;
   recovery_main_deployed_ = false;
+  recovery_landing_detected_ = false;
   recovery_drogue_reason_ = RECOVERY_REASON_NONE;
   recovery_main_reason_ = RECOVERY_REASON_NONE;
   recovery_drogue_deploy_agl_mm_ = -1;
@@ -276,8 +279,10 @@ bool LoraLink::start_recovery_tx_(uint32_t now_ms) {
   // [1]    u8   6                   packet type (recovery)
   // [2:6]  u32  t_ms                telemetry timestamp (ms)
   // [6]    u8   phase               0=idle,1=ascent,2=descent,3=landed
-  // [7]    u8   flags               bit0=drogue deployed, bit1=main deployed,
-  //                                  bit2=launch armed, bit3=gps 3d fix
+  // [7]    u8   event_flags         bit0=sensors calibrated, bit1=gps 3d fix,
+  //                                  bit2=armed, bit3=launch detected,
+  //                                  bit4=apogee, bit5=drogue deployed,
+  //                                  bit6=main deployed, bit7=landing detected
   // [8:12] i32  agl_mm              current altitude AGL (mm)
   // [12:16]i32  max_agl_mm          max altitude AGL reached (mm)
   // [16:18]i16  vspeed_cms          vertical speed (cm/s)
@@ -290,10 +295,15 @@ bool LoraLink::start_recovery_tx_(uint32_t now_ms) {
   tx_buf_[1] = 6;
   write_u32_le(&tx_buf_[2], (uint32_t)now_ms);
   tx_buf_[6] = recovery_phase_;
-  tx_buf_[7] = (recovery_drogue_deployed_ ? 0x01u : 0x00u) |
-               (recovery_main_deployed_ ? 0x02u : 0x00u) |
+  const bool sensors_calibrated = !recovery_calibration_pending_;
+  tx_buf_[7] = (sensors_calibrated ? 0x01u : 0x00u) |
+               (recovery_gps_fix_3d_latched_ ? 0x02u : 0x00u) |
                (recovery_launch_armed_ ? 0x04u : 0x00u) |
-               (recovery_gps_fix_3d_ ? 0x08u : 0x00u);
+               (recovery_liftoff_detected_ ? 0x08u : 0x00u) |
+               (recovery_apogee_detected_ ? 0x10u : 0x00u) |
+               (recovery_drogue_deployed_ ? 0x20u : 0x00u) |
+               (recovery_main_deployed_ ? 0x40u : 0x00u) |
+               (recovery_landing_detected_ ? 0x80u : 0x00u);
   write_u32_le(&tx_buf_[8], (uint32_t)recovery_agl_mm_);
   write_u32_le(&tx_buf_[12], (uint32_t)recovery_max_agl_mm_);
   write_i16_le(&tx_buf_[16], recovery_vspeed_cms_);
@@ -561,6 +571,9 @@ void LoraLink::poll_telem(uint32_t now_ms,
 
   const bool gps_valid = (gps != nullptr) && (gps->last_pvt_ms != 0) && gps->fix_ok && (gps->fix_type >= 3);
   recovery_gps_fix_3d_ = gps_valid;
+  if (gps_valid) {
+    recovery_gps_fix_3d_latched_ = true;
+  }
 
   if (recovery_calibration_pending_) {
     if (!recovery_baro_cal_done_) {
@@ -625,11 +638,14 @@ void LoraLink::poll_telem(uint32_t now_ms,
       recovery_phase_ = RECOVERY_PHASE_IDLE;
       recovery_launch_armed_ = false;
       recovery_gps_fix_3d_ = gps_valid;
+      recovery_gps_fix_3d_latched_ = gps_valid;
       recovery_liftoff_detected_ = false;
+      recovery_apogee_detected_ = false;
       recovery_have_min_press_ = false;
       recovery_min_press_pa_x10_ = 0;
       recovery_drogue_deployed_ = false;
       recovery_main_deployed_ = false;
+      recovery_landing_detected_ = false;
       recovery_drogue_reason_ = RECOVERY_REASON_NONE;
       recovery_main_reason_ = RECOVERY_REASON_NONE;
       recovery_drogue_deploy_agl_mm_ = -1;
@@ -655,9 +671,10 @@ void LoraLink::poll_telem(uint32_t now_ms,
         }
       }
 
+      // Require explicit altitude gain to declare liftoff. This avoids
+      // pre-launch jitter/noise from tripping the entire recovery sequence.
       if (recovery_launch_armed_ && !recovery_liftoff_detected_ &&
-          (recovery_agl_mm_ >= RECOVERY_LIFTOFF_CONFIRM_AGL_MM
-            || recovery_vspeed_cms_ >= RECOVERY_LAUNCH_VSPEED_CMS)) {
+          recovery_agl_mm_ >= RECOVERY_LIFTOFF_CONFIRM_AGL_MM) {
         recovery_liftoff_detected_ = true;
       }
 
@@ -690,6 +707,7 @@ void LoraLink::poll_telem(uint32_t now_ms,
         if (pressure_rise) votes++;
 
         if (votes >= RECOVERY_APOGEE_VOTE_MIN) {
+          recovery_apogee_detected_ = true;
           recovery_drogue_deployed_ = true;
           recovery_drogue_reason_ = RECOVERY_DROGUE_REASON_APOGEE_VOTE;
           recovery_drogue_deploy_agl_mm_ = recovery_agl_mm_;
@@ -731,6 +749,10 @@ void LoraLink::poll_telem(uint32_t now_ms,
       }
 
       if (recovery_main_deployed_ && recovery_agl_mm_ <= RECOVERY_LANDED_AGL_MM) {
+        recovery_landing_detected_ = true;
+      }
+
+      if (recovery_landing_detected_) {
         recovery_phase_ = RECOVERY_PHASE_LANDED;
       }
 

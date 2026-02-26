@@ -192,6 +192,54 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
     ioState.recoveryGpsFix3d = false;
   }
 
+  JsonObject recoveryEvents = recovery["events"];
+
+  bool hasSensorsCalibrated = false;
+  if (!recovery.isNull() && !recovery["sensors_calibrated"].isNull()) {
+    ioState.recoverySensorsCalibrated = recovery["sensors_calibrated"].as<bool>();
+    hasSensorsCalibrated = true;
+  } else if (!recoveryEvents.isNull() && !recoveryEvents["sensors_calibrated"].isNull()) {
+    ioState.recoverySensorsCalibrated = recoveryEvents["sensors_calibrated"].as<bool>();
+    hasSensorsCalibrated = true;
+  } else {
+    ioState.recoverySensorsCalibrated = false;
+  }
+
+  bool hasLaunchDetected = false;
+  if (!recovery.isNull() && !recovery["launch_detected"].isNull()) {
+    ioState.recoveryLaunchDetected = recovery["launch_detected"].as<bool>();
+    hasLaunchDetected = true;
+  } else if (!recoveryEvents.isNull() && !recoveryEvents["launch_detected"].isNull()) {
+    ioState.recoveryLaunchDetected = recoveryEvents["launch_detected"].as<bool>();
+    hasLaunchDetected = true;
+  } else {
+    ioState.recoveryLaunchDetected = false;
+  }
+
+  bool hasApogee = false;
+  if (!recovery.isNull() && !recovery["apogee"].isNull()) {
+    ioState.recoveryApogee = recovery["apogee"].as<bool>();
+    hasApogee = true;
+  } else if (!recoveryEvents.isNull() && !recoveryEvents["apogee"].isNull()) {
+    ioState.recoveryApogee = recoveryEvents["apogee"].as<bool>();
+    hasApogee = true;
+  } else {
+    ioState.recoveryApogee = false;
+  }
+
+  bool hasLandingDetected = false;
+  if (!recovery.isNull() && !recovery["landing_detected"].isNull()) {
+    ioState.recoveryLandingDetected = recovery["landing_detected"].as<bool>();
+    hasLandingDetected = true;
+  } else if (!recoveryEvents.isNull() && !recoveryEvents["landing_detected"].isNull()) {
+    ioState.recoveryLandingDetected = recoveryEvents["landing_detected"].as<bool>();
+    hasLandingDetected = true;
+  } else {
+    ioState.recoveryLandingDetected = false;
+  }
+
+  ioState.hasRecoveryEventState = hasSensorsCalibrated && hasLaunchDetected && hasApogee && hasLandingDetected;
+
   JsonObject recoveryDrogue = recovery["drogue"];
   JsonObject recoveryMain = recovery["main"];
   if (!recoveryDrogue.isNull() && !recoveryMain.isNull() &&

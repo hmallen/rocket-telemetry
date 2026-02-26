@@ -31,6 +31,7 @@ const elements = {
   recoveryGpsFix: document.getElementById("recovery-gps-fix"),
   recoveryAgl: document.getElementById("recovery-agl"),
   recoveryVspeed: document.getElementById("recovery-vspeed"),
+  recoveryEventFlags: document.getElementById("recovery-event-flags"),
   recoveryDrogue: document.getElementById("recovery-drogue"),
   recoveryMain: document.getElementById("recovery-main"),
   imuTime: document.getElementById("imu-time"),
@@ -577,6 +578,26 @@ function formatNumber(value, digits = 2) {
     return "--";
   }
   return Number(value).toFixed(digits);
+}
+
+function formatRecoveryEventFlags(recovery) {
+  if (!recovery || typeof recovery !== "object") {
+    return "--";
+  }
+
+  const drogueDeployed = recovery.drogue && recovery.drogue.deployed === true;
+  const mainDeployed = recovery.main && recovery.main.deployed === true;
+
+  return [
+    `S:${recovery.sensors_calibrated === true ? 1 : 0}`,
+    `G:${recovery.gps_fix_3d === true ? 1 : 0}`,
+    `A:${recovery.launch_armed === true ? 1 : 0}`,
+    `L:${recovery.launch_detected === true ? 1 : 0}`,
+    `P:${recovery.apogee === true ? 1 : 0}`,
+    `D:${drogueDeployed ? 1 : 0}`,
+    `M:${mainDeployed ? 1 : 0}`,
+    `N:${recovery.landing_detected === true ? 1 : 0}`,
+  ].join(" ");
 }
 
 function formatTimestamp(timestampSec) {
@@ -1368,6 +1389,9 @@ function updateFromTelemetry(snapshot) {
   elements.recoveryVspeed.textContent = recovery.vertical_speed_mps !== null && recovery.vertical_speed_mps !== undefined
     ? `${formatNumber(recovery.vertical_speed_mps, 1)} m/s`
     : "--";
+  if (elements.recoveryEventFlags) {
+    elements.recoveryEventFlags.textContent = formatRecoveryEventFlags(recovery);
+  }
   setDeployIndicator(elements.recoveryDrogue, recovery.drogue);
   setDeployIndicator(elements.recoveryMain, recovery.main);
 
