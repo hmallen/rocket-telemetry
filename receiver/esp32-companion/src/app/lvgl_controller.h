@@ -83,6 +83,7 @@ class LvglController {
   bool recoveryLaunchArmed_ = false;
   bool recoveryGpsFix3d_ = false;
   bool allowArmWithoutGpsFix_ = false;
+  bool phaseResetRequested_ = false;
   float maxObservedAglM_ = NAN;
   bool apogeeCalloutPending_ = false;
   static constexpr uint8_t kSoundQueueCapacity = 16;
@@ -211,7 +212,9 @@ class LvglController {
   void initSdStorage();
   void initSoundOutput();
   void queueSoundCue(SoundCue cue);
-  void handleEventSoundTriggers(const String& previousPhase, bool phaseChanged);
+  void handleEventSoundTriggers(const String& previousPhase,
+                                const String& currentPhase,
+                                bool phaseChanged);
   void playNextQueuedSound();
   bool playNumberCue(int value);
   bool playApogeeAltitudeCallout();

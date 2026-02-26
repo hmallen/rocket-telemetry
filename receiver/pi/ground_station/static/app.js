@@ -1084,7 +1084,7 @@ function toggleAltCalControls(disabled) {
 }
 
 function postAltCalibrateCommand() {
-  setAltCalStatus("Sending altitude calibration...", "pending");
+  setAltCalStatus("Sending altitude zero + launch reset...", "pending");
   state.altCalCommandPending = true;
   toggleAltCalControls(true);
   fetch("/api/command", {
@@ -1097,7 +1097,7 @@ function postAltCalibrateCommand() {
       if (!payload.ok) {
         throw new Error(payload.error || "Command failed");
       }
-      setAltCalStatus("Altitude calibration command sent.", "ok");
+      setAltCalStatus("Altitude zero + launch reset command sent.", "ok");
     })
     .catch((err) => {
       setAltCalStatus(err.message || "Command failed", "error");

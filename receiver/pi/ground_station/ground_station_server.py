@@ -773,10 +773,37 @@ class TelemetryStore:
                             self._state["telemetry_tx"]["active_power_dbm"] = int(tx_power_dbm)
                     elif cmd == "launch_arm":
                         launch_arm_enabled = bool(parsed.get("enabled"))
-                        if launch_arm_enabled:
-                            self._state["recovery"]["launch_armed"] = True
+                        self._state["recovery"]["launch_armed"] = launch_arm_enabled
                         self._state["recovery"]["launch_arm_ack_timestamp"] = ack_ts
                         self._state["recovery"]["launch_arm_ack_enabled"] = launch_arm_enabled
+                    elif cmd == "alt_calibrate":
+                        # Altitude zero also restarts recovery state from preflight.
+                        # Apply this immediately on ACK so UI state resets without
+                        # waiting for the next recovery telemetry frame.
+                        if bool(parsed.get("enabled")):
+                            self._state["recovery"].update({
+                                "enabled": True,
+                                "mode": "downlink",
+                                "phase": "idle",
+                                "launch_armed": False,
+                                "launch_alt_m": None,
+                                "altitude_agl_m": None,
+                                "max_altitude_agl_m": None,
+                                "vertical_speed_mps": None,
+                                "drogue": {
+                                    "deployed": False,
+                                    "deploy_timestamp": None,
+                                    "deploy_alt_agl_m": None,
+                                    "reason": None,
+                                },
+                                "main": {
+                                    "deployed": False,
+                                    "deploy_timestamp": None,
+                                    "deploy_alt_agl_m": None,
+                                    "reason": None,
+                                },
+                                "rules": None,
+                            })
 
             return copy.deepcopy(self._state)
 

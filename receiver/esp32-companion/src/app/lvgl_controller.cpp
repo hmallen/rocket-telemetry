@@ -251,6 +251,24 @@ static bool phaseEquals(const String& phaseText, const char* expectedLower) {
   return phase == expectedLower;
 }
 
+static int8_t phaseProgressStep(const String& phaseText) {
+  String phase = phaseText;
+  phase.toLowerCase();
+  if (phase == "idle") {
+    return 0;
+  }
+  if (phase == "boost" || phase == "coast" || phase == "ascent") {
+    return 1;
+  }
+  if (phase == "descent") {
+    return 2;
+  }
+  if (phase == "landed") {
+    return 3;
+  }
+  return -1;
+}
+
 static lv_obj_t* makeActionButton(lv_obj_t* parent,
                                   const char* text,
                                   lv_event_cb_t cb,
@@ -1073,19 +1091,24 @@ const char* LvglController::cueFilePath(SoundCue cue) const {
   }
 }
 
-void LvglController::handleEventSoundTriggers(const String& previousPhase, bool phaseChanged) {
-  const String& currentPhase = state_.flight.phase;
+void LvglController::handleEventSoundTriggers(const String& previousPhase,
+                                              const String& currentPhase,
+                                              bool phaseChanged) {
   const float currentAglM = state_.alt.altitudeAglM;
+  const int8_t currentPhaseStep = phaseProgressStep(currentPhase);
+  const bool preflightPhase = (currentPhaseStep <= 0);
 
   if (!isnan(currentAglM) && (isnan(maxObservedAglM_) || currentAglM > maxObservedAglM_)) {
     maxObservedAglM_ = currentAglM;
   }
 
   if (state_.recoveryGpsFix3d != recoveryGpsFix3d_) {
-    if (state_.recoveryGpsFix3d) {
-      queueSoundCue(SoundCue::kLocationFixAcquired);
-    } else if (!allowArmWithoutGpsFix_ && !state_.recoveryLaunchArmed) {
-      queueSoundCue(SoundCue::kWaitingForLocationFix);
+    if (preflightPhase) {
+      if (state_.recoveryGpsFix3d) {
+        queueSoundCue(SoundCue::kLocationFixAcquired);
+      } else if (!allowArmWithoutGpsFix_ && !state_.recoveryLaunchArmed) {
+        queueSoundCue(SoundCue::kWaitingForLocationFix);
+      }
     }
   }
 
@@ -2309,11 +2332,52 @@ void LvglController::tick() {
       loraAgeBaseTickMs_ = now;
     }
 #endif
+    const String previousPhase = lastPhase_;
+    const String reportedPhase = state_.flight.phase;
+    String effectivePhase = reportedPhase;
+
+    const int8_t previousPhaseStep = phaseProgressStep(previousPhase);
+    const int8_t reportedPhaseStep = phaseProgressStep(reportedPhase);
+
+    bool allowPhaseResetToIdle = false;
+    if (phaseResetRequested_) {
+      if (reportedPhaseStep == 0) {
+        allowPhaseResetToIdle = true;
+      } else if (reportedPhaseStep > 0) {
+        phaseResetRequested_ = false;
+      }
+    }
+
+    if (previousPhaseStep >= 0) {
+      if (reportedPhaseStep < 0) {
+        effectivePhase = previousPhase;
+      } else if (reportedPhaseStep < previousPhaseStep) {
+        if (!allowPhaseResetToIdle) {
+          effectivePhase = previousPhase;
+        }
+      } else if (reportedPhaseStep > (previousPhaseStep + 1)) {
+        if (previousPhaseStep == 0) {
+          effectivePhase = "ascent";
+        } else if (previousPhaseStep == 1) {
+          effectivePhase = "descent";
+        } else if (previousPhaseStep == 2) {
+          effectivePhase = "landed";
+        } else {
+          effectivePhase = previousPhase;
+        }
+      }
+    }
+
+    if (allowPhaseResetToIdle) {
+      phaseResetRequested_ = false;
+    }
+
+    state_.flight.phase = effectivePhase;
+
     syncCommandStateFromTelemetry();
 
-    const String previousPhase = lastPhase_;
     const bool phaseChanged = (state_.flight.phase != previousPhase && state_.flight.phase.length() > 0);
-    handleEventSoundTriggers(previousPhase, phaseChanged);
+    handleEventSoundTriggers(previousPhase, state_.flight.phase, phaseChanged);
 
     if (phaseChanged) {
       setCommandStatus("Phase -> " + state_.flight.phase, true);
@@ -2476,6 +2540,8 @@ void LvglController::onCalibrateEvent(lv_event_t* e) {
 void LvglController::onAltCalibrateEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
   if (self->sendAction("alt_calibrate", 0)) {
+    self->phaseResetRequested_ = true;
+    self->queueSoundCue(SoundCue::kArmed);
     self->queueSoundCue(SoundCue::kCalibrating);
     self->queueSoundCue(SoundCue::kSensorsReady);
   }
