@@ -1131,6 +1131,11 @@ void LvglController::handleEventSoundTriggers(const String& previousPhase,
       } else if (!allowArmWithoutGpsFix_) {
         queueSoundCue(SoundCue::kWaitingForLocationFix);
       }
+      // Starting a new flight lifecycle: re-prime deployment edge tracking so
+      // main/drogue cues are not skipped if prior flight state was still latched.
+      hasRecoveryDeployHistory_ = true;
+      lastRecoveryDrogueDeployed_ = false;
+      lastRecoveryMainDeployed_ = false;
       maxObservedAglM_ = NAN;
       apogeeCalloutPending_ = false;
     }
@@ -2541,6 +2546,9 @@ void LvglController::onAltCalibrateEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
   if (self->sendAction("alt_calibrate", 0)) {
     self->phaseResetRequested_ = true;
+    self->hasRecoveryDeployHistory_ = true;
+    self->lastRecoveryDrogueDeployed_ = false;
+    self->lastRecoveryMainDeployed_ = false;
     self->queueSoundCue(SoundCue::kArmed);
     self->queueSoundCue(SoundCue::kCalibrating);
     self->queueSoundCue(SoundCue::kSensorsReady);
