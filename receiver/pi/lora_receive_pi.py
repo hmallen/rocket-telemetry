@@ -474,6 +474,7 @@ CMD_TELEM_DISABLE = 0x05
 CMD_ALT_CALIBRATE = 0x06
 CMD_IMU_CALIBRATE = 0x07
 CMD_SET_TX_POWER = 0x08
+CMD_LAUNCH_ARM = 0x09
 
 RECOVERY_PHASE_LABELS = {
     0: "idle",
@@ -684,6 +685,9 @@ def decode_payload(payload):
         elif cmd == CMD_SET_TX_POWER:
             cmd_label = "telemetry_tx_power"
             state_label = "tx_power"
+        elif cmd == CMD_LAUNCH_ARM:
+            cmd_label = "launch_arm"
+            state_label = "launch_detect_mode"
         else:
             cmd_label = "0x%02X" % cmd
         if cmd == CMD_SET_TX_POWER and len(payload) >= 5:
@@ -773,21 +777,36 @@ def decode_payload(payload):
         vspeed_mps = int.from_bytes(payload[16:18], "little", signed=True) / 100.0
         drogue_agl_mm = int.from_bytes(payload[18:22], "little", signed=True)
         main_agl_mm = int.from_bytes(payload[22:26], "little", signed=True)
+        sensors_calibrated = bool(flags & 0x01)
+        gps_fix_3d = bool(flags & 0x02)
+        launch_armed = bool(flags & 0x04)
+        launch_detected = bool(flags & 0x08)
+        apogee = bool(flags & 0x10)
+        drogue_deployed = bool(flags & 0x20)
+        main_deployed = bool(flags & 0x40)
+        landing_detected = bool(flags & 0x80)
         drogue_reason_code = int(payload[26]) if len(payload) >= 27 else 0
         main_reason_code = int(payload[27]) if len(payload) >= 28 else 0
         drogue_m = (drogue_agl_mm / 1000.0) if drogue_agl_mm >= 0 else None
         main_m = (main_agl_mm / 1000.0) if main_agl_mm >= 0 else None
         return (
-            "RECOVERY t_ms=%d phase=%s agl=%.1f max_agl=%.1f vs=%.2f drogue=%s"
-            " main=%s drogue_agl=%s main_agl=%s drogue_reason=%s main_reason=%s"
+            "RECOVERY t_ms=%d phase=%s cal=%s gps3d=%s armed=%s launch=%s apogee=%s"
+            " drogue=%s main=%s landed=%s agl=%.1f max_agl=%.1f vs=%.2f"
+            " drogue_agl=%s main_agl=%s drogue_reason=%s main_reason=%s"
         ) % (
             t_ms,
             RECOVERY_PHASE_LABELS.get(phase, str(phase)),
+            "yes" if sensors_calibrated else "no",
+            "yes" if gps_fix_3d else "no",
+            "yes" if launch_armed else "no",
+            "yes" if launch_detected else "no",
+            "yes" if apogee else "no",
+            "yes" if drogue_deployed else "no",
+            "yes" if main_deployed else "no",
+            "yes" if landing_detected else "no",
             agl_m,
             max_agl_m,
             vspeed_mps,
-            "yes" if (flags & 0x01) else "no",
-            "yes" if (flags & 0x02) else "no",
             "%.1f" % drogue_m if drogue_m is not None else "--",
             "%.1f" % main_m if main_m is not None else "--",
             RECOVERY_DROGUE_REASON_LABELS.get(drogue_reason_code, str(drogue_reason_code)),
@@ -821,6 +840,8 @@ def parse_payload(payload):
             cmd_label = "imu_calibrate"
         elif cmd == CMD_SET_TX_POWER:
             cmd_label = "telemetry_tx_power"
+        elif cmd == CMD_LAUNCH_ARM:
+            cmd_label = "launch_arm"
         else:
             cmd_label = "unknown"
         enabled = bool(payload[3])
@@ -932,7 +953,10 @@ def parse_payload(payload):
         # [1]    u8   6                   packet type (recovery)
         # [2:6]  u32  t_ms                telemetry timestamp (ms)
         # [6]    u8   phase               0=idle,1=ascent,2=descent,3=landed
-        # [7]    u8   flags               bit0=drogue deployed, bit1=main deployed
+        # [7]    u8   event_flags         bit0=sensors calibrated, bit1=gps 3d fix,
+        #                                  bit2=launch armed, bit3=launch detected,
+        #                                  bit4=apogee, bit5=drogue deployed,
+        #                                  bit6=main deployed, bit7=landing detected
         # [8:12] i32  agl_mm              current altitude AGL (mm)
         # [12:16]i32  max_agl_mm          max altitude AGL reached (mm)
         # [16:18]i16  vspeed_cms          vertical speed (cm/s)
@@ -955,8 +979,14 @@ def parse_payload(payload):
             "t_ms": t_ms,
             "phase_code": phase_code,
             "phase": RECOVERY_PHASE_LABELS.get(phase_code, "unknown"),
-            "drogue_deployed": bool(flags & 0x01),
-            "main_deployed": bool(flags & 0x02),
+            "sensors_calibrated": bool(flags & 0x01),
+            "gps_fix_3d": bool(flags & 0x02),
+            "launch_armed": bool(flags & 0x04),
+            "launch_detected": bool(flags & 0x08),
+            "apogee": bool(flags & 0x10),
+            "drogue_deployed": bool(flags & 0x20),
+            "main_deployed": bool(flags & 0x40),
+            "landing_detected": bool(flags & 0x80),
             "altitude_agl_m": agl_mm / 1000.0,
             "max_altitude_agl_m": max_agl_mm / 1000.0,
             "vertical_speed_mps": vspeed_cms / 100.0,

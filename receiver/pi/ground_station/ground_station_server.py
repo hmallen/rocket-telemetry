@@ -129,11 +129,12 @@ LORA_CMD_TELEM_DISABLE = 0x05
 LORA_CMD_ALT_CALIBRATE = 0x06
 LORA_CMD_IMU_CALIBRATE = 0x07
 LORA_CMD_SET_TX_POWER = 0x08
+LORA_CMD_LAUNCH_ARM = 0x09
 LORA_CMD_REPEAT_COUNT = 3
 LORA_CMD_REPEAT_DELAY_S = 0.1
 
 COMMAND_LOCKOUT_PHASES = {"ascent", "descent", "boost", "coast"}
-COMMAND_LOCKOUT_ACTIONS = {"sd_stop", "telemetry_disable", "shutdown"}
+COMMAND_LOCKOUT_ACTIONS = {"sd_stop", "telemetry_disable", "shutdown", "reboot"}
 
 
 def _command_lockout_active_from_snapshot(snapshot):
@@ -563,6 +564,14 @@ class TelemetryStore:
                 "enabled": True,
                 "mode": "downlink",
                 "phase": "idle",
+                "sensors_calibrated": False,
+                "launch_armed": False,
+                "gps_fix_3d": False,
+                "launch_detected": False,
+                "apogee": False,
+                "landing_detected": False,
+                "launch_arm_ack_timestamp": None,
+                "launch_arm_ack_enabled": None,
                 "launch_alt_m": None,
                 "altitude_agl_m": None,
                 "max_altitude_agl_m": None,
@@ -717,12 +726,80 @@ class TelemetryStore:
                         "bat_state_label": BAT_STATE_LABELS.get(bat_state, "UNKNOWN"),
                     })
                 elif payload_type == "recovery":
-                    drogue_deployed = bool(parsed.get("drogue_deployed"))
-                    main_deployed = bool(parsed.get("main_deployed"))
+                    prev_recovery = self._state.get("recovery", {})
+                    prev_drogue = prev_recovery.get("drogue", {})
+                    prev_main = prev_recovery.get("main", {})
+
+                    phase = parsed.get("phase") or "unknown"
+                    phase_lower = phase.lower() if isinstance(phase, str) else "unknown"
+
+                    raw_launch_detected = bool(parsed.get("launch_detected"))
+                    raw_apogee = bool(parsed.get("apogee"))
+                    raw_drogue_deployed = bool(parsed.get("drogue_deployed"))
+                    raw_main_deployed = bool(parsed.get("main_deployed"))
+                    raw_landing_detected = bool(parsed.get("landing_detected"))
+
+                    # New preflight cycle from clean idle frame: clear latched event state.
+                    cycle_reset = (
+                        phase_lower == "idle"
+                        and not raw_launch_detected
+                        and not raw_apogee
+                        and not raw_drogue_deployed
+                        and not raw_main_deployed
+                        and not raw_landing_detected
+                    )
+
+                    prev_launch_detected = bool(prev_recovery.get("launch_detected")) if not cycle_reset else False
+                    prev_apogee = bool(prev_recovery.get("apogee")) if not cycle_reset else False
+                    prev_drogue_deployed = bool(prev_drogue.get("deployed")) if not cycle_reset else False
+                    prev_main_deployed = bool(prev_main.get("deployed")) if not cycle_reset else False
+                    prev_landing_detected = bool(prev_recovery.get("landing_detected")) if not cycle_reset else False
+
+                    # Latch forward and enforce rough sequence ordering so spurious frames
+                    # cannot produce impossible transitions (e.g., landing right after launch).
+                    launch_detected = prev_launch_detected or raw_launch_detected
+                    apogee = prev_apogee or (raw_apogee and launch_detected)
+                    drogue_deployed = prev_drogue_deployed or (
+                        raw_drogue_deployed and (apogee or raw_apogee or launch_detected)
+                    )
+                    main_deployed = prev_main_deployed or (
+                        raw_main_deployed
+                        and (drogue_deployed or raw_drogue_deployed or apogee or raw_apogee or launch_detected)
+                    )
+                    landing_detected = prev_landing_detected or (
+                        raw_landing_detected
+                        and main_deployed
+                        and phase_lower in ("descent", "landed")
+                    )
+
+                    sensors_calibrated = bool(parsed.get("sensors_calibrated"))
+
+                    drogue_deploy_alt = parsed.get("drogue_deploy_alt_agl_m")
+                    if drogue_deployed and drogue_deploy_alt is None:
+                        drogue_deploy_alt = prev_drogue.get("deploy_alt_agl_m")
+
+                    main_deploy_alt = parsed.get("main_deploy_alt_agl_m")
+                    if main_deployed and main_deploy_alt is None:
+                        main_deploy_alt = prev_main.get("deploy_alt_agl_m")
+
+                    drogue_reason = None
+                    if drogue_deployed:
+                        drogue_reason = parsed.get("drogue_reason") if raw_drogue_deployed else prev_drogue.get("reason")
+
+                    main_reason = None
+                    if main_deployed:
+                        main_reason = parsed.get("main_reason") if raw_main_deployed else prev_main.get("reason")
+
                     self._state["recovery"].update({
                         "enabled": True,
                         "mode": "downlink",
-                        "phase": parsed.get("phase") or "unknown",
+                        "phase": phase,
+                        "sensors_calibrated": sensors_calibrated,
+                        "launch_armed": bool(parsed.get("launch_armed")),
+                        "gps_fix_3d": bool(parsed.get("gps_fix_3d")),
+                        "launch_detected": launch_detected,
+                        "apogee": apogee,
+                        "landing_detected": landing_detected,
                         "launch_alt_m": None,
                         "altitude_agl_m": parsed.get("altitude_agl_m"),
                         "max_altitude_agl_m": parsed.get("max_altitude_agl_m"),
@@ -730,14 +807,14 @@ class TelemetryStore:
                         "drogue": {
                             "deployed": drogue_deployed,
                             "deploy_timestamp": None,
-                            "deploy_alt_agl_m": parsed.get("drogue_deploy_alt_agl_m"),
-                            "reason": parsed.get("drogue_reason") if drogue_deployed else None,
+                            "deploy_alt_agl_m": drogue_deploy_alt,
+                            "reason": drogue_reason,
                         },
                         "main": {
                             "deployed": main_deployed,
                             "deploy_timestamp": None,
-                            "deploy_alt_agl_m": parsed.get("main_deploy_alt_agl_m"),
-                            "reason": parsed.get("main_reason") if main_deployed else None,
+                            "deploy_alt_agl_m": main_deploy_alt,
+                            "reason": main_reason,
                         },
                         "rules": None,
                     })
@@ -764,6 +841,44 @@ class TelemetryStore:
                         tx_power_dbm = parsed.get("tx_power_dbm")
                         if tx_power_dbm is not None:
                             self._state["telemetry_tx"]["active_power_dbm"] = int(tx_power_dbm)
+                    elif cmd == "launch_arm":
+                        launch_arm_enabled = bool(parsed.get("enabled"))
+                        self._state["recovery"]["launch_armed"] = launch_arm_enabled
+                        self._state["recovery"]["launch_arm_ack_timestamp"] = ack_ts
+                        self._state["recovery"]["launch_arm_ack_enabled"] = launch_arm_enabled
+                    elif cmd == "alt_calibrate":
+                        # Altitude zero also restarts recovery state from preflight.
+                        # Apply this immediately on ACK so UI state resets without
+                        # waiting for the next recovery telemetry frame.
+                        if bool(parsed.get("enabled")):
+                            self._state["recovery"].update({
+                                "enabled": True,
+                                "mode": "downlink",
+                                "phase": "idle",
+                                "sensors_calibrated": False,
+                                "launch_armed": False,
+                                "gps_fix_3d": False,
+                                "launch_detected": False,
+                                "apogee": False,
+                                "landing_detected": False,
+                                "launch_alt_m": None,
+                                "altitude_agl_m": None,
+                                "max_altitude_agl_m": None,
+                                "vertical_speed_mps": None,
+                                "drogue": {
+                                    "deployed": False,
+                                    "deploy_timestamp": None,
+                                    "deploy_alt_agl_m": None,
+                                    "reason": None,
+                                },
+                                "main": {
+                                    "deployed": False,
+                                    "deploy_timestamp": None,
+                                    "deploy_alt_agl_m": None,
+                                    "reason": None,
+                                },
+                                "rules": None,
+                            })
 
             return copy.deepcopy(self._state)
 
@@ -1075,11 +1190,27 @@ def _build_companion_state(snapshot, seq=None):
         "recovery": {
             "enabled": recovery.get("enabled"),
             "phase": recovery.get("phase"),
+            "sensors_calibrated": recovery.get("sensors_calibrated"),
+            "launch_armed": recovery.get("launch_armed"),
+            "gps_fix_3d": recovery.get("gps_fix_3d"),
+            "launch_detected": recovery.get("launch_detected"),
+            "apogee": recovery.get("apogee"),
+            "landing_detected": recovery.get("landing_detected"),
             "altitude_agl_m": recovery.get("altitude_agl_m"),
             "max_altitude_agl_m": recovery.get("max_altitude_agl_m"),
             "vertical_speed_mps": recovery.get("vertical_speed_mps"),
             "drogue": {"deployed": recovery.get("drogue", {}).get("deployed")},
             "main": {"deployed": recovery.get("main", {}).get("deployed")},
+            "events": {
+                "sensors_calibrated": recovery.get("sensors_calibrated"),
+                "gps_fix_3d": recovery.get("gps_fix_3d"),
+                "armed": recovery.get("launch_armed"),
+                "launch_detected": recovery.get("launch_detected"),
+                "apogee": recovery.get("apogee"),
+                "drogue_deployed": recovery.get("drogue", {}).get("deployed"),
+                "main_deployed": recovery.get("main", {}).get("deployed"),
+                "landing_detected": recovery.get("landing_detected"),
+            },
         },
         "alerts": alerts,
     }
@@ -1104,6 +1235,8 @@ class CompanionUartBridge:
     CMD_IMU_CALIBRATE = 0x07
     CMD_SHUTDOWN = 0x08
     CMD_SET_TX_POWER = 0x09
+    CMD_LAUNCH_ARM = 0x0A
+    CMD_REBOOT = 0x0B
 
     def __init__(self, port, baud):
         self._port = port
@@ -1167,7 +1300,7 @@ class CompanionUartBridge:
 
     def _phase_to_code(self, phase):
         phase = (phase or "").lower()
-        mapping = {"idle": 0, "pad": 1, "boost": 2, "coast": 3, "descent": 4, "landed": 5}
+        mapping = {"idle": 0, "pad": 1, "boost": 2, "coast": 3, "ascent": 2, "descent": 4, "landed": 5}
         return mapping.get(phase, 0)
 
     def send_companion_state(self, state):
@@ -1204,6 +1337,28 @@ class CompanionUartBridge:
             flags |= 0x10
         if command_lockout.get("active") is True:
             flags |= 0x20
+        if recovery.get("launch_armed") is True:
+            flags |= 0x40
+        if recovery.get("gps_fix_3d") is True:
+            flags |= 0x80
+
+        event_flags = 0
+        if recovery.get("sensors_calibrated") is True:
+            event_flags |= 0x01
+        if recovery.get("gps_fix_3d") is True:
+            event_flags |= 0x02
+        if recovery.get("launch_armed") is True:
+            event_flags |= 0x04
+        if recovery.get("launch_detected") is True:
+            event_flags |= 0x08
+        if recovery.get("apogee") is True:
+            event_flags |= 0x10
+        if recovery.get("drogue", {}).get("deployed") is True:
+            event_flags |= 0x20
+        if recovery.get("main", {}).get("deployed") is True:
+            event_flags |= 0x40
+        if recovery.get("landing_detected") is True:
+            event_flags |= 0x80
 
         tx_power_dbm = telemetry_tx.get("active_power_dbm")
         if tx_power_dbm is None:
@@ -1212,7 +1367,7 @@ class CompanionUartBridge:
             tx_power_dbm = int(tx_power_dbm) & 0xFF
 
         payload = struct.pack(
-            "<IiiihhbBHHBHiB",
+            "<IiiihhbBHHBHiBB",
             int((state.get("ts") or time.time()) * 1000) & 0xFFFFFFFF,
             int((lat_deg or 0.0) * 1e7),
             int((lon_deg or 0.0) * 1e7),
@@ -1227,6 +1382,7 @@ class CompanionUartBridge:
             int((battery.get("ground_vbat_v") or 0.0) * 1000) & 0xFFFF,
             gps_alt_mm,
             tx_power_dbm,
+            int(event_flags),
         )
         frame = self._encode_frame(self.MSG_TELEM_SNAPSHOT, payload)
         with self._lock:
@@ -1267,8 +1423,12 @@ class CompanionUartBridge:
             ok, error = send_lora_command("imu_calibrate")
         elif cmd == self.CMD_SET_TX_POWER:
             ok, error = send_lora_command("telemetry_tx_power", tx_power_dbm=int(arg))
+        elif cmd == self.CMD_LAUNCH_ARM:
+            ok, error = send_lora_command("launch_arm", duration_s=int(arg))
         elif cmd == self.CMD_SHUTDOWN:
             ok, error = request_pi_shutdown()
+        elif cmd == self.CMD_REBOOT:
+            ok, error = request_pi_reboot()
         else:
             ok, error = False, "Unknown UART command"
 
@@ -1491,6 +1651,8 @@ def send_lora_command(action, duration_s=None, tx_power_dbm=None):
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_TELEM_DISABLE])
     elif action == "alt_calibrate":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_ALT_CALIBRATE])
+    elif action == "phase_reset":
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_ALT_CALIBRATE])
     elif action == "imu_calibrate":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_IMU_CALIBRATE])
     elif action == "telemetry_tx_power":
@@ -1501,6 +1663,12 @@ def send_lora_command(action, duration_s=None, tx_power_dbm=None):
         if tx_power < 2 or tx_power > 17:
             return False, "tx_power_dbm must be between 2 and 17"
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SET_TX_POWER, tx_power])
+    elif action == "launch_arm":
+        try:
+            allow_without_gps_fix = 1 if int(duration_s or 0) != 0 else 0
+        except (TypeError, ValueError):
+            return False, "duration_s must be 0 or 1 for launch_arm"
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_LAUNCH_ARM, allow_without_gps_fix])
     elif action == "buzzer":
         try:
             duration = int(duration_s)
@@ -1557,6 +1725,28 @@ def request_pi_shutdown():
         return True, None
     except Exception as exc:  # pylint: disable=broad-except
         return False, f"Failed to schedule shutdown: {exc}"
+
+
+def request_pi_reboot():
+    if _is_action_locked_during_flight("reboot"):
+        return False, "reboot blocked after launch; wait for landing"
+
+    def _reboot_worker():
+        # Give the HTTP/UART ACK path a brief moment to flush before reboot.
+        time.sleep(0.3)
+        subprocess.Popen(
+            ["sudo", "shutdown", "-r", "now"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    try:
+        threading.Thread(target=_reboot_worker, daemon=True).start()
+        print("Pi reboot requested via companion command")
+        return True, None
+    except Exception as exc:  # pylint: disable=broad-except
+        return False, f"Failed to schedule reboot: {exc}"
 
 
 class GroundStationHandler(BaseHTTPRequestHandler):
@@ -1704,6 +1894,8 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             tx_power_dbm = payload.get("tx_power_dbm")
             if action == "shutdown":
                 ok, error = request_pi_shutdown()
+            elif action == "reboot":
+                ok, error = request_pi_reboot()
             else:
                 ok, error = send_lora_command(action, duration_s, tx_power_dbm)
             if not ok:

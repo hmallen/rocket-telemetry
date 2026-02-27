@@ -120,6 +120,38 @@ void ApiClient::closeEventStream() {
   dataBuffer_ = "";
 }
 
+void ApiClient::updateDerivedVerticalSpeeds(uint32_t sampleTms,
+                                            uint32_t packetCount,
+                                            CompanionState& ioState) {
+  const bool hasNewPacket = !havePacketCount_ || packetCount != lastPacketCount_;
+  if (!hasNewPacket) {
+    return;
+  }
+
+  havePacketCount_ = true;
+  lastPacketCount_ = packetCount;
+  ioState.alt.baroVerticalSpeedMps = NAN;
+  ioState.alt.gpsVerticalSpeedMps = NAN;
+
+  if (haveAltHistory_) {
+    const uint32_t dtMs = sampleTms - lastAltSampleTms_;
+    if (dtMs > 0 && dtMs <= 10000) {
+      const float dtS = static_cast<float>(dtMs) / 1000.0f;
+      if (!isnan(ioState.alt.altitudeAglM) && !isnan(lastBaroAltM_)) {
+        ioState.alt.baroVerticalSpeedMps = (ioState.alt.altitudeAglM - lastBaroAltM_) / dtS;
+      }
+      if (!isnan(ioState.alt.gpsAltitudeM) && !isnan(lastGpsAltM_)) {
+        ioState.alt.gpsVerticalSpeedMps = (ioState.alt.gpsAltitudeM - lastGpsAltM_) / dtS;
+      }
+    }
+  }
+
+  haveAltHistory_ = true;
+  lastAltSampleTms_ = sampleTms;
+  lastBaroAltM_ = ioState.alt.altitudeAglM;
+  lastGpsAltM_ = ioState.alt.gpsAltitudeM;
+}
+
 void ApiClient::markLastRx() { lastRxMs_ = millis(); }
 
 bool ApiClient::sendCommand(const String& action, int durationS) {
@@ -140,6 +172,8 @@ bool ApiClient::sendCommand(const String& action, int durationS) {
     doc["duration_s"] = durationS;
   } else if (action == "telemetry_tx_power") {
     doc["tx_power_dbm"] = durationS;
+  } else if (action == "launch_arm") {
+    doc["duration_s"] = durationS;
   }
 
   String body;
@@ -157,8 +191,10 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
   JsonObject state = doc["state"].is<JsonObject>() ? doc["state"].as<JsonObject>() : JsonObject();
   if (state.isNull()) return false;
 
+  const uint32_t sampleTms = millis();
+
   ioState.seq = state["seq"] | ioState.seq;
-  ioState.tsMs = millis();
+  ioState.tsMs = sampleTms;
 
   JsonObject link = state["link"];
   ioState.link.connected = link["connected"] | false;
@@ -178,6 +214,79 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
   ioState.alt.altitudeAglM = isnan(baroAlt) ? gpsAlt : baroAlt;
   ioState.alt.gpsAltitudeM = gpsAlt;
   ioState.alt.verticalSpeedMps = recovery["vertical_speed_mps"].isNull() ? NAN : (float)recovery["vertical_speed_mps"].as<float>();
+  updateDerivedVerticalSpeeds(sampleTms, ioState.flight.packetCount, ioState);
+
+  if (!recovery.isNull() && !recovery["launch_armed"].isNull()) {
+    ioState.recoveryLaunchArmed = recovery["launch_armed"].as<bool>();
+  } else {
+    ioState.recoveryLaunchArmed = false;
+  }
+  if (!recovery.isNull() && !recovery["gps_fix_3d"].isNull()) {
+    ioState.recoveryGpsFix3d = recovery["gps_fix_3d"].as<bool>();
+  } else {
+    ioState.recoveryGpsFix3d = false;
+  }
+
+  JsonObject recoveryEvents = recovery["events"];
+
+  bool hasSensorsCalibrated = false;
+  if (!recovery.isNull() && !recovery["sensors_calibrated"].isNull()) {
+    ioState.recoverySensorsCalibrated = recovery["sensors_calibrated"].as<bool>();
+    hasSensorsCalibrated = true;
+  } else if (!recoveryEvents.isNull() && !recoveryEvents["sensors_calibrated"].isNull()) {
+    ioState.recoverySensorsCalibrated = recoveryEvents["sensors_calibrated"].as<bool>();
+    hasSensorsCalibrated = true;
+  } else {
+    ioState.recoverySensorsCalibrated = false;
+  }
+
+  bool hasLaunchDetected = false;
+  if (!recovery.isNull() && !recovery["launch_detected"].isNull()) {
+    ioState.recoveryLaunchDetected = recovery["launch_detected"].as<bool>();
+    hasLaunchDetected = true;
+  } else if (!recoveryEvents.isNull() && !recoveryEvents["launch_detected"].isNull()) {
+    ioState.recoveryLaunchDetected = recoveryEvents["launch_detected"].as<bool>();
+    hasLaunchDetected = true;
+  } else {
+    ioState.recoveryLaunchDetected = false;
+  }
+
+  bool hasApogee = false;
+  if (!recovery.isNull() && !recovery["apogee"].isNull()) {
+    ioState.recoveryApogee = recovery["apogee"].as<bool>();
+    hasApogee = true;
+  } else if (!recoveryEvents.isNull() && !recoveryEvents["apogee"].isNull()) {
+    ioState.recoveryApogee = recoveryEvents["apogee"].as<bool>();
+    hasApogee = true;
+  } else {
+    ioState.recoveryApogee = false;
+  }
+
+  bool hasLandingDetected = false;
+  if (!recovery.isNull() && !recovery["landing_detected"].isNull()) {
+    ioState.recoveryLandingDetected = recovery["landing_detected"].as<bool>();
+    hasLandingDetected = true;
+  } else if (!recoveryEvents.isNull() && !recoveryEvents["landing_detected"].isNull()) {
+    ioState.recoveryLandingDetected = recoveryEvents["landing_detected"].as<bool>();
+    hasLandingDetected = true;
+  } else {
+    ioState.recoveryLandingDetected = false;
+  }
+
+  ioState.hasRecoveryEventState = hasSensorsCalibrated && hasLaunchDetected && hasApogee && hasLandingDetected;
+
+  JsonObject recoveryDrogue = recovery["drogue"];
+  JsonObject recoveryMain = recovery["main"];
+  if (!recoveryDrogue.isNull() && !recoveryMain.isNull() &&
+      !recoveryDrogue["deployed"].isNull() && !recoveryMain["deployed"].isNull()) {
+    ioState.hasRecoveryDeploymentState = true;
+    ioState.recoveryDrogueDeployed = recoveryDrogue["deployed"].as<bool>();
+    ioState.recoveryMainDeployed = recoveryMain["deployed"].as<bool>();
+  } else {
+    ioState.hasRecoveryDeploymentState = false;
+    ioState.recoveryDrogueDeployed = false;
+    ioState.recoveryMainDeployed = false;
+  }
 
   JsonObject battery = state["battery"];
   ioState.battery.telemetryVbatV =

@@ -20,7 +20,12 @@ struct AltState {
   float altitudeAglM = NAN;
   // Absolute GPS altitude from GNSS solution.
   float gpsAltitudeM = NAN;
+  // Recovery vertical speed downlinked from flight computer (cm/s over LoRa, converted to m/s here).
   float verticalSpeedMps = NAN;
+  // Companion-derived vertical speed from BARO/AGL altitude delta.
+  float baroVerticalSpeedMps = NAN;
+  // Companion-derived vertical speed from GPS altitude delta.
+  float gpsVerticalSpeedMps = NAN;
 };
 
 struct BatteryState {
@@ -48,6 +53,16 @@ struct CompanionState {
   uint8_t telemetryTxPowerDbm = 0;
   bool hasCommandLockoutState = false;
   bool commandLockoutActive = false;
+  bool hasRecoveryDeploymentState = false;
+  bool recoveryDrogueDeployed = false;
+  bool recoveryMainDeployed = false;
+  bool hasRecoveryEventState = false;
+  bool recoverySensorsCalibrated = false;
+  bool recoveryLaunchArmed = false;
+  bool recoveryGpsFix3d = false;
+  bool recoveryLaunchDetected = false;
+  bool recoveryApogee = false;
+  bool recoveryLandingDetected = false;
   String primaryAlert;
   bool stale = true;
 };

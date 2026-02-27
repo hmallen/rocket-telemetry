@@ -10,6 +10,38 @@ using namespace companion_proto;
 UartLink::UartLink(HardwareSerial& serial, uint32_t baud, int rxPin, int txPin)
     : serial_(serial), baud_(baud), rxPin_(rxPin), txPin_(txPin) {}
 
+void UartLink::updateDerivedVerticalSpeeds(uint32_t sampleTms,
+                                           uint16_t packetCount,
+                                           CompanionState& ioState) {
+  const bool hasNewPacket = !havePacketCount_ || packetCount != lastPacketCount_;
+  if (!hasNewPacket) {
+    return;
+  }
+
+  havePacketCount_ = true;
+  lastPacketCount_ = packetCount;
+  ioState.alt.baroVerticalSpeedMps = NAN;
+  ioState.alt.gpsVerticalSpeedMps = NAN;
+
+  if (haveAltHistory_) {
+    const uint32_t dtMs = sampleTms - lastAltSampleTms_;
+    if (dtMs > 0 && dtMs <= 10000) {
+      const float dtS = static_cast<float>(dtMs) / 1000.0f;
+      if (!isnan(ioState.alt.altitudeAglM) && !isnan(lastBaroAltM_)) {
+        ioState.alt.baroVerticalSpeedMps = (ioState.alt.altitudeAglM - lastBaroAltM_) / dtS;
+      }
+      if (!isnan(ioState.alt.gpsAltitudeM) && !isnan(lastGpsAltM_)) {
+        ioState.alt.gpsVerticalSpeedMps = (ioState.alt.gpsAltitudeM - lastGpsAltM_) / dtS;
+      }
+    }
+  }
+
+  haveAltHistory_ = true;
+  lastAltSampleTms_ = sampleTms;
+  lastBaroAltM_ = ioState.alt.altitudeAglM;
+  lastGpsAltM_ = ioState.alt.gpsAltitudeM;
+}
+
 void UartLink::begin() {
   if (&serial_ == &Serial) {
     // UART0 is fixed on GPIO3/GPIO1; do not pass remap pins.
@@ -19,7 +51,10 @@ void UartLink::begin() {
   serial_.begin(baud_, SERIAL_8N1, rxPin_, txPin_);
 }
 
-void UartLink::applyTelemetry(const TelemetryV1& t, bool hasTxPower, CompanionState& ioState) {
+void UartLink::applyTelemetry(const TelemetryV1& t,
+                              bool hasTxPower,
+                              bool hasRecoveryEvents,
+                              CompanionState& ioState) {
   ioState.tsMs = millis();
   ioState.seq++;
 
@@ -34,6 +69,7 @@ void UartLink::applyTelemetry(const TelemetryV1& t, bool hasTxPower, CompanionSt
   ioState.alt.altitudeAglM = static_cast<float>(t.alt_mm) / 1000.0f;
   ioState.alt.gpsAltitudeM = (t.gps_alt_mm == INT32_MIN) ? NAN : (static_cast<float>(t.gps_alt_mm) / 1000.0f);
   ioState.alt.verticalSpeedMps = static_cast<float>(t.vs_cms) / 100.0f;
+  updateDerivedVerticalSpeeds(t.t_ms, t.packet_count_lsb, ioState);
 
   ioState.battery.telemetryVbatV = static_cast<float>(t.vbat_mv) / 1000.0f;
   ioState.battery.groundVbatV =
@@ -49,12 +85,37 @@ void UartLink::applyTelemetry(const TelemetryV1& t, bool hasTxPower, CompanionSt
   ioState.telemetryTxPowerDbm = txPowerValid ? t.telemetry_tx_power_dbm : 0;
   ioState.hasCommandLockoutState = true;
   ioState.commandLockoutActive = (t.flags & 0x20) != 0;
+  ioState.hasRecoveryDeploymentState = true;
+  if (hasRecoveryEvents) {
+    const uint8_t events = t.recovery_event_flags;
+    ioState.hasRecoveryEventState = true;
+    ioState.recoverySensorsCalibrated = (events & 0x01) != 0;
+    ioState.recoveryGpsFix3d = (events & 0x02) != 0;
+    ioState.recoveryLaunchArmed = (events & 0x04) != 0;
+    ioState.recoveryLaunchDetected = (events & 0x08) != 0;
+    ioState.recoveryApogee = (events & 0x10) != 0;
+    ioState.recoveryDrogueDeployed = (events & 0x20) != 0;
+    ioState.recoveryMainDeployed = (events & 0x40) != 0;
+    ioState.recoveryLandingDetected = (events & 0x80) != 0;
+  } else {
+    ioState.hasRecoveryEventState = false;
+    ioState.recoverySensorsCalibrated = false;
+    ioState.recoveryLaunchDetected = false;
+    ioState.recoveryApogee = false;
+    ioState.recoveryLandingDetected = false;
+    ioState.recoveryDrogueDeployed = (t.flags & 0x02) != 0;
+    ioState.recoveryMainDeployed = (t.flags & 0x04) != 0;
+    ioState.recoveryLaunchArmed = (t.flags & 0x40) != 0;
+    ioState.recoveryGpsFix3d = (t.flags & 0x80) != 0;
+  }
 
   ioState.stale = false;
 }
 
 bool UartLink::poll(CompanionState& ioState) {
-  static constexpr size_t kTelemetryV1NoTxPowerLen = sizeof(TelemetryV1) - sizeof(uint8_t);
+  static constexpr size_t kTelemetryV1NoEventFlagsLen = sizeof(TelemetryV1) - sizeof(uint8_t);
+  static constexpr size_t kTelemetryV1NoTxPowerOrEventsLen =
+      sizeof(TelemetryV1) - sizeof(uint8_t) - sizeof(uint8_t);
   bool updated = false;
   while (serial_.available() > 0) {
     uint8_t b = static_cast<uint8_t>(serial_.read());
@@ -65,13 +126,19 @@ bool UartLink::poll(CompanionState& ioState) {
       if (frame.len >= sizeof(TelemetryV1)) {
         TelemetryV1 t{};
         memcpy(&t, frame.payload, sizeof(TelemetryV1));
-        applyTelemetry(t, true, ioState);
+        applyTelemetry(t, true, true, ioState);
         updated = true;
         rxFrames_++;
-      } else if (frame.len >= kTelemetryV1NoTxPowerLen) {
+      } else if (frame.len >= kTelemetryV1NoEventFlagsLen) {
         TelemetryV1 t{};
-        memcpy(&t, frame.payload, kTelemetryV1NoTxPowerLen);
-        applyTelemetry(t, false, ioState);
+        memcpy(&t, frame.payload, kTelemetryV1NoEventFlagsLen);
+        applyTelemetry(t, true, false, ioState);
+        updated = true;
+        rxFrames_++;
+      } else if (frame.len >= kTelemetryV1NoTxPowerOrEventsLen) {
+        TelemetryV1 t{};
+        memcpy(&t, frame.payload, kTelemetryV1NoTxPowerOrEventsLen);
+        applyTelemetry(t, false, false, ioState);
         updated = true;
         rxFrames_++;
       } else if (frame.len >= sizeof(TelemetryV1Legacy)) {
@@ -92,6 +159,7 @@ bool UartLink::poll(CompanionState& ioState) {
         ioState.alt.altitudeAglM = static_cast<float>(t.alt_mm) / 1000.0f;
         ioState.alt.gpsAltitudeM = NAN;
         ioState.alt.verticalSpeedMps = static_cast<float>(t.vs_cms) / 100.0f;
+        updateDerivedVerticalSpeeds(t.t_ms, t.packet_count_lsb, ioState);
 
         ioState.battery.telemetryVbatV = static_cast<float>(t.vbat_mv) / 1000.0f;
         ioState.battery.groundVbatV =
@@ -106,6 +174,16 @@ bool UartLink::poll(CompanionState& ioState) {
         ioState.telemetryTxPowerDbm = 0;
         ioState.hasCommandLockoutState = true;
         ioState.commandLockoutActive = (t.flags & 0x20) != 0;
+        ioState.hasRecoveryDeploymentState = true;
+        ioState.recoveryDrogueDeployed = (t.flags & 0x02) != 0;
+        ioState.recoveryMainDeployed = (t.flags & 0x04) != 0;
+        ioState.hasRecoveryEventState = false;
+        ioState.recoverySensorsCalibrated = false;
+        ioState.recoveryLaunchArmed = false;
+        ioState.recoveryGpsFix3d = false;
+        ioState.recoveryLaunchDetected = false;
+        ioState.recoveryApogee = false;
+        ioState.recoveryLandingDetected = false;
 
         ioState.stale = false;
         updated = true;
@@ -149,11 +227,17 @@ bool UartLink::sendCommand(const String& action, int durationS) {
   } else if (action == "alt_calibrate") {
     cmd.cmd = CMD_ALT_CALIBRATE;
     cmd.arg = 0;
+  } else if (action == "phase_reset") {
+    cmd.cmd = CMD_ALT_CALIBRATE;
+    cmd.arg = 0;
   } else if (action == "imu_calibrate") {
     cmd.cmd = CMD_IMU_CALIBRATE;
     cmd.arg = 0;
   } else if (action == "shutdown") {
     cmd.cmd = CMD_SHUTDOWN;
+    cmd.arg = 0;
+  } else if (action == "reboot") {
+    cmd.cmd = CMD_REBOOT;
     cmd.arg = 0;
   } else if (action == "telemetry_tx_power") {
     if (durationS < 2 || durationS > 17) {
@@ -161,6 +245,9 @@ bool UartLink::sendCommand(const String& action, int durationS) {
     }
     cmd.cmd = CMD_SET_TX_POWER;
     cmd.arg = static_cast<uint8_t>(durationS);
+  } else if (action == "launch_arm") {
+    cmd.cmd = CMD_LAUNCH_ARM;
+    cmd.arg = (durationS > 0) ? 1 : 0;
   } else {
     return false;
   }
