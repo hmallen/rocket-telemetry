@@ -198,7 +198,69 @@ bool UartLink::poll(CompanionState& ioState) {
     } else if (frame.type == MSG_CMD_ACK && frame.len >= sizeof(CmdAckV1)) {
       CmdAckV1 ack{};
       memcpy(&ack, frame.payload, sizeof(CmdAckV1));
-      ioState.primaryAlert = ack.ok ? "CMD OK" : "CMD FAIL";
+
+      String detail;
+      if (frame.len > sizeof(CmdAckV1)) {
+        const size_t rawLen = static_cast<size_t>(frame.len - sizeof(CmdAckV1));
+        char detailBuf[128];
+        size_t copyLen = rawLen;
+        if (copyLen >= sizeof(detailBuf)) {
+          copyLen = sizeof(detailBuf) - 1;
+        }
+        memcpy(detailBuf, frame.payload + sizeof(CmdAckV1), copyLen);
+        detailBuf[copyLen] = '\0';
+        detail = String(detailBuf);
+        detail.trim();
+      }
+
+      String cmdText = "CMD";
+      if (ack.cmd == CMD_SD_START) {
+        cmdText = "SD START";
+      } else if (ack.cmd == CMD_SD_STOP) {
+        cmdText = "SD STOP";
+      } else if (ack.cmd == CMD_SD_ROTATE) {
+        cmdText = "SD ROTATE";
+      } else if (ack.cmd == CMD_SD_FORMAT) {
+        cmdText = "SD FORMAT";
+      } else if (ack.cmd == CMD_SD_DUMP_SAMPLE) {
+        cmdText = "SD DUMP";
+      } else if (ack.cmd == CMD_TELEM_ENABLE) {
+        cmdText = "TX ENABLE";
+      } else if (ack.cmd == CMD_TELEM_DISABLE) {
+        cmdText = "TX DISABLE";
+      } else if (ack.cmd == CMD_SET_TX_POWER) {
+        cmdText = "TX POWER";
+      }
+
+      ioState.tsMs = millis();
+      ioState.seq++;
+
+      const bool isSdAck = (ack.cmd == CMD_SD_START || ack.cmd == CMD_SD_STOP ||
+                            ack.cmd == CMD_SD_ROTATE || ack.cmd == CMD_SD_FORMAT ||
+                            ack.cmd == CMD_SD_DUMP_SAMPLE);
+      if (isSdAck) {
+        ioState.hasSdCardAckState = true;
+        ioState.sdCardAckOk = (ack.ok != 0);
+        ioState.sdCardAckToken = ioState.seq;
+        if (ack.cmd == CMD_SD_START) {
+          ioState.sdCardLastCommand = "sd_start";
+        } else if (ack.cmd == CMD_SD_STOP) {
+          ioState.sdCardLastCommand = "sd_stop";
+        } else if (ack.cmd == CMD_SD_ROTATE) {
+          ioState.sdCardLastCommand = "sd_rotate";
+        } else if (ack.cmd == CMD_SD_FORMAT) {
+          ioState.sdCardLastCommand = "sd_format";
+        } else {
+          ioState.sdCardLastCommand = "sd_dump_sample";
+        }
+        ioState.sdCardDetail = detail;
+      }
+
+      ioState.primaryAlert = cmdText + String(ack.ok ? " OK" : " FAIL");
+      if (detail.length() > 0) {
+        ioState.primaryAlert += ": ";
+        ioState.primaryAlert += detail;
+      }
       updated = true;
       rxFrames_++;
     }
@@ -214,6 +276,15 @@ bool UartLink::sendCommand(const String& action, int durationS) {
     cmd.arg = 0;
   } else if (action == "sd_stop") {
     cmd.cmd = CMD_SD_STOP;
+    cmd.arg = 0;
+  } else if (action == "sd_rotate") {
+    cmd.cmd = CMD_SD_ROTATE;
+    cmd.arg = 0;
+  } else if (action == "sd_format") {
+    cmd.cmd = CMD_SD_FORMAT;
+    cmd.arg = 0;
+  } else if (action == "sd_dump_sample") {
+    cmd.cmd = CMD_SD_DUMP_SAMPLE;
     cmd.arg = 0;
   } else if (action == "buzzer") {
     cmd.cmd = CMD_BUZZER;

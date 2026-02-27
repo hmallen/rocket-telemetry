@@ -130,11 +130,14 @@ LORA_CMD_ALT_CALIBRATE = 0x06
 LORA_CMD_IMU_CALIBRATE = 0x07
 LORA_CMD_SET_TX_POWER = 0x08
 LORA_CMD_LAUNCH_ARM = 0x09
+LORA_CMD_SD_ROTATE = 0x0A
+LORA_CMD_SD_FORMAT = 0x0B
+LORA_CMD_SD_DUMP_SAMPLE = 0x0C
 LORA_CMD_REPEAT_COUNT = 3
 LORA_CMD_REPEAT_DELAY_S = 0.1
 
 COMMAND_LOCKOUT_PHASES = {"ascent", "descent", "boost", "coast"}
-COMMAND_LOCKOUT_ACTIONS = {"sd_stop", "telemetry_disable", "shutdown", "reboot"}
+COMMAND_LOCKOUT_ACTIONS = {"sd_stop", "sd_format", "telemetry_disable", "shutdown", "reboot"}
 
 
 def _command_lockout_active_from_snapshot(snapshot):
@@ -530,6 +533,12 @@ class TelemetryStore:
                 "last_command": None,
                 "ack_timestamp": None,
             },
+            "sd_card": {
+                "last_command": None,
+                "ack_timestamp": None,
+                "ok": None,
+                "detail": None,
+            },
             "telemetry_tx": {
                 "enabled": None,
                 "last_command": None,
@@ -822,11 +831,37 @@ class TelemetryStore:
                     cmd = parsed.get("command")
                     ack_ts = self._state["timestamp"]
                     if cmd in ("sd_start", "sd_stop"):
+                        ack_enabled = parsed.get("logging_enabled", parsed.get("enabled"))
                         self._state["sd_logging"].update({
-                            "enabled": parsed.get("logging_enabled", parsed.get("enabled")),
+                            "enabled": ack_enabled,
                             "last_command": cmd,
                             "ack_timestamp": ack_ts,
                         })
+                        self._state["sd_card"].update({
+                            "last_command": cmd,
+                            "ack_timestamp": ack_ts,
+                            "ok": bool(parsed.get("enabled")),
+                            "detail": parsed.get("detail"),
+                        })
+                    elif cmd in ("sd_rotate", "sd_format", "sd_dump_sample"):
+                        self._state["sd_card"].update({
+                            "last_command": cmd,
+                            "ack_timestamp": ack_ts,
+                            "ok": bool(parsed.get("enabled")),
+                            "detail": parsed.get("detail"),
+                        })
+                        if cmd == "sd_rotate" and parsed.get("enabled") is True:
+                            self._state["sd_logging"].update({
+                                "enabled": True,
+                                "last_command": cmd,
+                                "ack_timestamp": ack_ts,
+                            })
+                        elif cmd == "sd_format" and parsed.get("enabled") is True:
+                            self._state["sd_logging"].update({
+                                "enabled": False,
+                                "last_command": cmd,
+                                "ack_timestamp": ack_ts,
+                            })
                     elif cmd in ("telemetry_enable", "telemetry_disable"):
                         self._state["telemetry_tx"].update({
                             "enabled": parsed.get("telemetry_enabled", parsed.get("enabled")),
@@ -1117,6 +1152,7 @@ def _build_companion_state(snapshot, seq=None):
     voltage_monitor = snapshot.get("voltage_monitor", {})
     attitude = snapshot.get("attitude", {})
     sd_logging = snapshot.get("sd_logging", {})
+    sd_card = snapshot.get("sd_card", {})
     telemetry_tx = snapshot.get("telemetry_tx", {})
 
     connected = age_s is not None and age_s <= 2.0
@@ -1182,6 +1218,12 @@ def _build_companion_state(snapshot, seq=None):
             "last_command": sd_logging.get("last_command"),
             "ack_timestamp": sd_logging.get("ack_timestamp"),
         },
+        "sd_card": {
+            "last_command": sd_card.get("last_command"),
+            "ack_timestamp": sd_card.get("ack_timestamp"),
+            "ok": sd_card.get("ok"),
+            "detail": sd_card.get("detail"),
+        },
         "telemetry_tx": {
             "enabled": telemetry_tx.get("enabled"),
             "last_command": telemetry_tx.get("last_command"),
@@ -1242,6 +1284,9 @@ class CompanionUartBridge:
     CMD_SET_TX_POWER = 0x09
     CMD_LAUNCH_ARM = 0x0A
     CMD_REBOOT = 0x0B
+    CMD_SD_ROTATE = 0x0C
+    CMD_SD_FORMAT = 0x0D
+    CMD_SD_DUMP_SAMPLE = 0x0E
 
     def __init__(self, port, baud):
         self._port = port
@@ -1255,6 +1300,7 @@ class CompanionUartBridge:
         self._rx_frames = 0
         self._crc_fail = 0
         self._last_dbg = time.time()
+        self._last_sd_card_ack_ts = None
 
     @staticmethod
     def _crc16_ccitt(data):
@@ -1398,20 +1444,53 @@ class CompanionUartBridge:
                 pass
         self._debug_tick()
 
-    def _send_cmd_ack(self, cmd, ok, err=0):
+    def _send_cmd_ack(self, cmd, ok, err=0, detail=None):
         if self._ser is None:
             return
-        payload = struct.pack("<BBB", cmd, 1 if ok else 0, err & 0xFF)
-        frame = self._encode_frame(self.MSG_CMD_ACK, payload)
+        payload = bytearray(struct.pack("<BBB", cmd, 1 if ok else 0, err & 0xFF))
+        if detail:
+            detail_bytes = str(detail).encode("ascii", errors="replace")
+            if len(detail_bytes) > 120:
+                detail_bytes = detail_bytes[:120]
+            payload.extend(detail_bytes)
+        frame = self._encode_frame(self.MSG_CMD_ACK, bytes(payload))
         with self._lock:
             try:
                 self._ser.write(frame)
             except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
                 pass
 
+    def maybe_send_sd_card_ack(self, state):
+        if self._ser is None:
+            return
+
+        sd_card = state.get("sd_card", {}) if isinstance(state, dict) else {}
+        ack_ts = sd_card.get("ack_timestamp")
+        if not ack_ts:
+            return
+        if self._last_sd_card_ack_ts == ack_ts:
+            return
+
+        cmd_name = sd_card.get("last_command")
+        cmd_map = {
+            "sd_rotate": self.CMD_SD_ROTATE,
+            "sd_format": self.CMD_SD_FORMAT,
+            "sd_dump_sample": self.CMD_SD_DUMP_SAMPLE,
+        }
+        cmd = cmd_map.get(cmd_name)
+        if cmd is None:
+            self._last_sd_card_ack_ts = ack_ts
+            return
+
+        ok = bool(sd_card.get("ok") is True)
+        detail = sd_card.get("detail")
+        self._send_cmd_ack(cmd, ok, 0 if ok else 1, detail=detail)
+        self._last_sd_card_ack_ts = ack_ts
+
     def _handle_cmd(self, cmd, arg):
         if COMPANION_UART_DEBUG:
             print(f"Companion UART cmd rx: cmd={cmd} arg={arg}")
+        defer_ack_until_lora = cmd in (self.CMD_SD_ROTATE, self.CMD_SD_FORMAT, self.CMD_SD_DUMP_SAMPLE)
         if cmd == self.CMD_SD_START:
             ok, error = send_lora_command("sd_start")
         elif cmd == self.CMD_SD_STOP:
@@ -1430,6 +1509,12 @@ class CompanionUartBridge:
             ok, error = send_lora_command("telemetry_tx_power", tx_power_dbm=int(arg))
         elif cmd == self.CMD_LAUNCH_ARM:
             ok, error = send_lora_command("launch_arm", duration_s=int(arg))
+        elif cmd == self.CMD_SD_ROTATE:
+            ok, error = send_lora_command("sd_rotate")
+        elif cmd == self.CMD_SD_FORMAT:
+            ok, error = send_lora_command("sd_format")
+        elif cmd == self.CMD_SD_DUMP_SAMPLE:
+            ok, error = send_lora_command("sd_dump_sample")
         elif cmd == self.CMD_SHUTDOWN:
             ok, error = request_pi_shutdown()
         elif cmd == self.CMD_REBOOT:
@@ -1437,8 +1522,16 @@ class CompanionUartBridge:
         else:
             ok, error = False, "Unknown UART command"
 
-        if not ok and error:
-            print(f"Companion UART cmd failed: cmd={cmd} arg={arg} err={error}")
+        if not ok:
+            if error:
+                print(f"Companion UART cmd failed: cmd={cmd} arg={arg} err={error}")
+            self._send_cmd_ack(cmd, False, 1, detail=error)
+            return
+
+        if defer_ack_until_lora:
+            # SD utility commands return their authoritative ACK asynchronously from flight firmware.
+            return
+
         self._send_cmd_ack(cmd, ok, 0 if ok else 1)
 
     def _rx_loop(self):
@@ -1536,6 +1629,7 @@ def broadcast(snapshot):
 
     if COMPANION_UART_BRIDGE is not None:
         COMPANION_UART_BRIDGE.send_companion_state(companion_state)
+        COMPANION_UART_BRIDGE.maybe_send_sd_card_ack(snapshot)
 
 
 def handle_voltage_monitor_update(monitor_snapshot):
@@ -1646,10 +1740,23 @@ def send_lora_command(action, duration_s=None, tx_power_dbm=None):
     if _is_action_locked_during_flight(action):
         return False, f"{action} blocked after launch; wait for landing"
 
+    snapshot = TELEMETRY.snapshot()
+    sd_logging_enabled = bool((snapshot.get("sd_logging") or {}).get("enabled") is True)
+    if action == "sd_rotate" and not sd_logging_enabled:
+        return False, "sd_rotate requires SD logging to be active"
+    if action in ("sd_format", "sd_dump_sample") and sd_logging_enabled:
+        return False, "Stop SD logging before this command"
+
     if action == "sd_start":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_START])
     elif action == "sd_stop":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_STOP])
+    elif action == "sd_rotate":
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_ROTATE])
+    elif action == "sd_format":
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_FORMAT])
+    elif action == "sd_dump_sample":
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_DUMP_SAMPLE])
     elif action == "telemetry_enable":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_TELEM_ENABLE])
     elif action == "telemetry_disable":

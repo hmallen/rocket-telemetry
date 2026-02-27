@@ -29,6 +29,9 @@ enum CmdType : uint8_t {
   CMD_SET_TX_POWER = 0x09,
   CMD_LAUNCH_ARM = 0x0A,
   CMD_REBOOT = 0x0B,
+  CMD_SD_ROTATE = 0x0C,
+  CMD_SD_FORMAT = 0x0D,
+  CMD_SD_DUMP_SAMPLE = 0x0E,
 };
 
 #pragma pack(push, 1)

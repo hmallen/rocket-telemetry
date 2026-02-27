@@ -47,6 +47,11 @@ struct CompanionState {
   BatteryState battery;
   bool hasSdLoggingState = false;
   bool sdLoggingEnabled = false;
+  bool hasSdCardAckState = false;
+  bool sdCardAckOk = false;
+  uint32_t sdCardAckToken = 0;
+  String sdCardLastCommand;
+  String sdCardDetail;
   bool hasTelemetryTxState = false;
   bool telemetryTxEnabled = false;
   bool hasTelemetryTxPowerState = false;

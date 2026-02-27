@@ -61,6 +61,13 @@ const elements = {
   sdStart: document.getElementById("sd-start"),
   sdStop: document.getElementById("sd-stop"),
   sdStatus: document.getElementById("sd-status"),
+  sdRotate: document.getElementById("sd-rotate"),
+  sdFormat: document.getElementById("sd-format"),
+  sdDumpSample: document.getElementById("sd-dump-sample"),
+  sdUtilStatus: document.getElementById("sd-util-status"),
+  sdDumpModal: document.getElementById("sd-dump-modal"),
+  sdDumpClose: document.getElementById("sd-dump-close"),
+  sdDumpContent: document.getElementById("sd-dump-content"),
   telemEnable: document.getElementById("telem-enable"),
   telemDisable: document.getElementById("telem-disable"),
   telemStatus: document.getElementById("telem-status"),
@@ -109,6 +116,9 @@ const state = {
   sdLoggingAckTs: null,
   sdLoggingEnabled: null,
   sdCommandPending: false,
+  sdUtilityAckTs: null,
+  sdUtilityCommandPending: false,
+  sdUtilityPendingAction: "",
   telemetryTxAckTs: null,
   telemetryEnabled: null,
   telemetryCommandPending: false,
@@ -140,6 +150,7 @@ const FILTER_LABELS = {
 const MAP_PATH_LIMIT = 200;
 const SOUND_ENABLED_STORAGE_KEY = "gs_sound_enabled";
 const SOUND_VOLUME_STORAGE_KEY = "gs_sound_volume";
+const SD_FORMAT_HOLD_MS = 1200;
 const ROCKET_COLORS = {
   body: [198, 222, 235],
   nose: [244, 252, 255],
@@ -149,6 +160,8 @@ const ROCKET_COLORS = {
 };
 
 let soundAudioContext = null;
+let sdFormatHoldTimer = null;
+let sdFormatHoldStartedMs = 0;
 
 const rocketScene = {
   stars: [],
@@ -750,6 +763,81 @@ if (elements.sdStop) {
   });
 }
 
+if (elements.sdRotate) {
+  elements.sdRotate.addEventListener("click", () => {
+    postSdUtilityCommand("sd_rotate", "rotate logfile");
+  });
+}
+
+if (elements.sdDumpSample) {
+  elements.sdDumpSample.addEventListener("click", () => {
+    postSdUtilityCommand("sd_dump_sample", "dump sample");
+  });
+}
+
+if (elements.sdFormat) {
+  const clearFormatHold = () => {
+    if (sdFormatHoldTimer !== null) {
+      clearTimeout(sdFormatHoldTimer);
+      sdFormatHoldTimer = null;
+    }
+    sdFormatHoldStartedMs = 0;
+  };
+
+  elements.sdFormat.addEventListener("pointerdown", () => {
+    if (elements.sdFormat.disabled) {
+      return;
+    }
+    clearFormatHold();
+    sdFormatHoldStartedMs = Date.now();
+    setSdUtilityStatus("Hold FORMAT to arm...", "pending");
+    sdFormatHoldTimer = window.setTimeout(() => {
+      sdFormatHoldTimer = null;
+      sdFormatHoldStartedMs = 0;
+      const confirmed = window.confirm(
+        "Format SD card? This erases all logs. Press OK to continue."
+      );
+      if (!confirmed) {
+        setSdUtilityStatus("SD format cancelled", "error");
+        return;
+      }
+      postSdUtilityCommand("sd_format", "format SD card");
+    }, SD_FORMAT_HOLD_MS);
+  });
+
+  const cancelHoldIfNeeded = () => {
+    if (sdFormatHoldTimer === null) {
+      return;
+    }
+    clearFormatHold();
+    setSdUtilityStatus("Hold cancelled", "error");
+  };
+
+  elements.sdFormat.addEventListener("pointerup", cancelHoldIfNeeded);
+  elements.sdFormat.addEventListener("pointerleave", cancelHoldIfNeeded);
+  elements.sdFormat.addEventListener("pointercancel", cancelHoldIfNeeded);
+}
+
+if (elements.sdDumpClose) {
+  elements.sdDumpClose.addEventListener("click", () => {
+    hideSdDumpModal();
+  });
+}
+
+if (elements.sdDumpModal) {
+  elements.sdDumpModal.addEventListener("click", (event) => {
+    if (event.target === elements.sdDumpModal) {
+      hideSdDumpModal();
+    }
+  });
+}
+
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    hideSdDumpModal();
+  }
+});
+
 if (elements.telemEnable) {
   elements.telemEnable.addEventListener("click", () => {
     postTelemetryCommand("telemetry_enable", "enable telemetry");
@@ -921,6 +1009,87 @@ function postSdCommand(action, label) {
     .finally(() => {
       state.sdCommandPending = false;
       updateSdControlState();
+    });
+}
+
+function setSdUtilityStatus(message, statusClass) {
+  if (!elements.sdUtilStatus) {
+    return;
+  }
+  elements.sdUtilStatus.textContent = message;
+  elements.sdUtilStatus.classList.remove("ok", "pending", "error");
+  if (statusClass) {
+    elements.sdUtilStatus.classList.add(statusClass);
+  }
+}
+
+function toggleSdUtilityButtons(disabled) {
+  if (elements.sdRotate) {
+    elements.sdRotate.disabled = disabled;
+  }
+  if (elements.sdFormat) {
+    elements.sdFormat.disabled = disabled;
+  }
+  if (elements.sdDumpSample) {
+    elements.sdDumpSample.disabled = disabled;
+  }
+}
+
+function updateSdUtilityControlState() {
+  if (state.sdUtilityCommandPending || state.sdCommandPending) {
+    toggleSdUtilityButtons(true);
+    return;
+  }
+
+  if (elements.sdRotate) {
+    elements.sdRotate.disabled = state.sdLoggingEnabled !== true;
+  }
+  if (elements.sdFormat) {
+    elements.sdFormat.disabled = state.sdLoggingEnabled === true || state.commandLockoutActive;
+  }
+  if (elements.sdDumpSample) {
+    elements.sdDumpSample.disabled = state.sdLoggingEnabled === true;
+  }
+}
+
+function showSdDumpModal(text) {
+  if (!elements.sdDumpModal || !elements.sdDumpContent) {
+    return;
+  }
+  elements.sdDumpContent.textContent = text || "No sample text returned.";
+  elements.sdDumpModal.classList.remove("hidden");
+}
+
+function hideSdDumpModal() {
+  if (!elements.sdDumpModal) {
+    return;
+  }
+  elements.sdDumpModal.classList.add("hidden");
+}
+
+function postSdUtilityCommand(action, label) {
+  state.sdUtilityCommandPending = true;
+  state.sdUtilityPendingAction = action;
+  setSdUtilityStatus(`Sending ${label}...`, "pending");
+  updateSdUtilityControlState();
+
+  fetch("/api/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+  })
+    .then((res) => res.json())
+    .then((payload) => {
+      if (!payload.ok) {
+        throw new Error(payload.error || "Command failed");
+      }
+      setSdUtilityStatus(`Command sent: ${label}. Awaiting ack...`, "pending");
+    })
+    .catch((err) => {
+      state.sdUtilityCommandPending = false;
+      state.sdUtilityPendingAction = "";
+      setSdUtilityStatus(err.message || "Command failed", "error");
+      updateSdUtilityControlState();
     });
 }
 
@@ -1462,6 +1631,9 @@ function updateFromTelemetry(snapshot) {
   }
 
   const sdLogging = snapshot.sd_logging || {};
+  if (sdLogging.enabled === true || sdLogging.enabled === false) {
+    state.sdLoggingEnabled = sdLogging.enabled;
+  }
   if (sdLogging.ack_timestamp && sdLogging.ack_timestamp !== state.sdLoggingAckTs) {
     state.sdLoggingAckTs = sdLogging.ack_timestamp;
     state.sdLoggingEnabled = sdLogging.enabled;
@@ -1475,6 +1647,47 @@ function updateFromTelemetry(snapshot) {
     if (elements.telemetryWaiting && enabled === true) {
       elements.telemetryWaiting.classList.remove("visible");
     }
+  }
+
+  const sdCard = snapshot.sd_card || {};
+  if (sdCard.ack_timestamp && sdCard.ack_timestamp !== state.sdUtilityAckTs) {
+    state.sdUtilityAckTs = sdCard.ack_timestamp;
+    const command = sdCard.last_command || "sd";
+    const ok = sdCard.ok === true;
+    const detail = (typeof sdCard.detail === "string") ? sdCard.detail.trim() : "";
+    const timeLabel = formatTimestamp(sdCard.ack_timestamp);
+    const pendingAction = state.sdUtilityPendingAction;
+
+    state.sdUtilityCommandPending = false;
+    state.sdUtilityPendingAction = "";
+
+    if (command === "sd_rotate" || command === "sd_format" || command === "sd_dump_sample") {
+      let label = "SD";
+      if (command === "sd_rotate") {
+        label = "Rotate logfile";
+      } else if (command === "sd_format") {
+        label = "Format SD";
+      } else if (command === "sd_dump_sample") {
+        label = "Dump sample";
+      }
+
+      let msg = `${label} ${ok ? "OK" : "failed"} (${timeLabel})`;
+      if (detail) {
+        msg += `: ${detail}`;
+      }
+      setSdUtilityStatus(msg, ok ? "ok" : "error");
+
+      if (command === "sd_dump_sample") {
+        const ageSec = (Date.now() / 1000) - Number(sdCard.ack_timestamp);
+        const ackRecent = Number.isFinite(ageSec) && ageSec >= 0 && ageSec <= 10;
+        const wasRequested = pendingAction === "sd_dump_sample";
+        if (ackRecent || wasRequested) {
+          showSdDumpModal(detail || (ok ? "No sample text returned." : "Dump sample failed."));
+        }
+      }
+    }
+
+    updateSdUtilityControlState();
   }
 
   const telemetryTx = snapshot.telemetry_tx || {};
@@ -1521,6 +1734,7 @@ function updateFromTelemetry(snapshot) {
   syncFilterSelection(attitude);
   syncThreshold(attitude);
   updateSdControlState();
+  updateSdUtilityControlState();
   updateTelemetryControlState();
   updateLaunchArmControlState();
   if (launchArmAckTs && launchArmAckTs !== state.launchArmAckTs) {
