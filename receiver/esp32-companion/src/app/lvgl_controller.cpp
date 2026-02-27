@@ -1,9 +1,11 @@
 #include "lvgl_controller.h"
 
+#include <SD.h>
 #include <esp_heap_caps.h>
 #include <math.h>
 #include <SPI.h>
 #include <WiFi.h>
+#include <string.h>
 
 namespace {
 
@@ -14,12 +16,16 @@ constexpr uint32_t kGroundStationOfflineDetectMs = 8000;
 constexpr uint8_t kCalPointCount = 4;
 constexpr uint8_t kTelemetryTxPowerMinDbm = 2;
 constexpr uint8_t kTelemetryTxPowerMaxDbm = 17;
+constexpr lv_coord_t kSettingsPanelTopOffsetPx = 38;
+constexpr lv_coord_t kSettingsPanelBottomMarginPx = 4;
 constexpr int kCalMarginPx = 24;
 constexpr int32_t kCalRetouchDistancePx = 120;
 constexpr int32_t kTouchPressThreshold = 140;
 constexpr int32_t kTouchReleaseThreshold = 90;
+constexpr lv_coord_t kActionPanelGapPx = 10;
+constexpr lv_coord_t kActionItemsGapPx = 8;
 constexpr lv_coord_t kSettingsButtonHeight = 28;
-constexpr lv_coord_t kSettingsGapPx = 4;
+constexpr lv_coord_t kSettingsGapPx = 6;
 
 static uint16_t median3(uint16_t a, uint16_t b, uint16_t c) {
   if (a > b) {
@@ -81,10 +87,126 @@ static int32_t mapLinearRange(int32_t value,
 #define COMPANION_BAT_ADC_MIN_VALID_MV 50
 #endif
 
-constexpr uint32_t kBatterySampleIntervalMs = COMPANION_BAT_SAMPLE_INTERVAL_MS;
-constexpr float kLipoCellEmptyV = 3.3f;
-constexpr float kLipoCellFullV = 4.2f;
+#ifndef COMPANION_SD_ENABLE
+#define COMPANION_SD_ENABLE 0
+#endif
 
+#ifndef COMPANION_SD_CS_PIN
+#define COMPANION_SD_CS_PIN -1
+#endif
+
+#ifndef COMPANION_SD_SPI_FREQ
+#define COMPANION_SD_SPI_FREQ 10000000
+#endif
+
+#ifndef COMPANION_SD_SCK_PIN
+#define COMPANION_SD_SCK_PIN 18
+#endif
+
+#ifndef COMPANION_SD_MISO_PIN
+#define COMPANION_SD_MISO_PIN 19
+#endif
+
+#ifndef COMPANION_SD_MOSI_PIN
+#define COMPANION_SD_MOSI_PIN 23
+#endif
+
+#ifndef COMPANION_SD_SOUND_DIR
+#define COMPANION_SD_SOUND_DIR "/sounds"
+#endif
+
+#ifndef COMPANION_AUDIO_ENABLE
+#define COMPANION_AUDIO_ENABLE 0
+#endif
+
+#ifndef COMPANION_AUDIO_SPK_PIN
+#define COMPANION_AUDIO_SPK_PIN -1
+#endif
+
+#ifndef COMPANION_AUDIO_PWM_CHANNEL
+#define COMPANION_AUDIO_PWM_CHANNEL 0
+#endif
+
+#ifndef COMPANION_AUDIO_PWM_FREQ
+#define COMPANION_AUDIO_PWM_FREQ 32000
+#endif
+
+#ifndef COMPANION_AUDIO_PWM_BITS
+#define COMPANION_AUDIO_PWM_BITS 8
+#endif
+
+#ifndef COMPANION_SOUND_FILE_POWER_ON
+#define COMPANION_SOUND_FILE_POWER_ON "/sounds/power_on.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_ARMED
+#define COMPANION_SOUND_FILE_ARMED "/sounds/armed.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_CALIBRATING
+#define COMPANION_SOUND_FILE_CALIBRATING "/sounds/calibrating.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_SENSORS_READY
+#define COMPANION_SOUND_FILE_SENSORS_READY "/sounds/sensors_ready.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_WAITING_FOR_LOCATION_FIX
+#define COMPANION_SOUND_FILE_WAITING_FOR_LOCATION_FIX "/sounds/waiting_for_location_fix.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_LOCATION_FIX_ACQUIRED
+#define COMPANION_SOUND_FILE_LOCATION_FIX_ACQUIRED "/sounds/location_fix_acquired.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_LAUNCH_DETECT_MODE
+#define COMPANION_SOUND_FILE_LAUNCH_DETECT_MODE "/sounds/launch_detect_mode.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_LAUNCH_DETECTED
+#define COMPANION_SOUND_FILE_LAUNCH_DETECTED "/sounds/launch_detected.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_APOGEE
+#define COMPANION_SOUND_FILE_APOGEE "/sounds/apogee.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_DROGUE_DEPLOYED
+#define COMPANION_SOUND_FILE_DROGUE_DEPLOYED "/sounds/drogue_deployed.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_MAIN_DEPLOYED
+#define COMPANION_SOUND_FILE_MAIN_DEPLOYED "/sounds/main_deployed.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_LANDING_DETECTED
+#define COMPANION_SOUND_FILE_LANDING_DETECTED "/sounds/landing_detected.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_HOME_POINT_SET
+#define COMPANION_SOUND_FILE_HOME_POINT_SET "/sounds/home_point_set.wav"
+#endif
+
+#ifndef COMPANION_SOUND_FILE_AUDIO_TEST
+#define COMPANION_SOUND_FILE_AUDIO_TEST "/sounds/audio_test.wav"
+#endif
+
+constexpr const char* kFallbackSoundFilePowerOn = "/sounds/power_on.wav";
+constexpr const char* kFallbackSoundFileArmed = "/sounds/armed.wav";
+constexpr const char* kFallbackSoundFileCalibrating = "/sounds/calibrating.wav";
+constexpr const char* kFallbackSoundFileSensorsReady = "/sounds/sensors_ready.wav";
+constexpr const char* kFallbackSoundFileWaitingForFix = "/sounds/waiting_for_location_fix.wav";
+constexpr const char* kFallbackSoundFileLocationFixAcquired = "/sounds/location_fix_acquired.wav";
+constexpr const char* kFallbackSoundFileLaunchDetectMode = "/sounds/launch_detect_mode.wav";
+constexpr const char* kFallbackSoundFileLaunchDetected = "/sounds/launch_detected.wav";
+constexpr const char* kFallbackSoundFileApogee = "/sounds/apogee.wav";
+constexpr const char* kFallbackSoundFileDrogue = "/sounds/drogue_deployed.wav";
+constexpr const char* kFallbackSoundFileMain = "/sounds/main_deployed.wav";
+constexpr const char* kFallbackSoundFileMainLegacyDir = "/sound/main_deployed.wav";
+constexpr const char* kFallbackSoundFileLanding = "/sounds/landing_detected.wav";
+constexpr const char* kFallbackSoundFileHomePointSet = "/sounds/home_point_set.wav";
+
+constexpr uint32_t kBatterySampleIntervalMs = COMPANION_BAT_SAMPLE_INTERVAL_MS;
 constexpr float kCompanionBatAdcRefV = 3.3f;
 constexpr float kCompanionBatAdcMaxCounts = 4095.0f;
 
@@ -103,29 +225,34 @@ static String formatFloat(float value, uint8_t decimals, const char* fallback = 
   return String(value, static_cast<unsigned int>(decimals));
 }
 
-static int batteryPercentFromVoltage(float voltage, uint8_t cells) {
-  if (isnan(voltage) || cells == 0) {
-    return -1;
-  }
-  const float emptyV = kLipoCellEmptyV * static_cast<float>(cells);
-  const float fullV = kLipoCellFullV * static_cast<float>(cells);
-  if (fullV <= emptyV) {
-    return -1;
-  }
-
-  float pct = ((voltage - emptyV) * 100.0f) / (fullV - emptyV);
-  if (pct < 0.0f) {
-    pct = 0.0f;
-  } else if (pct > 100.0f) {
-    pct = 100.0f;
-  }
-  return static_cast<int>(pct + 0.5f);
-}
-
 static bool phaseIndicatesInFlight(const String& phaseText) {
   String phase = phaseText;
   phase.toLowerCase();
   return phase == "ascent" || phase == "descent" || phase == "boost" || phase == "coast";
+}
+
+static bool phaseEquals(const String& phaseText, const char* expectedLower) {
+  String phase = phaseText;
+  phase.toLowerCase();
+  return phase == expectedLower;
+}
+
+static int8_t phaseProgressStep(const String& phaseText) {
+  String phase = phaseText;
+  phase.toLowerCase();
+  if (phase == "idle") {
+    return 0;
+  }
+  if (phase == "boost" || phase == "coast" || phase == "ascent") {
+    return 1;
+  }
+  if (phase == "descent") {
+    return 2;
+  }
+  if (phase == "landed") {
+    return 3;
+  }
+  return -1;
 }
 
 static lv_obj_t* makeActionButton(lv_obj_t* parent,
@@ -247,19 +374,26 @@ void LvglController::buildUi() {
 
   packetLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(packetLabel_, lv_color_hex(0xd9e3f8), 0);
-  lv_obj_align(packetLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -88);
+  lv_obj_add_flag(packetLabel_, LV_OBJ_FLAG_HIDDEN);
 
   callsignLabel_ = lv_label_create(telemetryPanel_);
-  lv_obj_set_style_text_color(callsignLabel_, lv_color_hex(0xd9e3f8), 0);
-  lv_obj_align(callsignLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -68);
+  lv_obj_set_width(callsignLabel_, 220);
+  lv_label_set_long_mode(callsignLabel_, LV_LABEL_LONG_DOT);
+  lv_obj_set_style_text_color(callsignLabel_, lv_color_hex(0xeaf1ff), 0);
+  lv_obj_set_style_text_font(callsignLabel_, &lv_font_montserrat_14, 0);
+  lv_obj_align(callsignLabel_, LV_ALIGN_TOP_LEFT, 0, 24);
+
+  lv_obj_align(linkMetaLabel_, LV_ALIGN_TOP_LEFT, 0, 54);
+  lv_obj_align(phaseLabel_, LV_ALIGN_TOP_LEFT, 0, 82);
+  lv_obj_align(altitudeLabel_, LV_ALIGN_TOP_LEFT, 0, 112);
 
   batteryLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(batteryLabel_, lv_color_hex(0xd9e3f8), 0);
-  lv_obj_align(batteryLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -48);
+  lv_obj_align(batteryLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -20);
 
   companionBatteryLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(companionBatteryLabel_, lv_color_hex(0xd9e3f8), 0);
-  lv_obj_align(companionBatteryLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -28);
+  lv_obj_add_flag(companionBatteryLabel_, LV_OBJ_FLAG_HIDDEN);
 
   companionBatteryDebugLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(companionBatteryDebugLabel_, lv_color_hex(0x9fb0cc), 0);
@@ -385,7 +519,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_border_width(actionPanel_, 1, 0);
   lv_obj_set_style_radius(actionPanel_, 10, 0);
   lv_obj_set_style_pad_all(actionPanel_, 8, 0);
-  lv_obj_set_style_pad_gap(actionPanel_, 8, 0);
+  lv_obj_set_style_pad_gap(actionPanel_, kActionPanelGapPx, 0);
   lv_obj_set_flex_flow(actionPanel_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(actionPanel_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_clear_flag(actionPanel_, LV_OBJ_FLAG_SCROLLABLE);
@@ -403,11 +537,28 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_opa(actionContent_, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(actionContent_, 0, 0);
   lv_obj_set_style_pad_all(actionContent_, 0, 0);
-  lv_obj_set_style_pad_gap(actionContent_, 6, 0);
+  lv_obj_set_style_pad_gap(actionContent_, kActionItemsGapPx, 0);
   lv_obj_set_flex_flow(actionContent_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(actionContent_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_clear_flag(actionContent_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_clear_flag(actionContent_, LV_OBJ_FLAG_CLICKABLE);
+
+  armBtn_ = lv_btn_create(actionContent_);
+  lv_obj_add_flag(armBtn_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(armBtn_, LV_PCT(100));
+  lv_obj_set_height(armBtn_, 34);
+  lv_obj_set_style_radius(armBtn_, 8, 0);
+  lv_obj_set_style_bg_color(armBtn_, lv_color_hex(0x1f2a3b), 0);
+  lv_obj_set_style_bg_color(armBtn_, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(armBtn_, lv_color_hex(0x4b7dd1), 0);
+  lv_obj_set_style_border_width(armBtn_, 1, 0);
+  lv_obj_add_event_cb(armBtn_, onArmEvent, LV_EVENT_PRESSED, this);
+
+  armLabel_ = lv_label_create(armBtn_);
+  lv_label_set_text(armLabel_, "ARM LAUNCH");
+  lv_obj_set_style_text_color(armLabel_, lv_color_hex(0xeaf1ff), 0);
+  lv_obj_clear_flag(armLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(armLabel_);
 
   makeActionButton(actionContent_, "BUZZER", onBuzzerToggleEvent, this);
 
@@ -455,20 +606,28 @@ void LvglController::buildUi() {
   setBuzzerConfigVisible(false);
   lv_obj_add_flag(actionPanel_, LV_OBJ_FLAG_HIDDEN);
 
+  // Resolve percentage/flex layout before deriving pixel height for settings panel.
+  lv_obj_update_layout(root_);
+
   settingsBody_ = lv_obj_create(telemetryPanel_);
   lv_obj_set_width(settingsBody_, kSettingsPanelWidth);
-  lv_obj_set_height(settingsBody_, LV_SIZE_CONTENT);
+  const lv_coord_t settingsBodyHeight =
+      lv_obj_get_height(telemetryPanel_) - kSettingsPanelTopOffsetPx - kSettingsPanelBottomMarginPx;
+  lv_obj_set_height(settingsBody_, settingsBodyHeight > 0 ? settingsBodyHeight : 0);
   lv_obj_set_style_bg_color(settingsBody_, lv_color_hex(0x111c2e), 0);
   lv_obj_set_style_border_color(settingsBody_, lv_color_hex(0x2a446a), 0);
   lv_obj_set_style_border_width(settingsBody_, 1, 0);
   lv_obj_set_style_radius(settingsBody_, 10, 0);
-  lv_obj_set_style_pad_all(settingsBody_, 6, 0);
+  lv_obj_set_style_pad_top(settingsBody_, 6, 0);
+  lv_obj_set_style_pad_bottom(settingsBody_, 6, 0);
+  lv_obj_set_style_pad_left(settingsBody_, 10, 0);
+  lv_obj_set_style_pad_right(settingsBody_, 10, 0);
   lv_obj_set_style_pad_gap(settingsBody_, kSettingsGapPx, 0);
   lv_obj_set_flex_flow(settingsBody_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(settingsBody_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_align(settingsBody_, LV_ALIGN_TOP_RIGHT, 0, 38);
+  lv_obj_align(settingsBody_, LV_ALIGN_TOP_RIGHT, 0, kSettingsPanelTopOffsetPx);
 
   lv_obj_t* settingsTitle = lv_label_create(settingsBody_);
   lv_label_set_text(settingsTitle, "SETTINGS");
@@ -480,39 +639,46 @@ void LvglController::buildUi() {
   // lv_obj_set_style_text_color(settingsInfo, lv_color_hex(0xc2d4f4), 0);
   // lv_obj_clear_flag(settingsInfo, LV_OBJ_FLAG_CLICKABLE);
 
-  lv_obj_t* settingsActions = lv_obj_create(settingsBody_);
-  lv_obj_set_width(settingsActions, LV_PCT(100));
-  lv_obj_set_height(settingsActions, LV_SIZE_CONTENT);
-  lv_obj_set_style_bg_opa(settingsActions, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(settingsActions, 0, 0);
-  lv_obj_set_style_pad_all(settingsActions, 0, 0);
-  lv_obj_set_style_pad_gap(settingsActions, kSettingsGapPx, 0);
-  lv_obj_set_flex_flow(settingsActions, LV_FLEX_FLOW_COLUMN);
-  lv_obj_clear_flag(settingsActions, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_clear_flag(settingsActions, LV_OBJ_FLAG_CLICKABLE);
+  settingsActions_ = lv_obj_create(settingsBody_);
+  lv_obj_set_width(settingsActions_, LV_PCT(100));
+  lv_obj_set_height(settingsActions_, 0);
+  lv_obj_set_flex_grow(settingsActions_, 1);
+  lv_obj_set_style_bg_opa(settingsActions_, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(settingsActions_, 0, 0);
+  lv_obj_set_style_pad_all(settingsActions_, 0, 0);
+  lv_obj_set_style_pad_gap(settingsActions_, kSettingsGapPx, 0);
+  lv_obj_set_flex_flow(settingsActions_, LV_FLEX_FLOW_COLUMN);
+  lv_obj_add_flag(settingsActions_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(settingsActions_, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(settingsActions_, LV_SCROLLBAR_MODE_AUTO);
 
-  makeActionButton(settingsActions,
+  makeActionButton(settingsActions_,
                    "ALTITUDE ZERO",
                    onAltCalibrateEvent,
                    this,
                    kSettingsButtonHeight);
-  makeActionButton(settingsActions,
+  makeActionButton(settingsActions_,
+                   "RESET FLIGHT PHASE",
+                   onPhaseResetEvent,
+                   this,
+                   kSettingsButtonHeight);
+  makeActionButton(settingsActions_,
                    "IMU CALIBRATION",
                    onImuCalibrateEvent,
                    this,
                    kSettingsButtonHeight);
-  makeActionButton(settingsActions,
-                   "SCREEN CALIBRATION",
-                   onCalibrateEvent,
+  makeActionButton(settingsActions_,
+                   "SOUND SETTINGS",
+                   onSoundSettingsOpenEvent,
                    this,
                    kSettingsButtonHeight);
 
-  lv_obj_t* txPowerTitle = lv_label_create(settingsActions);
+  lv_obj_t* txPowerTitle = lv_label_create(settingsActions_);
   lv_label_set_text(txPowerTitle, "TELEMETRY TX POWER");
   lv_obj_set_style_text_color(txPowerTitle, lv_color_hex(0xcfe0ff), 0);
   lv_obj_clear_flag(txPowerTitle, LV_OBJ_FLAG_CLICKABLE);
 
-  txPowerConfigRow_ = lv_obj_create(settingsActions);
+  txPowerConfigRow_ = lv_obj_create(settingsActions_);
   lv_obj_set_width(txPowerConfigRow_, LV_PCT(100));
   lv_obj_set_height(txPowerConfigRow_, LV_SIZE_CONTENT);
   lv_obj_set_style_bg_opa(txPowerConfigRow_, LV_OPA_TRANSP, 0);
@@ -525,13 +691,15 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(txPowerConfigRow_, LV_OBJ_FLAG_CLICKABLE);
 
   txPowerSlider_ = lv_slider_create(txPowerConfigRow_);
-  lv_obj_set_width(txPowerSlider_, 126);
+  lv_obj_set_width(txPowerSlider_, 1);
+  lv_obj_set_flex_grow(txPowerSlider_, 1);
   lv_slider_set_range(txPowerSlider_, kTelemetryTxPowerMinDbm, kTelemetryTxPowerMaxDbm);
   lv_slider_set_value(txPowerSlider_, txPowerDbm_, LV_ANIM_OFF);
   lv_obj_add_event_cb(txPowerSlider_, onTxPowerChangedEvent, LV_EVENT_VALUE_CHANGED, this);
 
   txPowerLabel_ = lv_label_create(txPowerConfigRow_);
-  lv_obj_set_width(txPowerLabel_, 42);
+  lv_obj_set_width(txPowerLabel_, 58);
+  lv_label_set_long_mode(txPowerLabel_, LV_LABEL_LONG_CLIP);
   lv_obj_set_style_text_align(txPowerLabel_, LV_TEXT_ALIGN_RIGHT, 0);
   lv_obj_set_style_text_color(txPowerLabel_, lv_color_hex(0xcfe0ff), 0);
   lv_obj_clear_flag(txPowerLabel_, LV_OBJ_FLAG_CLICKABLE);
@@ -553,13 +721,60 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(txPowerSendLabel, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_center(txPowerSendLabel);
 
-  txPowerActiveLabel_ = lv_label_create(settingsActions);
+  txPowerActiveLabel_ = lv_label_create(settingsActions_);
   lv_obj_set_width(txPowerActiveLabel_, LV_PCT(100));
   lv_obj_set_style_text_color(txPowerActiveLabel_, lv_color_hex(0x9fb7df), 0);
   lv_obj_clear_flag(txPowerActiveLabel_, LV_OBJ_FLAG_CLICKABLE);
   lv_label_set_text(txPowerActiveLabel_, "Active: -- dBm");
 
-  shutdownBtn_ = lv_btn_create(settingsActions);
+  lv_obj_t* touchDebugCheckbox = lv_checkbox_create(settingsActions_);
+  lv_checkbox_set_text(touchDebugCheckbox, "Touchscreen debug");
+  lv_obj_set_width(touchDebugCheckbox, LV_PCT(100));
+  lv_obj_set_style_text_color(touchDebugCheckbox, lv_color_hex(0xeaf1ff), 0);
+  lv_obj_set_style_text_color(touchDebugCheckbox, lv_color_hex(0xeaf1ff), LV_STATE_CHECKED);
+  if (touchDebugVisible_) {
+    lv_obj_add_state(touchDebugCheckbox, LV_STATE_CHECKED);
+  } else {
+    lv_obj_clear_state(touchDebugCheckbox, LV_STATE_CHECKED);
+  }
+  lv_obj_add_event_cb(touchDebugCheckbox, onTouchDebugToggleEvent, LV_EVENT_VALUE_CHANGED, this);
+
+  armNoGpsCheckbox_ = lv_checkbox_create(settingsActions_);
+  lv_checkbox_set_text(armNoGpsCheckbox_, "Allow arm without GPS fix");
+  lv_obj_set_width(armNoGpsCheckbox_, LV_PCT(100));
+  lv_obj_set_style_text_color(armNoGpsCheckbox_, lv_color_hex(0xeaf1ff), 0);
+  lv_obj_set_style_text_color(armNoGpsCheckbox_, lv_color_hex(0xeaf1ff), LV_STATE_CHECKED);
+  if (allowArmWithoutGpsFix_) {
+    lv_obj_add_state(armNoGpsCheckbox_, LV_STATE_CHECKED);
+  } else {
+    lv_obj_clear_state(armNoGpsCheckbox_, LV_STATE_CHECKED);
+  }
+  lv_obj_add_event_cb(armNoGpsCheckbox_, onArmNoGpsToggleEvent, LV_EVENT_VALUE_CHANGED, this);
+
+  makeActionButton(settingsActions_,
+                   "SCREEN CALIBRATION",
+                   onCalibrateEvent,
+                   this,
+                   kSettingsButtonHeight);
+
+  rebootBtn_ = lv_btn_create(settingsActions_);
+  lv_obj_add_flag(rebootBtn_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(rebootBtn_, LV_PCT(100));
+  lv_obj_set_height(rebootBtn_, kSettingsButtonHeight);
+  lv_obj_set_style_radius(rebootBtn_, 8, 0);
+  lv_obj_set_style_bg_color(rebootBtn_, lv_color_hex(0x6a4a1f), 0);
+  lv_obj_set_style_bg_color(rebootBtn_, lv_color_hex(0x8b6127), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(rebootBtn_, lv_color_hex(0xe3b36d), 0);
+  lv_obj_set_style_border_width(rebootBtn_, 1, 0);
+  lv_obj_add_event_cb(rebootBtn_, onRebootEvent, LV_EVENT_LONG_PRESSED, this);
+
+  lv_obj_t* rebootLabel = lv_label_create(rebootBtn_);
+  lv_label_set_text(rebootLabel, "HOLD: REBOOT PI");
+  lv_obj_set_style_text_color(rebootLabel, lv_color_hex(0xfff0e0), 0);
+  lv_obj_clear_flag(rebootLabel, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(rebootLabel);
+
+  shutdownBtn_ = lv_btn_create(settingsActions_);
   lv_obj_add_flag(shutdownBtn_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_width(shutdownBtn_, LV_PCT(100));
   lv_obj_set_height(shutdownBtn_, kSettingsButtonHeight);
@@ -576,17 +791,73 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(shutdownLabel, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_center(shutdownLabel);
 
-  lv_obj_t* touchDebugCheckbox = lv_checkbox_create(settingsActions);
-  lv_checkbox_set_text(touchDebugCheckbox, "Touchscreen debug");
-  lv_obj_set_width(touchDebugCheckbox, LV_PCT(100));
-  lv_obj_set_style_text_color(touchDebugCheckbox, lv_color_hex(0xeaf1ff), 0);
-  lv_obj_set_style_text_color(touchDebugCheckbox, lv_color_hex(0xeaf1ff), LV_STATE_CHECKED);
-  if (touchDebugVisible_) {
-    lv_obj_add_state(touchDebugCheckbox, LV_STATE_CHECKED);
+  soundSettingsPanel_ = lv_obj_create(settingsBody_);
+  lv_obj_set_width(soundSettingsPanel_, LV_PCT(100));
+  lv_obj_set_height(soundSettingsPanel_, 0);
+  lv_obj_set_flex_grow(soundSettingsPanel_, 1);
+  lv_obj_set_style_bg_opa(soundSettingsPanel_, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(soundSettingsPanel_, 0, 0);
+  lv_obj_set_style_pad_all(soundSettingsPanel_, 0, 0);
+  lv_obj_set_style_pad_gap(soundSettingsPanel_, kSettingsGapPx, 0);
+  lv_obj_set_flex_flow(soundSettingsPanel_, LV_FLEX_FLOW_COLUMN);
+  lv_obj_add_flag(soundSettingsPanel_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(soundSettingsPanel_, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(soundSettingsPanel_, LV_SCROLLBAR_MODE_AUTO);
+
+  soundEnabledCheckbox_ = lv_checkbox_create(soundSettingsPanel_);
+  lv_checkbox_set_text(soundEnabledCheckbox_, "Enable sound cues");
+  lv_obj_set_width(soundEnabledCheckbox_, LV_PCT(100));
+  lv_obj_set_style_text_color(soundEnabledCheckbox_, lv_color_hex(0xeaf1ff), 0);
+  lv_obj_set_style_text_color(soundEnabledCheckbox_, lv_color_hex(0xeaf1ff), LV_STATE_CHECKED);
+  if (soundEnabled_) {
+    lv_obj_add_state(soundEnabledCheckbox_, LV_STATE_CHECKED);
   } else {
-    lv_obj_clear_state(touchDebugCheckbox, LV_STATE_CHECKED);
+    lv_obj_clear_state(soundEnabledCheckbox_, LV_STATE_CHECKED);
   }
-  lv_obj_add_event_cb(touchDebugCheckbox, onTouchDebugToggleEvent, LV_EVENT_VALUE_CHANGED, this);
+  lv_obj_add_event_cb(soundEnabledCheckbox_, onSoundEnableToggleEvent, LV_EVENT_VALUE_CHANGED, this);
+
+  makeActionButton(soundSettingsPanel_,
+                   "BACK",
+                   onSoundSettingsBackEvent,
+                   this,
+                   kSettingsButtonHeight);
+  makeActionButton(soundSettingsPanel_,
+                   "PLAY TEST SOUND",
+                   onSoundTestEvent,
+                   this,
+                   kSettingsButtonHeight);
+
+  lv_obj_t* soundVolumeTitle = lv_label_create(soundSettingsPanel_);
+  lv_label_set_text(soundVolumeTitle, "SOUND VOLUME");
+  lv_obj_set_style_text_color(soundVolumeTitle, lv_color_hex(0xcfe0ff), 0);
+  lv_obj_clear_flag(soundVolumeTitle, LV_OBJ_FLAG_CLICKABLE);
+
+  lv_obj_t* soundVolumeRow = lv_obj_create(soundSettingsPanel_);
+  lv_obj_set_width(soundVolumeRow, LV_PCT(100));
+  lv_obj_set_height(soundVolumeRow, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(soundVolumeRow, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(soundVolumeRow, 0, 0);
+  lv_obj_set_style_pad_all(soundVolumeRow, 0, 0);
+  lv_obj_set_style_pad_gap(soundVolumeRow, kSettingsGapPx, 0);
+  lv_obj_set_flex_flow(soundVolumeRow, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(soundVolumeRow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_clear_flag(soundVolumeRow, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(soundVolumeRow, LV_OBJ_FLAG_CLICKABLE);
+
+  soundVolumeSlider_ = lv_slider_create(soundVolumeRow);
+  lv_obj_set_width(soundVolumeSlider_, 170);
+  lv_slider_set_range(soundVolumeSlider_, 0, 100);
+  lv_slider_set_value(soundVolumeSlider_, audioVolumePercent_, LV_ANIM_OFF);
+  lv_obj_add_event_cb(soundVolumeSlider_, onSoundVolumeChangedEvent, LV_EVENT_VALUE_CHANGED, this);
+
+  soundVolumeLabel_ = lv_label_create(soundVolumeRow);
+  lv_obj_set_width(soundVolumeLabel_, 52);
+  lv_obj_set_style_text_align(soundVolumeLabel_, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_set_style_text_color(soundVolumeLabel_, lv_color_hex(0xcfe0ff), 0);
+  lv_obj_clear_flag(soundVolumeLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_label_set_text_fmt(soundVolumeLabel_, "%u%%", static_cast<unsigned>(audioVolumePercent_));
+
+  setSoundSettingsVisible(false);
 
   lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
 
@@ -619,6 +890,22 @@ void LvglController::buildUi() {
   lv_obj_set_style_radius(calibrationTarget_, LV_RADIUS_CIRCLE, 0);
   lv_obj_clear_flag(calibrationTarget_, LV_OBJ_FLAG_CLICKABLE);
 
+  calibrationCancelBtn_ = lv_btn_create(calibrationOverlay_);
+  lv_obj_set_size(calibrationCancelBtn_, 140, 38);
+  lv_obj_set_style_radius(calibrationCancelBtn_, 10, 0);
+  lv_obj_set_style_bg_color(calibrationCancelBtn_, lv_color_hex(0x5e2323), 0);
+  lv_obj_set_style_bg_color(calibrationCancelBtn_, lv_color_hex(0x8a2f2f), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(calibrationCancelBtn_, lv_color_hex(0xffb3b3), 0);
+  lv_obj_set_style_border_width(calibrationCancelBtn_, 1, 0);
+  lv_obj_add_event_cb(calibrationCancelBtn_, onCalibrationCancelEvent, LV_EVENT_PRESSED, this);
+  lv_obj_align(calibrationCancelBtn_, LV_ALIGN_CENTER, 0, 0);
+
+  lv_obj_t* calibrationCancelLabel = lv_label_create(calibrationCancelBtn_);
+  lv_label_set_text(calibrationCancelLabel, "CANCEL");
+  lv_obj_set_style_text_color(calibrationCancelLabel, lv_color_hex(0xfff0f0), 0);
+  lv_obj_clear_flag(calibrationCancelLabel, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(calibrationCancelLabel);
+
   lv_obj_add_flag(calibrationOverlay_, LV_OBJ_FLAG_HIDDEN);
 }
 
@@ -649,11 +936,20 @@ void LvglController::saveTouchCalibration() {
 
 void LvglController::begin() {
   prefs_.begin("companion-ui", false);
+  soundEnabled_ = prefs_.getBool("sound_enabled", true);
+  audioVolumePercent_ = prefs_.getUChar("sound_volume", 100);
+  allowArmWithoutGpsFix_ = false;
+  prefs_.putBool("arm_no_gps", false);
+  if (audioVolumePercent_ > 100) {
+    audioVolumePercent_ = 100;
+  }
   loadTouchCalibration();
 
   tft_.init();
   tft_.setRotation(1);
   tft_.fillScreen(TFT_BLACK);
+  initSdStorage();
+  initSoundOutput();
 
 #if COMPANION_LINK_UART
   pinMode(COMPANION_BAT_ADC_PIN, INPUT);
@@ -687,6 +983,12 @@ void LvglController::begin() {
   lastConnected_ = state_.link.connected;
   lastStale_ = state_.stale;
   lastPrimaryAlert_ = state_.primaryAlert;
+  hasRecoveryEventHistory_ = state_.hasRecoveryEventState;
+  lastRecoveryLaunchDetected_ = state_.recoveryLaunchDetected;
+  lastRecoveryApogee_ = state_.recoveryApogee;
+  lastRecoveryLandingDetected_ = state_.recoveryLandingDetected;
+  recoveryLaunchArmed_ = state_.recoveryLaunchArmed;
+  recoveryGpsFix3d_ = state_.recoveryGpsFix3d;
   lastLvTickMs_ = millis();
 
   if (lastRxMs_ != 0) {
@@ -734,6 +1036,627 @@ void LvglController::updateCompanionBattery() {
   const float vadc = mvAvg / 1000.0f;
   state_.battery.companionVbatV =
       vadc * COMPANION_BAT_ADC_DIVIDER_SCALE * COMPANION_BAT_ADC_CAL_SCALE;
+}
+
+void LvglController::initSdStorage() {
+  sdStorageReady_ = false;
+  sdStorageTotalBytes_ = 0;
+  sdStorageUsedBytes_ = 0;
+
+#if COMPANION_SD_ENABLE
+#if COMPANION_SD_CS_PIN < 0
+  return;
+#else
+  pinMode(COMPANION_SD_CS_PIN, OUTPUT);
+  digitalWrite(COMPANION_SD_CS_PIN, HIGH);
+
+#if defined(ESP32)
+  SPIClass* sdBus = &SPI;
+  if (COMPANION_SD_SCK_PIN >= 0 && COMPANION_SD_MISO_PIN >= 0 && COMPANION_SD_MOSI_PIN >= 0) {
+    sdSpi_.begin(COMPANION_SD_SCK_PIN,
+                 COMPANION_SD_MISO_PIN,
+                 COMPANION_SD_MOSI_PIN,
+                 COMPANION_SD_CS_PIN);
+    sdBus = &sdSpi_;
+  }
+
+  if (!SD.begin(COMPANION_SD_CS_PIN, *sdBus, COMPANION_SD_SPI_FREQ)) {
+    return;
+  }
+#else
+  if (!SD.begin(COMPANION_SD_CS_PIN, SPI, COMPANION_SD_SPI_FREQ)) {
+    return;
+  }
+#endif
+
+  const uint8_t cardType = SD.cardType();
+  if (cardType == CARD_NONE) {
+    SD.end();
+    return;
+  }
+
+  const char* soundDir = COMPANION_SD_SOUND_DIR;
+  if (soundDir != nullptr && soundDir[0] == '/' && strlen(soundDir) > 1U && !SD.exists(soundDir)) {
+    (void)SD.mkdir(soundDir);
+  }
+
+  sdStorageReady_ = true;
+  sdStorageTotalBytes_ = SD.totalBytes();
+  sdStorageUsedBytes_ = SD.usedBytes();
+#endif
+#endif
+}
+
+void LvglController::initSoundOutput() {
+  audioOutputReady_ = false;
+  audioPwmMaxDuty_ = 255;
+
+#if COMPANION_AUDIO_ENABLE
+#if COMPANION_AUDIO_SPK_PIN >= 0
+  const uint8_t pwmBits = (COMPANION_AUDIO_PWM_BITS > 15) ? 15 : COMPANION_AUDIO_PWM_BITS;
+  ledcSetup(COMPANION_AUDIO_PWM_CHANNEL, COMPANION_AUDIO_PWM_FREQ, pwmBits);
+  ledcAttachPin(COMPANION_AUDIO_SPK_PIN, COMPANION_AUDIO_PWM_CHANNEL);
+  const uint32_t maxDuty = (1UL << pwmBits) - 1UL;
+  audioPwmMaxDuty_ = static_cast<uint16_t>(maxDuty);
+  ledcWrite(COMPANION_AUDIO_PWM_CHANNEL, audioPwmMaxDuty_ / 2U);
+  audioOutputReady_ = true;
+#endif
+#endif
+}
+
+void LvglController::queueSoundCue(SoundCue cue) {
+  if (!soundEnabled_) {
+    return;
+  }
+  if (soundQueueCount_ >= kSoundQueueCapacity) {
+    return;
+  }
+
+  if (soundQueueCount_ > 0) {
+    const uint8_t lastIdx = static_cast<uint8_t>((soundQueueTail_ + kSoundQueueCapacity - 1) % kSoundQueueCapacity);
+    if (soundQueue_[lastIdx] == cue) {
+      return;
+    }
+  }
+
+  soundQueue_[soundQueueTail_] = cue;
+  soundQueueTail_ = static_cast<uint8_t>((soundQueueTail_ + 1) % kSoundQueueCapacity);
+  soundQueueCount_++;
+}
+
+const char* LvglController::cueFilePath(SoundCue cue) const {
+  switch (cue) {
+    case SoundCue::kPowerOn:
+      return COMPANION_SOUND_FILE_POWER_ON;
+    case SoundCue::kArmed:
+      return COMPANION_SOUND_FILE_ARMED;
+    case SoundCue::kCalibrating:
+      return COMPANION_SOUND_FILE_CALIBRATING;
+    case SoundCue::kSensorsReady:
+      return COMPANION_SOUND_FILE_SENSORS_READY;
+    case SoundCue::kWaitingForLocationFix:
+      return COMPANION_SOUND_FILE_WAITING_FOR_LOCATION_FIX;
+    case SoundCue::kLocationFixAcquired:
+      return COMPANION_SOUND_FILE_LOCATION_FIX_ACQUIRED;
+    case SoundCue::kLaunchDetectMode:
+      return COMPANION_SOUND_FILE_LAUNCH_DETECT_MODE;
+    case SoundCue::kLaunchDetected:
+      return COMPANION_SOUND_FILE_LAUNCH_DETECTED;
+    case SoundCue::kApogee:
+      return COMPANION_SOUND_FILE_APOGEE;
+    case SoundCue::kDrogueDeploy:
+      return COMPANION_SOUND_FILE_DROGUE_DEPLOYED;
+    case SoundCue::kMainDeploy:
+      return COMPANION_SOUND_FILE_MAIN_DEPLOYED;
+    case SoundCue::kLandingDetected:
+      return COMPANION_SOUND_FILE_LANDING_DETECTED;
+    case SoundCue::kHomePointSet:
+      return COMPANION_SOUND_FILE_HOME_POINT_SET;
+    default:
+      return "";
+  }
+}
+
+void LvglController::handleEventSoundTriggers(const String& previousPhase,
+                                              const String& currentPhase,
+                                              bool phaseChanged) {
+  const float currentAglM = state_.alt.altitudeAglM;
+  const int8_t currentPhaseStep = phaseProgressStep(currentPhase);
+  const bool preflightPhase = (currentPhaseStep <= 0);
+
+  if (!isnan(currentAglM) && (isnan(maxObservedAglM_) || currentAglM > maxObservedAglM_)) {
+    maxObservedAglM_ = currentAglM;
+  }
+
+  if (state_.recoveryGpsFix3d != recoveryGpsFix3d_) {
+    if (preflightPhase) {
+      if (state_.recoveryGpsFix3d) {
+        queueSoundCue(SoundCue::kLocationFixAcquired);
+      } else if (!allowArmWithoutGpsFix_ && !state_.recoveryLaunchArmed) {
+        queueSoundCue(SoundCue::kWaitingForLocationFix);
+      }
+    }
+  }
+
+  if (state_.recoveryLaunchArmed && !recoveryLaunchArmed_) {
+    const bool armedWithoutGpsFix = !state_.recoveryGpsFix3d && allowArmWithoutGpsFix_;
+    if (!armedWithoutGpsFix) {
+      queueSoundCue(SoundCue::kLaunchDetectMode);
+    }
+  }
+  recoveryLaunchArmed_ = state_.recoveryLaunchArmed;
+  recoveryGpsFix3d_ = state_.recoveryGpsFix3d;
+
+  if (state_.hasRecoveryEventState) {
+    if (hasRecoveryEventHistory_) {
+      if (!lastRecoveryLaunchDetected_ && state_.recoveryLaunchDetected) {
+        if (soundQueueCount_ > 0) {
+          SoundCue filteredQueue[kSoundQueueCapacity] = {};
+          uint8_t filteredCount = 0;
+          for (uint8_t i = 0; i < soundQueueCount_; ++i) {
+            const uint8_t idx = static_cast<uint8_t>((soundQueueHead_ + i) % kSoundQueueCapacity);
+            const SoundCue queued = soundQueue_[idx];
+            if (queued == SoundCue::kPowerOn || queued == SoundCue::kArmed || queued == SoundCue::kCalibrating ||
+                queued == SoundCue::kSensorsReady ||
+                queued == SoundCue::kWaitingForLocationFix || queued == SoundCue::kLocationFixAcquired ||
+                queued == SoundCue::kLaunchDetectMode) {
+              continue;
+            }
+            if (filteredCount < kSoundQueueCapacity) {
+              filteredQueue[filteredCount++] = queued;
+            }
+          }
+          for (uint8_t i = 0; i < filteredCount; ++i) {
+            soundQueue_[i] = filteredQueue[i];
+          }
+          soundQueueHead_ = 0;
+          soundQueueTail_ = static_cast<uint8_t>(filteredCount % kSoundQueueCapacity);
+          soundQueueCount_ = filteredCount;
+        }
+        queueSoundCue(SoundCue::kLaunchDetected);
+        maxObservedAglM_ = currentAglM;
+        apogeeCalloutPending_ = false;
+      }
+
+      if (!lastRecoveryApogee_ && state_.recoveryApogee) {
+        queueSoundCue(SoundCue::kApogee);
+      }
+
+      if (!lastRecoveryLandingDetected_ && state_.recoveryLandingDetected) {
+        queueSoundCue(SoundCue::kLandingDetected);
+        apogeeCalloutPending_ = true;
+        apogeeCalloutReadyAtMs_ = millis() + kApogeeCalloutDelayMs;
+      }
+    }
+
+    lastRecoveryLaunchDetected_ = state_.recoveryLaunchDetected;
+    lastRecoveryApogee_ = state_.recoveryApogee;
+    lastRecoveryLandingDetected_ = state_.recoveryLandingDetected;
+    hasRecoveryEventHistory_ = true;
+  } else if (phaseChanged) {
+    if (phaseEquals(currentPhase, "idle") && !phaseEquals(previousPhase, "idle")) {
+      soundQueueHead_ = 0;
+      soundQueueTail_ = 0;
+      soundQueueCount_ = 0;
+      queueSoundCue(SoundCue::kPowerOn);
+      queueSoundCue(SoundCue::kCalibrating);
+      queueSoundCue(SoundCue::kSensorsReady);
+      if (state_.recoveryGpsFix3d) {
+        queueSoundCue(SoundCue::kLocationFixAcquired);
+      } else if (!allowArmWithoutGpsFix_) {
+        queueSoundCue(SoundCue::kWaitingForLocationFix);
+      }
+      // Starting a new flight lifecycle: re-prime deployment edge tracking so
+      // main/drogue cues are not skipped if prior flight state was still latched.
+      hasRecoveryDeployHistory_ = true;
+      lastRecoveryDrogueDeployed_ = false;
+      lastRecoveryMainDeployed_ = false;
+      hasRecoveryEventHistory_ = true;
+      lastRecoveryLaunchDetected_ = false;
+      lastRecoveryApogee_ = false;
+      lastRecoveryLandingDetected_ = false;
+      maxObservedAglM_ = NAN;
+      apogeeCalloutPending_ = false;
+      apogeeCalloutReadyAtMs_ = 0;
+    }
+
+    const bool prevInAscent = phaseEquals(previousPhase, "ascent") || phaseEquals(previousPhase, "boost") ||
+                              phaseEquals(previousPhase, "coast");
+    const bool currInAscent = phaseEquals(currentPhase, "ascent") || phaseEquals(currentPhase, "boost") ||
+                              phaseEquals(currentPhase, "coast");
+
+    if (currInAscent && !prevInAscent) {
+      if (soundQueueCount_ > 0) {
+        SoundCue filteredQueue[kSoundQueueCapacity] = {};
+        uint8_t filteredCount = 0;
+        for (uint8_t i = 0; i < soundQueueCount_; ++i) {
+          const uint8_t idx = static_cast<uint8_t>((soundQueueHead_ + i) % kSoundQueueCapacity);
+          const SoundCue queued = soundQueue_[idx];
+          if (queued == SoundCue::kPowerOn || queued == SoundCue::kArmed || queued == SoundCue::kCalibrating ||
+              queued == SoundCue::kSensorsReady ||
+              queued == SoundCue::kWaitingForLocationFix || queued == SoundCue::kLocationFixAcquired ||
+              queued == SoundCue::kLaunchDetectMode) {
+            continue;
+          }
+          if (filteredCount < kSoundQueueCapacity) {
+            filteredQueue[filteredCount++] = queued;
+          }
+        }
+        for (uint8_t i = 0; i < filteredCount; ++i) {
+          soundQueue_[i] = filteredQueue[i];
+        }
+        soundQueueHead_ = 0;
+        soundQueueTail_ = static_cast<uint8_t>(filteredCount % kSoundQueueCapacity);
+        soundQueueCount_ = filteredCount;
+      }
+      queueSoundCue(SoundCue::kLaunchDetected);
+      maxObservedAglM_ = currentAglM;
+      apogeeCalloutPending_ = false;
+      apogeeCalloutReadyAtMs_ = 0;
+    }
+
+    if (phaseEquals(currentPhase, "descent") && prevInAscent) {
+      queueSoundCue(SoundCue::kApogee);
+    }
+
+    if (phaseEquals(currentPhase, "landed") && !phaseEquals(previousPhase, "landed")) {
+      queueSoundCue(SoundCue::kLandingDetected);
+      apogeeCalloutPending_ = true;
+      apogeeCalloutReadyAtMs_ = millis() + kApogeeCalloutDelayMs;
+    }
+  }
+
+  if (state_.hasRecoveryDeploymentState) {
+    if (hasRecoveryDeployHistory_) {
+      if (!lastRecoveryDrogueDeployed_ && state_.recoveryDrogueDeployed) {
+        queueSoundCue(SoundCue::kDrogueDeploy);
+      }
+      if (!lastRecoveryMainDeployed_ && state_.recoveryMainDeployed) {
+        queueSoundCue(SoundCue::kMainDeploy);
+      }
+    }
+    lastRecoveryDrogueDeployed_ = state_.recoveryDrogueDeployed;
+    lastRecoveryMainDeployed_ = state_.recoveryMainDeployed;
+    hasRecoveryDeployHistory_ = true;
+  }
+}
+
+bool LvglController::playNumberCue(int value) {
+  if (!soundEnabled_) {
+    return false;
+  }
+  if (value <= 0) {
+    return false;
+  }
+
+  auto playExact = [this](int v) {
+    const String path = String("/sounds/") + String(v) + String(".wav");
+    return playWavFromSd(path.c_str());
+  };
+
+  if (value <= 20 ||
+      (value < 100 && (value % 10) == 0) ||
+      (value < 1000 && (value % 100) == 0) ||
+      (value <= 10000 && (value % 1000) == 0)) {
+    return playExact(value);
+  }
+
+  if (value < 100) {
+    const int tens = (value / 10) * 10;
+    const int ones = value % 10;
+    if (!playNumberCue(tens)) {
+      return false;
+    }
+    if (ones > 0) {
+      return playNumberCue(ones);
+    }
+    return true;
+  }
+
+  if (value < 1000) {
+    const int hundreds = (value / 100) * 100;
+    const int remainder = value % 100;
+    if (!playNumberCue(hundreds)) {
+      return false;
+    }
+    if (remainder > 0) {
+      return playNumberCue(remainder);
+    }
+    return true;
+  }
+
+  if (value <= 10000) {
+    const int thousands = (value / 1000) * 1000;
+    const int remainder = value % 1000;
+    if (!playNumberCue(thousands)) {
+      return false;
+    }
+    if (remainder > 0) {
+      return playNumberCue(remainder);
+    }
+    return true;
+  }
+
+  return false;
+}
+
+bool LvglController::playApogeeAltitudeCallout() {
+  if (!soundEnabled_) {
+    return false;
+  }
+  if (isnan(maxObservedAglM_) || maxObservedAglM_ <= 0.0f) {
+    return false;
+  }
+
+  int apogeeM = static_cast<int>(lroundf(maxObservedAglM_));
+  if (apogeeM < 1) {
+    apogeeM = 1;
+  }
+  if (apogeeM > 10000) {
+    apogeeM = 10000;
+  }
+
+  bool played = playWavFromSd(cueFilePath(SoundCue::kApogee));
+  if (!played) {
+    (void)playWavFromSd(kFallbackSoundFileApogee);
+  }
+
+  if (!playNumberCue(apogeeM)) {
+    return false;
+  }
+  return playWavFromSd("/sounds/meters.wav");
+}
+
+void LvglController::playNextQueuedSound() {
+  if (soundQueueCount_ == 0) {
+    return;
+  }
+
+  const SoundCue cue = soundQueue_[soundQueueHead_];
+  soundQueueHead_ = static_cast<uint8_t>((soundQueueHead_ + 1) % kSoundQueueCapacity);
+  soundQueueCount_--;
+
+  bool played = playWavFromSd(cueFilePath(cue));
+  if (played) {
+    return;
+  }
+
+  switch (cue) {
+    case SoundCue::kPowerOn:
+      (void)playWavFromSd(kFallbackSoundFilePowerOn);
+      break;
+    case SoundCue::kArmed:
+      (void)playWavFromSd(kFallbackSoundFileArmed);
+      break;
+    case SoundCue::kCalibrating:
+      (void)playWavFromSd(kFallbackSoundFileCalibrating);
+      break;
+    case SoundCue::kSensorsReady:
+      (void)playWavFromSd(kFallbackSoundFileSensorsReady);
+      break;
+    case SoundCue::kWaitingForLocationFix:
+      (void)playWavFromSd(kFallbackSoundFileWaitingForFix);
+      break;
+    case SoundCue::kLocationFixAcquired:
+      (void)playWavFromSd(kFallbackSoundFileLocationFixAcquired);
+      break;
+    case SoundCue::kLaunchDetectMode:
+      (void)playWavFromSd(kFallbackSoundFileLaunchDetectMode);
+      break;
+    case SoundCue::kLaunchDetected:
+      (void)playWavFromSd(kFallbackSoundFileLaunchDetected);
+      break;
+    case SoundCue::kApogee:
+      (void)playWavFromSd(kFallbackSoundFileApogee);
+      break;
+    case SoundCue::kDrogueDeploy:
+      (void)playWavFromSd(kFallbackSoundFileDrogue);
+      break;
+    case SoundCue::kMainDeploy:
+      played = playWavFromSd(kFallbackSoundFileMain);
+      if (!played) {
+        (void)playWavFromSd(kFallbackSoundFileMainLegacyDir);
+      }
+      break;
+    case SoundCue::kLandingDetected:
+      (void)playWavFromSd(kFallbackSoundFileLanding);
+      break;
+    case SoundCue::kHomePointSet:
+      (void)playWavFromSd(kFallbackSoundFileHomePointSet);
+      break;
+    default:
+      break;
+  }
+}
+
+bool LvglController::playWavFromSd(const char* path, const char** failReason) {
+#if !COMPANION_AUDIO_ENABLE
+  (void)path;
+  if (failReason != nullptr) {
+    *failReason = "audio disabled";
+  }
+  return false;
+#else
+  if (!audioOutputReady_) {
+    if (failReason != nullptr) {
+      *failReason = "audio output not ready";
+    }
+    return false;
+  }
+
+  if (!sdStorageReady_) {
+    if (failReason != nullptr) {
+      *failReason = "sd storage not ready";
+    }
+    return false;
+  }
+
+  if (path == nullptr || path[0] == '\0') {
+    if (failReason != nullptr) {
+      *failReason = "invalid path";
+    }
+    return false;
+  }
+
+  File wav = SD.open(path, FILE_READ);
+  if (!wav || wav.isDirectory()) {
+    if (failReason != nullptr) {
+      *failReason = "file open failed";
+    }
+    return false;
+  }
+
+  uint8_t riffHeader[12] = {0};
+  if (wav.read(riffHeader, sizeof(riffHeader)) != static_cast<int>(sizeof(riffHeader)) ||
+      memcmp(riffHeader, "RIFF", 4) != 0 || memcmp(riffHeader + 8, "WAVE", 4) != 0) {
+    wav.close();
+    if (failReason != nullptr) {
+      *failReason = "invalid wav header";
+    }
+    return false;
+  }
+
+  uint16_t audioFormat = 0;
+  uint16_t numChannels = 0;
+  uint16_t bitsPerSample = 0;
+  uint32_t sampleRate = 0;
+  uint32_t dataOffset = 0;
+  uint32_t dataBytes = 0;
+
+  while (wav.available() >= 8) {
+    uint8_t chunkHeader[8] = {0};
+    if (wav.read(chunkHeader, sizeof(chunkHeader)) != static_cast<int>(sizeof(chunkHeader))) {
+      break;
+    }
+
+    const uint32_t chunkSize = static_cast<uint32_t>(chunkHeader[4]) |
+                               (static_cast<uint32_t>(chunkHeader[5]) << 8) |
+                               (static_cast<uint32_t>(chunkHeader[6]) << 16) |
+                               (static_cast<uint32_t>(chunkHeader[7]) << 24);
+    const uint32_t chunkDataPos = static_cast<uint32_t>(wav.position());
+
+    if (memcmp(chunkHeader, "fmt ", 4) == 0 && chunkSize >= 16) {
+      uint8_t fmt[16] = {0};
+      if (wav.read(fmt, sizeof(fmt)) != static_cast<int>(sizeof(fmt))) {
+        break;
+      }
+      audioFormat = static_cast<uint16_t>(fmt[0]) | (static_cast<uint16_t>(fmt[1]) << 8);
+      numChannels = static_cast<uint16_t>(fmt[2]) | (static_cast<uint16_t>(fmt[3]) << 8);
+      sampleRate = static_cast<uint32_t>(fmt[4]) |
+                   (static_cast<uint32_t>(fmt[5]) << 8) |
+                   (static_cast<uint32_t>(fmt[6]) << 16) |
+                   (static_cast<uint32_t>(fmt[7]) << 24);
+      bitsPerSample = static_cast<uint16_t>(fmt[14]) | (static_cast<uint16_t>(fmt[15]) << 8);
+    } else if (memcmp(chunkHeader, "data", 4) == 0) {
+      dataOffset = chunkDataPos;
+      dataBytes = chunkSize;
+    }
+
+    const uint32_t paddedSize = chunkSize + (chunkSize & 1U);
+    const uint32_t nextPos = chunkDataPos + paddedSize;
+    if (!wav.seek(nextPos)) {
+      break;
+    }
+  }
+
+  const bool formatOk = (audioFormat == 1U) && ((bitsPerSample == 8U) || (bitsPerSample == 16U)) &&
+                        (numChannels >= 1U) && (sampleRate > 0U) && (dataBytes > 0U);
+  if (!formatOk) {
+    wav.close();
+    if (failReason != nullptr) {
+      *failReason = "unsupported wav format";
+    }
+    return false;
+  }
+
+  if (!wav.seek(dataOffset)) {
+    wav.close();
+    if (failReason != nullptr) {
+      *failReason = "wav seek failed";
+    }
+    return false;
+  }
+
+  const uint32_t bytesPerSample = (bitsPerSample / 8U) * static_cast<uint32_t>(numChannels);
+  if (bytesPerSample == 0U) {
+    wav.close();
+    if (failReason != nullptr) {
+      *failReason = "invalid bytes per sample";
+    }
+    return false;
+  }
+
+  uint32_t samplePeriodUs = 1000000UL / sampleRate;
+  if (samplePeriodUs == 0U) {
+    samplePeriodUs = 1U;
+  }
+
+  uint32_t bytesRemaining = dataBytes;
+  uint32_t nextSampleUs = micros();
+  bool readOk = true;
+  while (bytesRemaining >= bytesPerSample && readOk) {
+    int32_t mixed = 0;
+    for (uint16_t ch = 0; ch < numChannels; ++ch) {
+      int32_t sample = 0;
+      if (bitsPerSample == 8U) {
+        const int b = wav.read();
+        if (b < 0) {
+          readOk = false;
+          break;
+        }
+        sample = (static_cast<int32_t>(b) - 128) << 8;
+      } else {
+        const int lo = wav.read();
+        const int hi = wav.read();
+        if (lo < 0 || hi < 0) {
+          readOk = false;
+          break;
+        }
+        const uint16_t raw = static_cast<uint16_t>(static_cast<uint16_t>(hi) << 8) | static_cast<uint16_t>(lo);
+        sample = static_cast<int16_t>(raw);
+      }
+      mixed += sample;
+    }
+    if (!readOk) {
+      break;
+    }
+
+    if (numChannels > 1U) {
+      mixed /= static_cast<int32_t>(numChannels);
+    }
+
+    const uint8_t clampedVolume = (audioVolumePercent_ > 100U) ? 100U : audioVolumePercent_;
+    mixed = (mixed * static_cast<int32_t>(clampedVolume)) / 100;
+
+    int32_t sampleU8 = (mixed + 32768) >> 8;
+    if (sampleU8 < 0) {
+      sampleU8 = 0;
+    } else if (sampleU8 > 255) {
+      sampleU8 = 255;
+    }
+
+    const uint32_t duty = (static_cast<uint32_t>(sampleU8) * audioPwmMaxDuty_) / 255U;
+    ledcWrite(COMPANION_AUDIO_PWM_CHANNEL, duty);
+
+    bytesRemaining -= bytesPerSample;
+    nextSampleUs += samplePeriodUs;
+    int32_t waitUs = static_cast<int32_t>(nextSampleUs - micros());
+    while (waitUs > 0) {
+      const uint32_t chunkUs = (waitUs > 200) ? 200U : static_cast<uint32_t>(waitUs);
+      delayMicroseconds(chunkUs);
+      waitUs = static_cast<int32_t>(nextSampleUs - micros());
+    }
+  }
+
+  ledcWrite(COMPANION_AUDIO_PWM_CHANNEL, audioPwmMaxDuty_ / 2U);
+  wav.close();
+  if (!readOk && failReason != nullptr) {
+    *failReason = "wav read underrun";
+  } else if (failReason != nullptr) {
+    *failReason = nullptr;
+  }
+  return readOk;
+#endif
 }
 
 bool LvglController::ensureConnected() {
@@ -840,7 +1763,7 @@ void LvglController::updateDashboardActionButtons() {
         lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x4b566d), 0);
         lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
       } else {
-        lv_label_set_text(sdToggleLabel_, "SD ON LOCK");
+        lv_label_set_text(sdToggleLabel_, "SD LOCK");
         lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x1f6a42), 0);
         lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x1f6a42), LV_STATE_PRESSED);
       }
@@ -864,7 +1787,7 @@ void LvglController::updateDashboardActionButtons() {
         lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x4b566d), 0);
         lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
       } else {
-        lv_label_set_text(txToggleLabel_, "TX ON LOCK");
+        lv_label_set_text(txToggleLabel_, "TX LOCK");
         lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x1f5f73), 0);
         lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x1f5f73), LV_STATE_PRESSED);
       }
@@ -877,6 +1800,52 @@ void LvglController::updateDashboardActionButtons() {
     }
     lv_obj_set_style_border_color(txToggleBtn_, txDisableLocked ? lv_color_hex(0xffb34f) : lv_color_hex(0x6ea4ff), 0);
     lv_obj_set_style_border_width(txToggleBtn_, 1, 0);
+  }
+
+  if (armBtn_ != nullptr && armLabel_ != nullptr) {
+    const bool gpsFix3d = state_.recoveryGpsFix3d;
+    const bool armGpsReady = gpsFix3d || allowArmWithoutGpsFix_;
+    const bool launchArmed = state_.recoveryLaunchArmed;
+    const bool armLocked = commandLockoutActive_ || launchArmed || !armGpsReady;
+    if (armLocked) {
+      lv_obj_add_state(armBtn_, LV_STATE_DISABLED);
+      if (launchArmed) {
+        lv_label_set_text(armLabel_, "ARMED");
+        lv_obj_set_style_bg_color(armBtn_, lv_color_hex(0x1f6a42), 0);
+        lv_obj_set_style_bg_color(armBtn_, lv_color_hex(0x1f6a42), LV_STATE_PRESSED);
+      } else if (commandLockoutActive_) {
+        lv_label_set_text(armLabel_, "ARM LOCKED");
+        lv_obj_set_style_bg_color(armBtn_, lv_color_hex(0x4b566d), 0);
+        lv_obj_set_style_bg_color(armBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      } else {
+        lv_label_set_text(armLabel_, "ARM: WAIT GPS");
+        lv_obj_set_style_bg_color(armBtn_, lv_color_hex(0x4b566d), 0);
+        lv_obj_set_style_bg_color(armBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      }
+    } else {
+      lv_obj_clear_state(armBtn_, LV_STATE_DISABLED);
+      lv_label_set_text(armLabel_, gpsFix3d ? "ARM LAUNCH" : "ARM: NO GPS OK");
+      lv_obj_set_style_bg_color(armBtn_, lv_color_hex(0x1f2a3b), 0);
+      lv_obj_set_style_bg_color(armBtn_, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
+    }
+    const lv_color_t armBorderColor = gpsFix3d ? lv_color_hex(0x6ea4ff) : lv_color_hex(0xffb34f);
+    lv_obj_set_style_border_color(armBtn_, armBorderColor, 0);
+    lv_obj_set_style_border_width(armBtn_, 1, 0);
+  }
+
+  if (rebootBtn_ != nullptr) {
+    if (commandLockoutActive_) {
+      lv_obj_add_state(rebootBtn_, LV_STATE_DISABLED);
+      lv_obj_set_style_bg_color(rebootBtn_, lv_color_hex(0x4b566d), 0);
+      lv_obj_set_style_bg_color(rebootBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(rebootBtn_, lv_color_hex(0xffb34f), 0);
+    } else {
+      lv_obj_clear_state(rebootBtn_, LV_STATE_DISABLED);
+      lv_obj_set_style_bg_color(rebootBtn_, lv_color_hex(0x6a4a1f), 0);
+      lv_obj_set_style_bg_color(rebootBtn_, lv_color_hex(0x8b6127), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(rebootBtn_, lv_color_hex(0xe3b36d), 0);
+    }
+    lv_obj_set_style_border_width(rebootBtn_, 1, 0);
   }
 
   if (shutdownBtn_ != nullptr) {
@@ -944,9 +1913,29 @@ void LvglController::syncCommandStateFromTelemetry() {
   }
 
   if (state_.hasTelemetryTxPowerState) {
-    if (!hasTxPowerReadback_ || txPowerActiveDbm_ != state_.telemetryTxPowerDbm) {
+    const uint8_t reportedPowerDbm = state_.telemetryTxPowerDbm;
+    if (!hasTxPowerReadback_ || txPowerActiveDbm_ != reportedPowerDbm) {
       hasTxPowerReadback_ = true;
-      txPowerActiveDbm_ = state_.telemetryTxPowerDbm;
+      txPowerActiveDbm_ = reportedPowerDbm;
+      changed = true;
+    }
+
+    if (!txPowerDefaultSynced_) {
+      uint8_t desiredPowerDbm = reportedPowerDbm;
+      if (desiredPowerDbm < kTelemetryTxPowerMinDbm) {
+        desiredPowerDbm = kTelemetryTxPowerMinDbm;
+      } else if (desiredPowerDbm > kTelemetryTxPowerMaxDbm) {
+        desiredPowerDbm = kTelemetryTxPowerMaxDbm;
+      }
+
+      txPowerDbm_ = desiredPowerDbm;
+      if (txPowerSlider_ != nullptr) {
+        lv_slider_set_value(txPowerSlider_, txPowerDbm_, LV_ANIM_OFF);
+      }
+      if (txPowerLabel_ != nullptr) {
+        lv_label_set_text_fmt(txPowerLabel_, "%udBm", static_cast<unsigned>(txPowerDbm_));
+      }
+      txPowerDefaultSynced_ = true;
       changed = true;
     }
   } else if (hasTxPowerReadback_) {
@@ -1089,6 +2078,10 @@ bool LvglController::sendAction(const String& action, int durationS) {
     pretty = "BUZZER " + String(durationS) + "s";
   } else if (action == "telemetry_tx_power") {
     pretty = "TELEM TX POWER " + String(durationS) + "dBm";
+  } else if (action == "phase_reset") {
+    pretty = "RESET FLIGHT PHASE";
+  } else if (action == "launch_arm" && durationS != 0) {
+    pretty = "LAUNCH ARM (NO GPS)";
   }
 
   updateDashboardActionButtons();
@@ -1103,9 +2096,58 @@ void LvglController::togglePanel() {
   } else {
     lv_obj_clear_flag(actionPanel_, LV_OBJ_FLAG_HIDDEN);
     settingsCollapsed_ = true;
+    setSoundSettingsVisible(false);
     lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
   }
   lv_obj_update_layout(telemetryPanel_);
+}
+
+void LvglController::setAllowArmWithoutGpsFix(bool enabled) {
+  if (allowArmWithoutGpsFix_ == enabled) {
+    if (armNoGpsCheckbox_ != nullptr) {
+      if (allowArmWithoutGpsFix_) {
+        lv_obj_add_state(armNoGpsCheckbox_, LV_STATE_CHECKED);
+      } else {
+        lv_obj_clear_state(armNoGpsCheckbox_, LV_STATE_CHECKED);
+      }
+    }
+    return;
+  }
+
+  allowArmWithoutGpsFix_ = enabled;
+  prefs_.putBool("arm_no_gps", allowArmWithoutGpsFix_);
+
+  if (allowArmWithoutGpsFix_ && soundQueueCount_ > 0) {
+    SoundCue filteredQueue[kSoundQueueCapacity] = {};
+    uint8_t filteredCount = 0;
+    for (uint8_t i = 0; i < soundQueueCount_; ++i) {
+      const uint8_t idx = static_cast<uint8_t>((soundQueueHead_ + i) % kSoundQueueCapacity);
+      const SoundCue queued = soundQueue_[idx];
+      if (queued == SoundCue::kWaitingForLocationFix) {
+        continue;
+      }
+      filteredQueue[filteredCount++] = queued;
+    }
+    for (uint8_t i = 0; i < filteredCount; ++i) {
+      soundQueue_[i] = filteredQueue[i];
+    }
+    soundQueueHead_ = 0;
+    soundQueueTail_ = static_cast<uint8_t>(filteredCount % kSoundQueueCapacity);
+    soundQueueCount_ = filteredCount;
+  }
+
+  if (armNoGpsCheckbox_ != nullptr) {
+    if (allowArmWithoutGpsFix_) {
+      lv_obj_add_state(armNoGpsCheckbox_, LV_STATE_CHECKED);
+    } else {
+      lv_obj_clear_state(armNoGpsCheckbox_, LV_STATE_CHECKED);
+    }
+  }
+
+  setCommandStatus(allowArmWithoutGpsFix_ ? "Launch arm override enabled"
+                                         : "Launch arm now requires GPS 3D fix",
+                   true);
+  updateDashboardActionButtons();
 }
 
 void LvglController::setTouchDebugVisible(bool visible) {
@@ -1124,13 +2166,86 @@ void LvglController::setTouchDebugVisible(bool visible) {
 void LvglController::toggleSettings() {
   settingsCollapsed_ = !settingsCollapsed_;
   if (settingsCollapsed_) {
+    setSoundSettingsVisible(false);
     lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
+    if (hasTxPowerReadback_) {
+      uint8_t desiredPowerDbm = txPowerActiveDbm_;
+      if (desiredPowerDbm < kTelemetryTxPowerMinDbm) {
+        desiredPowerDbm = kTelemetryTxPowerMinDbm;
+      } else if (desiredPowerDbm > kTelemetryTxPowerMaxDbm) {
+        desiredPowerDbm = kTelemetryTxPowerMaxDbm;
+      }
+      txPowerDbm_ = desiredPowerDbm;
+      if (txPowerSlider_ != nullptr) {
+        lv_slider_set_value(txPowerSlider_, txPowerDbm_, LV_ANIM_OFF);
+      }
+      if (txPowerLabel_ != nullptr) {
+        lv_label_set_text_fmt(txPowerLabel_, "%udBm", static_cast<unsigned>(txPowerDbm_));
+      }
+    }
+    setSoundSettingsVisible(false);
+    if (settingsActions_ != nullptr) {
+      lv_obj_scroll_to_y(settingsActions_, 0, LV_ANIM_OFF);
+    }
     panelCollapsed_ = true;
     lv_obj_add_flag(actionPanel_, LV_OBJ_FLAG_HIDDEN);
   }
   lv_obj_update_layout(telemetryPanel_);
+}
+
+void LvglController::setSoundEnabled(bool enabled) {
+  if (soundEnabled_ == enabled) {
+    if (soundEnabledCheckbox_ != nullptr) {
+      if (soundEnabled_) {
+        lv_obj_add_state(soundEnabledCheckbox_, LV_STATE_CHECKED);
+      } else {
+        lv_obj_clear_state(soundEnabledCheckbox_, LV_STATE_CHECKED);
+      }
+    }
+    return;
+  }
+
+  soundEnabled_ = enabled;
+  prefs_.putBool("sound_enabled", soundEnabled_);
+
+  if (!soundEnabled_) {
+    soundQueueHead_ = 0;
+    soundQueueTail_ = 0;
+    soundQueueCount_ = 0;
+  }
+
+  if (soundEnabledCheckbox_ != nullptr) {
+    if (soundEnabled_) {
+      lv_obj_add_state(soundEnabledCheckbox_, LV_STATE_CHECKED);
+    } else {
+      lv_obj_clear_state(soundEnabledCheckbox_, LV_STATE_CHECKED);
+    }
+  }
+
+  setCommandStatus(soundEnabled_ ? "Sound cues enabled" : "Sound cues disabled", true);
+}
+
+void LvglController::setSoundSettingsVisible(bool visible) {
+  soundSettingsVisible_ = visible;
+  if (settingsActions_ == nullptr || soundSettingsPanel_ == nullptr) {
+    return;
+  }
+
+  if (soundSettingsVisible_) {
+    lv_obj_add_flag(settingsActions_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(soundSettingsPanel_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_scroll_to_y(soundSettingsPanel_, 0, LV_ANIM_OFF);
+  } else {
+    lv_obj_clear_flag(settingsActions_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(soundSettingsPanel_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_scroll_to_y(settingsActions_, 0, LV_ANIM_OFF);
+  }
+
+  if (settingsBody_ != nullptr) {
+    lv_obj_update_layout(settingsBody_);
+  }
 }
 
 void LvglController::advanceCalibrationTarget() {
@@ -1249,6 +2364,24 @@ void LvglController::handleCalibrationTouch() {
     return;
   }
 
+  if (calibrationCancelBtn_ != nullptr) {
+    int screenX = 0;
+    int screenY = 0;
+    if (mapTouchToScreen(rawX, rawY, screenX, screenY)) {
+      const int btnX = lv_obj_get_x(calibrationCancelBtn_);
+      const int btnY = lv_obj_get_y(calibrationCancelBtn_);
+      const int btnW = lv_obj_get_width(calibrationCancelBtn_);
+      const int btnH = lv_obj_get_height(calibrationCancelBtn_);
+      if (screenX >= btnX && screenX < (btnX + btnW) &&
+          screenY >= btnY && screenY < (btnY + btnH)) {
+        cancelCalibration();
+        setCommandStatus("Calibration cancelled", true);
+        refreshUi();
+        return;
+      }
+    }
+  }
+
   bool allowSample = !calibrationTouchLatch_;
   if (!allowSample && calibrationLastRawX_ >= 0 && calibrationLastRawY_ >= 0) {
     const int32_t dx = abs(rawX - calibrationLastRawX_);
@@ -1297,6 +2430,7 @@ void LvglController::handleCalibrationTouch() {
 
 void LvglController::refreshUi() {
   const uint32_t now = millis();
+  updateDashboardActionButtons();
   bool groundStationAppOffline = false;
 #if COMPANION_LINK_UART
   groundStationAppOffline = (lastRxMs_ == 0) && (now > kGroundStationOfflineDetectMs);
@@ -1345,38 +2479,38 @@ void LvglController::refreshUi() {
   }
 
   const String snrText = formatFloat(state_.link.snr, 1, "--.-");
-  lv_label_set_text_fmt(linkMetaLabel_, "RSSI %d dBm   SNR %s   AGE %d ms", state_.link.rssi,
-                        snrText.c_str(), state_.link.lastPacketAgeMs);
+  lv_label_set_text_fmt(linkMetaLabel_,
+                        "RSSI %d   SNR %s   AGE %d   Packets: %lu",
+                        state_.link.rssi,
+                        snrText.c_str(),
+                        state_.link.lastPacketAgeMs,
+                        static_cast<unsigned long>(state_.flight.packetCount));
 
   lv_label_set_text_fmt(phaseLabel_, "PHASE: %s", state_.flight.phase.length() ? state_.flight.phase.c_str() : "unknown");
 
   const String baroAltText = formatFloat(state_.alt.altitudeAglM, 1);
   const String gpsAltText = formatFloat(state_.alt.gpsAltitudeM, 1);
-  const String vsText = formatFloat(state_.alt.verticalSpeedMps, 1);
-
-  lv_label_set_text_fmt(altitudeLabel_, "BARO %s m\nGPS  %s m\nVS  %s m/s", baroAltText.c_str(), gpsAltText.c_str(), vsText.c_str());
-  //lv_label_set_text_fmt(vsLabel_, "VS  %s m/s", vsText.c_str());
-
-  lv_label_set_text_fmt(packetLabel_, "Packets: %lu", static_cast<unsigned long>(state_.flight.packetCount));
-  lv_label_set_text_fmt(callsignLabel_, "Callsign: %s",
-                        state_.flight.callsign.length() ? state_.flight.callsign.c_str() : "(none)");
-
-  const String txVbat = formatFloat(state_.battery.telemetryVbatV, 2, "--.-");
-  const String groundVbat = formatFloat(state_.battery.groundVbatV, 2, "--.-");
-  const int txPct = batteryPercentFromVoltage(state_.battery.telemetryVbatV, 2);
-  const int gsPct = batteryPercentFromVoltage(state_.battery.groundVbatV, 1);
-
-  if (txPct >= 0) {
-    lv_label_set_text_fmt(batteryLabel_, "TX_VBAT: %s V (%d%%)", txVbat.c_str(), txPct);
-  } else {
-    lv_label_set_text_fmt(batteryLabel_, "TX_VBAT: %s V", txVbat.c_str());
+  float preferredVerticalSpeedMps = state_.alt.verticalSpeedMps;
+  if (isnan(preferredVerticalSpeedMps)) {
+    preferredVerticalSpeedMps = state_.alt.baroVerticalSpeedMps;
   }
-
-  if (gsPct >= 0) {
-    lv_label_set_text_fmt(companionBatteryLabel_, "GS_VBAT: %s V (%d%%)", groundVbat.c_str(), gsPct);
-  } else {
-    lv_label_set_text_fmt(companionBatteryLabel_, "GS_VBAT: %s V", groundVbat.c_str());
+  if (isnan(preferredVerticalSpeedMps)) {
+    preferredVerticalSpeedMps = state_.alt.gpsVerticalSpeedMps;
   }
+  const String vsText = formatFloat(preferredVerticalSpeedMps, 1);
+
+  lv_label_set_text_fmt(altitudeLabel_,
+                        "BARO %s m\nGPS  %s m\nVS   %s m/s",
+                        baroAltText.c_str(),
+                        gpsAltText.c_str(),
+                        vsText.c_str());
+
+  lv_label_set_text(callsignLabel_,
+                    state_.flight.callsign.length() ? state_.flight.callsign.c_str() : "No Callsign");
+
+  const String txVbat = formatFloat(state_.battery.telemetryVbatV, 2, "--.--");
+  const String groundVbat = formatFloat(state_.battery.groundVbatV, 2, "--.--");
+  lv_label_set_text_fmt(batteryLabel_, "TX: %sV / GS: %sV", txVbat.c_str(), groundVbat.c_str());
 
   String cmdStatus = "";
   if (cmdMsg_.length() > 0 && (now - cmdTs_) <= kCommandStatusShowMs) {
@@ -1453,9 +2587,54 @@ void LvglController::tick() {
       loraAgeBaseTickMs_ = now;
     }
 #endif
+    const String previousPhase = lastPhase_;
+    const String reportedPhase = state_.flight.phase;
+    String effectivePhase = reportedPhase;
+
+    const int8_t previousPhaseStep = phaseProgressStep(previousPhase);
+    const int8_t reportedPhaseStep = phaseProgressStep(reportedPhase);
+
+    bool allowPhaseResetToIdle = false;
+    if (phaseResetRequested_) {
+      if (reportedPhaseStep == 0) {
+        allowPhaseResetToIdle = true;
+      } else if (reportedPhaseStep > 0) {
+        phaseResetRequested_ = false;
+      }
+    }
+
+    if (previousPhaseStep >= 0) {
+      if (reportedPhaseStep < 0) {
+        effectivePhase = previousPhase;
+      } else if (reportedPhaseStep < previousPhaseStep) {
+        if (!allowPhaseResetToIdle) {
+          effectivePhase = previousPhase;
+        }
+      } else if (reportedPhaseStep > (previousPhaseStep + 1)) {
+        if (previousPhaseStep == 0) {
+          effectivePhase = "ascent";
+        } else if (previousPhaseStep == 1) {
+          effectivePhase = "descent";
+        } else if (previousPhaseStep == 2) {
+          effectivePhase = "landed";
+        } else {
+          effectivePhase = previousPhase;
+        }
+      }
+    }
+
+    if (allowPhaseResetToIdle) {
+      phaseResetRequested_ = false;
+    }
+
+    state_.flight.phase = effectivePhase;
+
     syncCommandStateFromTelemetry();
 
-    if (state_.flight.phase != lastPhase_ && state_.flight.phase.length() > 0) {
+    const bool phaseChanged = (state_.flight.phase != previousPhase && state_.flight.phase.length() > 0);
+    handleEventSoundTriggers(previousPhase, state_.flight.phase, phaseChanged);
+
+    if (phaseChanged) {
       setCommandStatus("Phase -> " + state_.flight.phase, true);
       lastPhase_ = state_.flight.phase;
     }
@@ -1469,6 +2648,13 @@ void LvglController::tick() {
   handleCalibrationTouch();
   updatePendingCommandTimeouts(now);
   updateStaleness();
+  playNextQueuedSound();
+  if (apogeeCalloutPending_ && soundEnabled_ && soundQueueCount_ == 0 &&
+      apogeeCalloutReadyAtMs_ != 0 && now >= apogeeCalloutReadyAtMs_) {
+    (void)playApogeeAltitudeCallout();
+    apogeeCalloutPending_ = false;
+    apogeeCalloutReadyAtMs_ = 0;
+  }
 
   const bool statusVisible = cmdMsg_.length() > 0 && (now - cmdTs_) <= kCommandStatusShowMs;
   if (updated || statusVisible || (now - lastUiRefreshMs_) >= kUiRefreshIntervalMs) {
@@ -1576,11 +2762,17 @@ void LvglController::readTouchCb(lv_indev_t* indev, lv_indev_data_t* data) {
 
 void LvglController::onPanelToggleEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   self->togglePanel();
 }
 
 void LvglController::onSettingsToggleEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   self->toggleSettings();
 }
 
@@ -1593,25 +2785,179 @@ void LvglController::onTouchDebugToggleEvent(lv_event_t* e) {
   self->setTouchDebugVisible(lv_obj_has_state(target, LV_STATE_CHECKED));
 }
 
+void LvglController::onArmNoGpsToggleEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+  if (self == nullptr || target == nullptr) {
+    return;
+  }
+  self->setAllowArmWithoutGpsFix(lv_obj_has_state(target, LV_STATE_CHECKED));
+  self->refreshUi();
+}
+
 void LvglController::onCalibrateEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   self->startCalibration();
+}
+
+void LvglController::onCalibrationCancelEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  self->cancelCalibration();
+  self->setCommandStatus("Calibration cancelled", true);
+  self->refreshUi();
 }
 
 void LvglController::onAltCalibrateEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
-  self->sendAction("alt_calibrate", 0);
+  if (self == nullptr) {
+    return;
+  }
+  if (self->sendAction("alt_calibrate", 0)) {
+    self->soundQueueHead_ = 0;
+    self->soundQueueTail_ = 0;
+    self->soundQueueCount_ = 0;
+    self->apogeeCalloutPending_ = false;
+
+    const int8_t phaseStep = phaseProgressStep(self->state_.flight.phase);
+    const bool phaseLaterThanLaunchDetected = (phaseStep > 1);
+    const bool hasPostLaunchEvent =
+        self->state_.recoveryApogee || self->state_.recoveryDrogueDeployed ||
+        self->state_.recoveryMainDeployed || self->state_.recoveryLandingDetected;
+    const bool replayLatestOnly = phaseLaterThanLaunchDetected || hasPostLaunchEvent;
+
+    SoundCue latestCue = SoundCue::kLaunchDetected;
+    bool hasLatestCue = false;
+    if (self->state_.recoveryLandingDetected || phaseEquals(self->state_.flight.phase, "landed")) {
+      latestCue = SoundCue::kLandingDetected;
+      hasLatestCue = true;
+    } else if (self->state_.recoveryMainDeployed) {
+      latestCue = SoundCue::kMainDeploy;
+      hasLatestCue = true;
+    } else if (self->state_.recoveryDrogueDeployed) {
+      latestCue = SoundCue::kDrogueDeploy;
+      hasLatestCue = true;
+    } else if (self->state_.recoveryApogee || phaseEquals(self->state_.flight.phase, "descent")) {
+      latestCue = SoundCue::kApogee;
+      hasLatestCue = true;
+    } else if (self->state_.recoveryLaunchDetected || phaseStep == 1) {
+      latestCue = SoundCue::kLaunchDetected;
+      hasLatestCue = true;
+    }
+
+    if (replayLatestOnly && hasLatestCue) {
+      self->phaseResetRequested_ = false;
+      self->queueSoundCue(latestCue);
+      self->setCommandStatus("Flight in progress: latest event replay only", false);
+    } else {
+      self->phaseResetRequested_ = true;
+      self->queueSoundCue(SoundCue::kPowerOn);
+      self->queueSoundCue(SoundCue::kCalibrating);
+      self->queueSoundCue(SoundCue::kSensorsReady);
+    }
+
+    self->hasRecoveryDeployHistory_ = true;
+    self->lastRecoveryDrogueDeployed_ = self->state_.recoveryDrogueDeployed;
+    self->lastRecoveryMainDeployed_ = self->state_.recoveryMainDeployed;
+    self->hasRecoveryEventHistory_ = true;
+    self->lastRecoveryLaunchDetected_ = self->state_.recoveryLaunchDetected;
+    self->lastRecoveryApogee_ = self->state_.recoveryApogee;
+    self->lastRecoveryLandingDetected_ = self->state_.recoveryLandingDetected;
+  }
+
+  self->panelCollapsed_ = true;
+  self->settingsCollapsed_ = true;
+  self->setSoundSettingsVisible(false);
+  if (self->actionPanel_ != nullptr) {
+    lv_obj_add_flag(self->actionPanel_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (self->settingsBody_ != nullptr) {
+    lv_obj_add_flag(self->settingsBody_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (self->telemetryPanel_ != nullptr) {
+    lv_obj_update_layout(self->telemetryPanel_);
+  }
+
+  self->refreshUi();
+}
+
+void LvglController::onPhaseResetEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+
+  if (self->sendAction("phase_reset", 0)) {
+    self->soundQueueHead_ = 0;
+    self->soundQueueTail_ = 0;
+    self->soundQueueCount_ = 0;
+    self->apogeeCalloutPending_ = false;
+    self->phaseResetRequested_ = true;
+    self->queueSoundCue(SoundCue::kPowerOn);
+    self->queueSoundCue(SoundCue::kCalibrating);
+    self->queueSoundCue(SoundCue::kSensorsReady);
+
+    self->hasRecoveryDeployHistory_ = true;
+    self->lastRecoveryDrogueDeployed_ = self->state_.recoveryDrogueDeployed;
+    self->lastRecoveryMainDeployed_ = self->state_.recoveryMainDeployed;
+    self->hasRecoveryEventHistory_ = true;
+    self->lastRecoveryLaunchDetected_ = self->state_.recoveryLaunchDetected;
+    self->lastRecoveryApogee_ = self->state_.recoveryApogee;
+    self->lastRecoveryLandingDetected_ = self->state_.recoveryLandingDetected;
+  }
+
+  self->panelCollapsed_ = true;
+  self->settingsCollapsed_ = true;
+  self->setSoundSettingsVisible(false);
+  if (self->actionPanel_ != nullptr) {
+    lv_obj_add_flag(self->actionPanel_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (self->settingsBody_ != nullptr) {
+    lv_obj_add_flag(self->settingsBody_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (self->telemetryPanel_ != nullptr) {
+    lv_obj_update_layout(self->telemetryPanel_);
+  }
+
   self->refreshUi();
 }
 
 void LvglController::onImuCalibrateEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
-  self->sendAction("imu_calibrate", 0);
+  if (self == nullptr) {
+    return;
+  }
+  if (self->sendAction("imu_calibrate", 0)) {
+    self->queueSoundCue(SoundCue::kCalibrating);
+    self->queueSoundCue(SoundCue::kSensorsReady);
+  }
+
+  self->panelCollapsed_ = true;
+  self->settingsCollapsed_ = true;
+  self->setSoundSettingsVisible(false);
+  if (self->actionPanel_ != nullptr) {
+    lv_obj_add_flag(self->actionPanel_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (self->settingsBody_ != nullptr) {
+    lv_obj_add_flag(self->settingsBody_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (self->telemetryPanel_ != nullptr) {
+    lv_obj_update_layout(self->telemetryPanel_);
+  }
+
   self->refreshUi();
 }
 
 void LvglController::onShutdownEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   if (self->commandLockoutActive_) {
     self->setCommandStatus("Shutdown locked until landing", false);
     self->refreshUi();
@@ -1621,14 +2967,31 @@ void LvglController::onShutdownEvent(lv_event_t* e) {
   self->refreshUi();
 }
 
+void LvglController::onRebootEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  if (self->commandLockoutActive_) {
+    self->setCommandStatus("Reboot locked until landing", false);
+    self->refreshUi();
+    return;
+  }
+  self->sendAction("reboot", 0);
+  self->refreshUi();
+}
+
 void LvglController::onBuzzerToggleEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   self->setBuzzerConfigVisible(!self->buzzerConfigVisible_);
 }
 
 void LvglController::onBuzzerDurationChangedEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
-  if (self->buzzerDurationSlider_ == nullptr) {
+  if (self == nullptr || self->buzzerDurationSlider_ == nullptr) {
     return;
   }
   int value = lv_slider_get_value(self->buzzerDurationSlider_);
@@ -1645,6 +3008,9 @@ void LvglController::onBuzzerDurationChangedEvent(lv_event_t* e) {
 
 void LvglController::onBuzzerSendEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   self->sendAction("buzzer", self->buzzerDurationS_);
   self->refreshUi();
 }
@@ -1675,8 +3041,119 @@ void LvglController::onTxPowerSendEvent(lv_event_t* e) {
   self->refreshUi();
 }
 
+void LvglController::onArmEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  if (!self->state_.recoveryGpsFix3d && !self->allowArmWithoutGpsFix_) {
+    self->setCommandStatus("ARM blocked: waiting for GPS 3D fix", false);
+    self->refreshUi();
+    return;
+  }
+  if (self->state_.recoveryLaunchArmed) {
+    self->setCommandStatus("Launch detect already armed", true);
+    self->refreshUi();
+    return;
+  }
+  if (self->commandLockoutActive_) {
+    self->setCommandStatus("Arm command locked in flight", false);
+    self->refreshUi();
+    return;
+  }
+  self->sendAction("launch_arm", self->allowArmWithoutGpsFix_ ? 1 : 0);
+
+  self->panelCollapsed_ = true;
+  self->settingsCollapsed_ = true;
+  self->setSoundSettingsVisible(false);
+  if (self->actionPanel_ != nullptr) {
+    lv_obj_add_flag(self->actionPanel_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (self->settingsBody_ != nullptr) {
+    lv_obj_add_flag(self->settingsBody_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (self->telemetryPanel_ != nullptr) {
+    lv_obj_update_layout(self->telemetryPanel_);
+  }
+
+  self->refreshUi();
+}
+
+void LvglController::onSoundSettingsOpenEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  self->setSoundSettingsVisible(true);
+}
+
+void LvglController::onSoundSettingsBackEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  self->setSoundSettingsVisible(false);
+}
+
+void LvglController::onSoundEnableToggleEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  lv_obj_t* target = static_cast<lv_obj_t*>(lv_event_get_target(e));
+  if (self == nullptr || target == nullptr) {
+    return;
+  }
+  self->setSoundEnabled(lv_obj_has_state(target, LV_STATE_CHECKED));
+  self->refreshUi();
+}
+
+void LvglController::onSoundTestEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  const char* failReason = nullptr;
+  const bool ok = self->playWavFromSd(COMPANION_SOUND_FILE_AUDIO_TEST, &failReason);
+  if (ok) {
+    self->setCommandStatus("AUDIO TEST played", true);
+  } else {
+    String msg = "AUDIO TEST failed";
+    if (failReason != nullptr && failReason[0] != '\0') {
+      msg += " (";
+      msg += failReason;
+      msg += ")";
+    }
+    self->setCommandStatus(msg, false);
+    Serial.printf("[audio-test] failed: %s | path=%s | sd_ready=%d | audio_ready=%d\n",
+                  (failReason != nullptr) ? failReason : "unknown",
+                  COMPANION_SOUND_FILE_AUDIO_TEST,
+                  self->sdStorageReady_ ? 1 : 0,
+                  self->audioOutputReady_ ? 1 : 0);
+  }
+  self->refreshUi();
+}
+
+void LvglController::onSoundVolumeChangedEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr || self->soundVolumeSlider_ == nullptr) {
+    return;
+  }
+  int value = lv_slider_get_value(self->soundVolumeSlider_);
+  if (value < 0) {
+    value = 0;
+  } else if (value > 100) {
+    value = 100;
+  }
+  self->audioVolumePercent_ = static_cast<uint8_t>(value);
+  self->prefs_.putUChar("sound_volume", self->audioVolumePercent_);
+  if (self->soundVolumeLabel_ != nullptr) {
+    lv_label_set_text_fmt(self->soundVolumeLabel_, "%u%%", static_cast<unsigned>(self->audioVolumePercent_));
+  }
+}
+
 void LvglController::onSdToggleEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   const lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_PRESSED) {
     if (!self->sdLoggingEnabled_) {
@@ -1691,6 +3168,9 @@ void LvglController::onSdToggleEvent(lv_event_t* e) {
 
 void LvglController::onTxToggleEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   const lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_PRESSED) {
     if (!self->telemetryTxEnabled_) {

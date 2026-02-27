@@ -307,6 +307,23 @@ h1 {
   color: var(--muted);
 }
 
+.control-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.control-toggle input {
+  accent-color: var(--accent);
+}
+
 .control-select {
   border: 1px solid var(--line);
   border-radius: 999px;

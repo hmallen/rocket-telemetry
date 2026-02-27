@@ -1116,6 +1116,13 @@ void loop() {
         }
         const bool tx_power_ok = lora.set_tx_power_dbm(cmd_arg);
         ack_enabled_state = tx_power_ok;
+      } else if (cmd == LoraCommand::kLaunchArm) {
+        if (!buzzer_busy()) {
+          buzzer_start_seq(60, 0, 1, now_ms);
+        }
+        const bool allow_without_gps_fix = (cmd_arg != 0);
+        const bool launch_armed = lora.arm_launch_detect_mode(allow_without_gps_fix);
+        ack_enabled_state = launch_armed;
       }
       if (cmd != LoraCommand::kBuzzer) {
         lora.queue_command_ack(cmd, ack_enabled_state);

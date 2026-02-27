@@ -19,6 +19,22 @@ class LvglController {
   void tick();
 
  private:
+  enum class SoundCue : uint8_t {
+    kPowerOn = 0,
+    kArmed,
+    kCalibrating,
+    kSensorsReady,
+    kWaitingForLocationFix,
+    kLocationFixAcquired,
+    kLaunchDetectMode,
+    kLaunchDetected,
+    kApogee,
+    kDrogueDeploy,
+    kMainDeploy,
+    kLandingDetected,
+    kHomePointSet,
+  };
+
   struct TouchCalibration {
     int32_t xMin = TOUCH_X_MIN;
     int32_t xMax = TOUCH_X_MAX;
@@ -38,6 +54,9 @@ class LvglController {
   CompanionState state_;
   TFT_eSPI& tft_;
   Preferences prefs_;
+#if defined(ESP32)
+  SPIClass sdSpi_{HSPI};
+#endif
 
   bool sdLoggingEnabled_ = false;
   bool telemetryTxEnabled_ = false;
@@ -52,7 +71,34 @@ class LvglController {
   uint8_t txPowerDbm_ = 17;
   bool hasTxPowerReadback_ = false;
   uint8_t txPowerActiveDbm_ = 0;
+  bool txPowerDefaultSynced_ = false;
   bool commandLockoutActive_ = false;
+  bool sdStorageReady_ = false;
+  uint64_t sdStorageTotalBytes_ = 0;
+  uint64_t sdStorageUsedBytes_ = 0;
+  bool audioOutputReady_ = false;
+  uint16_t audioPwmMaxDuty_ = 255;
+  bool soundEnabled_ = true;
+  bool hasRecoveryDeployHistory_ = false;
+  bool lastRecoveryDrogueDeployed_ = false;
+  bool lastRecoveryMainDeployed_ = false;
+  bool hasRecoveryEventHistory_ = false;
+  bool lastRecoveryLaunchDetected_ = false;
+  bool lastRecoveryApogee_ = false;
+  bool lastRecoveryLandingDetected_ = false;
+  bool recoveryLaunchArmed_ = false;
+  bool recoveryGpsFix3d_ = false;
+  bool allowArmWithoutGpsFix_ = false;
+  bool phaseResetRequested_ = false;
+  float maxObservedAglM_ = NAN;
+  bool apogeeCalloutPending_ = false;
+  uint32_t apogeeCalloutReadyAtMs_ = 0;
+  static constexpr uint32_t kApogeeCalloutDelayMs = 3000;
+  static constexpr uint8_t kSoundQueueCapacity = 16;
+  SoundCue soundQueue_[kSoundQueueCapacity] = {};
+  uint8_t soundQueueHead_ = 0;
+  uint8_t soundQueueTail_ = 0;
+  uint8_t soundQueueCount_ = 0;
 
   uint8_t buzzerDurationS_ = 3;
   bool buzzerConfigVisible_ = false;
@@ -83,6 +129,7 @@ class LvglController {
 
   bool panelCollapsed_ = true;
   bool settingsCollapsed_ = true;
+  bool soundSettingsVisible_ = false;
 
   bool calibrationActive_ = false;
   bool calibrationTouchLatch_ = false;
@@ -129,8 +176,18 @@ class LvglController {
   lv_obj_t* txPowerSlider_ = nullptr;
   lv_obj_t* txPowerLabel_ = nullptr;
   lv_obj_t* txPowerActiveLabel_ = nullptr;
+  lv_obj_t* armBtn_ = nullptr;
+  lv_obj_t* armLabel_ = nullptr;
+  lv_obj_t* rebootBtn_ = nullptr;
   lv_obj_t* shutdownBtn_ = nullptr;
   lv_obj_t* settingsBody_ = nullptr;
+  lv_obj_t* settingsActions_ = nullptr;
+  lv_obj_t* soundSettingsPanel_ = nullptr;
+  lv_obj_t* armNoGpsCheckbox_ = nullptr;
+  lv_obj_t* soundEnabledCheckbox_ = nullptr;
+  lv_obj_t* soundVolumeSlider_ = nullptr;
+  lv_obj_t* soundVolumeLabel_ = nullptr;
+  uint8_t audioVolumePercent_ = 100;
 
   lv_obj_t* linkLabel_ = nullptr;
   lv_obj_t* linkMetaLabel_ = nullptr;
@@ -150,6 +207,7 @@ class LvglController {
   lv_obj_t* calibrationInstrLabel_ = nullptr;
   lv_obj_t* calibrationRawLabel_ = nullptr;
   lv_obj_t* calibrationTarget_ = nullptr;
+  lv_obj_t* calibrationCancelBtn_ = nullptr;
 
   void initLvgl();
   void buildUi();
@@ -164,11 +222,25 @@ class LvglController {
 
   void updateStaleness();
   void updateCompanionBattery();
+  void initSdStorage();
+  void initSoundOutput();
+  void queueSoundCue(SoundCue cue);
+  void handleEventSoundTriggers(const String& previousPhase,
+                                const String& currentPhase,
+                                bool phaseChanged);
+  void playNextQueuedSound();
+  bool playNumberCue(int value);
+  bool playApogeeAltitudeCallout();
+  const char* cueFilePath(SoundCue cue) const;
+  bool playWavFromSd(const char* path, const char** failReason = nullptr);
   bool ensureConnected();
 
   bool sendAction(const String& action, int durationS = 0);
   void togglePanel();
   void toggleSettings();
+  void setAllowArmWithoutGpsFix(bool enabled);
+  void setSoundEnabled(bool enabled);
+  void setSoundSettingsVisible(bool visible);
   void setTouchDebugVisible(bool visible);
 
   void loadTouchCalibration();
@@ -189,14 +261,24 @@ class LvglController {
   static void onSettingsToggleEvent(lv_event_t* e);
   static void onTouchDebugToggleEvent(lv_event_t* e);
   static void onCalibrateEvent(lv_event_t* e);
+  static void onCalibrationCancelEvent(lv_event_t* e);
   static void onAltCalibrateEvent(lv_event_t* e);
+  static void onPhaseResetEvent(lv_event_t* e);
   static void onImuCalibrateEvent(lv_event_t* e);
+  static void onRebootEvent(lv_event_t* e);
   static void onShutdownEvent(lv_event_t* e);
   static void onBuzzerToggleEvent(lv_event_t* e);
   static void onBuzzerDurationChangedEvent(lv_event_t* e);
   static void onBuzzerSendEvent(lv_event_t* e);
   static void onTxPowerChangedEvent(lv_event_t* e);
   static void onTxPowerSendEvent(lv_event_t* e);
+  static void onArmEvent(lv_event_t* e);
+  static void onArmNoGpsToggleEvent(lv_event_t* e);
+  static void onSoundSettingsOpenEvent(lv_event_t* e);
+  static void onSoundSettingsBackEvent(lv_event_t* e);
+  static void onSoundEnableToggleEvent(lv_event_t* e);
+  static void onSoundTestEvent(lv_event_t* e);
+  static void onSoundVolumeChangedEvent(lv_event_t* e);
   static void onSdToggleEvent(lv_event_t* e);
   static void onTxToggleEvent(lv_event_t* e);
 };
