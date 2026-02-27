@@ -913,9 +913,15 @@ class MapDownloadManager:
             "max_zoom": None,
             "started_at": None,
             "finished_at": None,
-            "cached_tiles": self._count_cached_tiles(),
+            "cached_tiles": 0,
             "canceled": False,
         }
+        threading.Thread(target=self._scan_cached_tiles_thread, daemon=True).start()
+
+    def _scan_cached_tiles_thread(self):
+        count = self._count_cached_tiles()
+        with self._lock:
+            self._state["cached_tiles"] = count
 
     def _count_cached_tiles(self):
         if not TILE_CACHE_DIR.exists():
@@ -989,7 +995,6 @@ class MapDownloadManager:
                 "max_zoom": max_zoom,
                 "started_at": time.time(),
                 "finished_at": None,
-                "cached_tiles": self._count_cached_tiles(),
                 "canceled": False,
             })
 
