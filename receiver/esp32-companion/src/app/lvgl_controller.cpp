@@ -2747,6 +2747,20 @@ void LvglController::onArmEvent(lv_event_t* e) {
     return;
   }
   self->sendAction("launch_arm", self->allowArmWithoutGpsFix_ ? 1 : 0);
+
+  self->panelCollapsed_ = true;
+  self->settingsCollapsed_ = true;
+  self->setSoundSettingsVisible(false);
+  if (self->actionPanel_ != nullptr) {
+    lv_obj_add_flag(self->actionPanel_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (self->settingsBody_ != nullptr) {
+    lv_obj_add_flag(self->settingsBody_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (self->telemetryPanel_ != nullptr) {
+    lv_obj_update_layout(self->telemetryPanel_);
+  }
+
   self->refreshUi();
 }
 
