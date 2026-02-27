@@ -71,6 +71,7 @@ class LvglController {
   uint8_t txPowerDbm_ = 17;
   bool hasTxPowerReadback_ = false;
   uint8_t txPowerActiveDbm_ = 0;
+  bool txPowerDefaultSynced_ = false;
   bool commandLockoutActive_ = false;
   bool sdStorageReady_ = false;
   uint64_t sdStorageTotalBytes_ = 0;
@@ -203,6 +204,7 @@ class LvglController {
   lv_obj_t* calibrationInstrLabel_ = nullptr;
   lv_obj_t* calibrationRawLabel_ = nullptr;
   lv_obj_t* calibrationTarget_ = nullptr;
+  lv_obj_t* calibrationCancelBtn_ = nullptr;
 
   void initLvgl();
   void buildUi();
@@ -256,6 +258,7 @@ class LvglController {
   static void onSettingsToggleEvent(lv_event_t* e);
   static void onTouchDebugToggleEvent(lv_event_t* e);
   static void onCalibrateEvent(lv_event_t* e);
+  static void onCalibrationCancelEvent(lv_event_t* e);
   static void onAltCalibrateEvent(lv_event_t* e);
   static void onImuCalibrateEvent(lv_event_t* e);
   static void onShutdownEvent(lv_event_t* e);

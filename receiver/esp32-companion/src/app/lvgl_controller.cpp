@@ -633,7 +633,10 @@ void LvglController::buildUi() {
   lv_obj_set_style_border_color(settingsBody_, lv_color_hex(0x2a446a), 0);
   lv_obj_set_style_border_width(settingsBody_, 1, 0);
   lv_obj_set_style_radius(settingsBody_, 10, 0);
-  lv_obj_set_style_pad_all(settingsBody_, 6, 0);
+  lv_obj_set_style_pad_top(settingsBody_, 6, 0);
+  lv_obj_set_style_pad_bottom(settingsBody_, 6, 0);
+  lv_obj_set_style_pad_left(settingsBody_, 10, 0);
+  lv_obj_set_style_pad_right(settingsBody_, 10, 0);
   lv_obj_set_style_pad_gap(settingsBody_, kSettingsGapPx, 0);
   lv_obj_set_flex_flow(settingsBody_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(settingsBody_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
@@ -732,23 +735,6 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(txPowerActiveLabel_, LV_OBJ_FLAG_CLICKABLE);
   lv_label_set_text(txPowerActiveLabel_, "Active: -- dBm");
 
-  shutdownBtn_ = lv_btn_create(settingsActions_);
-  lv_obj_add_flag(shutdownBtn_, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_width(shutdownBtn_, LV_PCT(100));
-  lv_obj_set_height(shutdownBtn_, kSettingsButtonHeight);
-  lv_obj_set_style_radius(shutdownBtn_, 8, 0);
-  lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0x7a1d1d), 0);
-  lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0xa02828), LV_STATE_PRESSED);
-  lv_obj_set_style_border_color(shutdownBtn_, lv_color_hex(0xdc7070), 0);
-  lv_obj_set_style_border_width(shutdownBtn_, 1, 0);
-  lv_obj_add_event_cb(shutdownBtn_, onShutdownEvent, LV_EVENT_LONG_PRESSED, this);
-
-  lv_obj_t* shutdownLabel = lv_label_create(shutdownBtn_);
-  lv_label_set_text(shutdownLabel, "HOLD: SHUTDOWN PI");
-  lv_obj_set_style_text_color(shutdownLabel, lv_color_hex(0xfff0f0), 0);
-  lv_obj_clear_flag(shutdownLabel, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_center(shutdownLabel);
-
   lv_obj_t* touchDebugCheckbox = lv_checkbox_create(settingsActions_);
   lv_checkbox_set_text(touchDebugCheckbox, "Touchscreen debug");
   lv_obj_set_width(touchDebugCheckbox, LV_PCT(100));
@@ -778,6 +764,23 @@ void LvglController::buildUi() {
                    onCalibrateEvent,
                    this,
                    kSettingsButtonHeight);
+
+  shutdownBtn_ = lv_btn_create(settingsActions_);
+  lv_obj_add_flag(shutdownBtn_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(shutdownBtn_, LV_PCT(100));
+  lv_obj_set_height(shutdownBtn_, kSettingsButtonHeight);
+  lv_obj_set_style_radius(shutdownBtn_, 8, 0);
+  lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0x7a1d1d), 0);
+  lv_obj_set_style_bg_color(shutdownBtn_, lv_color_hex(0xa02828), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(shutdownBtn_, lv_color_hex(0xdc7070), 0);
+  lv_obj_set_style_border_width(shutdownBtn_, 1, 0);
+  lv_obj_add_event_cb(shutdownBtn_, onShutdownEvent, LV_EVENT_LONG_PRESSED, this);
+
+  lv_obj_t* shutdownLabel = lv_label_create(shutdownBtn_);
+  lv_label_set_text(shutdownLabel, "HOLD: SHUTDOWN PI");
+  lv_obj_set_style_text_color(shutdownLabel, lv_color_hex(0xfff0f0), 0);
+  lv_obj_clear_flag(shutdownLabel, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(shutdownLabel);
 
   soundSettingsPanel_ = lv_obj_create(settingsBody_);
   lv_obj_set_width(soundSettingsPanel_, LV_PCT(100));
@@ -877,6 +880,22 @@ void LvglController::buildUi() {
   lv_obj_set_style_border_width(calibrationTarget_, 2, 0);
   lv_obj_set_style_radius(calibrationTarget_, LV_RADIUS_CIRCLE, 0);
   lv_obj_clear_flag(calibrationTarget_, LV_OBJ_FLAG_CLICKABLE);
+
+  calibrationCancelBtn_ = lv_btn_create(calibrationOverlay_);
+  lv_obj_set_size(calibrationCancelBtn_, 140, 38);
+  lv_obj_set_style_radius(calibrationCancelBtn_, 10, 0);
+  lv_obj_set_style_bg_color(calibrationCancelBtn_, lv_color_hex(0x5e2323), 0);
+  lv_obj_set_style_bg_color(calibrationCancelBtn_, lv_color_hex(0x8a2f2f), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(calibrationCancelBtn_, lv_color_hex(0xffb3b3), 0);
+  lv_obj_set_style_border_width(calibrationCancelBtn_, 1, 0);
+  lv_obj_add_event_cb(calibrationCancelBtn_, onCalibrationCancelEvent, LV_EVENT_PRESSED, this);
+  lv_obj_align(calibrationCancelBtn_, LV_ALIGN_CENTER, 0, 0);
+
+  lv_obj_t* calibrationCancelLabel = lv_label_create(calibrationCancelBtn_);
+  lv_label_set_text(calibrationCancelLabel, "CANCEL");
+  lv_obj_set_style_text_color(calibrationCancelLabel, lv_color_hex(0xfff0f0), 0);
+  lv_obj_clear_flag(calibrationCancelLabel, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(calibrationCancelLabel);
 
   lv_obj_add_flag(calibrationOverlay_, LV_OBJ_FLAG_HIDDEN);
 }
@@ -1861,9 +1880,29 @@ void LvglController::syncCommandStateFromTelemetry() {
   }
 
   if (state_.hasTelemetryTxPowerState) {
-    if (!hasTxPowerReadback_ || txPowerActiveDbm_ != state_.telemetryTxPowerDbm) {
+    const uint8_t reportedPowerDbm = state_.telemetryTxPowerDbm;
+    if (!hasTxPowerReadback_ || txPowerActiveDbm_ != reportedPowerDbm) {
       hasTxPowerReadback_ = true;
-      txPowerActiveDbm_ = state_.telemetryTxPowerDbm;
+      txPowerActiveDbm_ = reportedPowerDbm;
+      changed = true;
+    }
+
+    if (!txPowerDefaultSynced_) {
+      uint8_t desiredPowerDbm = reportedPowerDbm;
+      if (desiredPowerDbm < kTelemetryTxPowerMinDbm) {
+        desiredPowerDbm = kTelemetryTxPowerMinDbm;
+      } else if (desiredPowerDbm > kTelemetryTxPowerMaxDbm) {
+        desiredPowerDbm = kTelemetryTxPowerMaxDbm;
+      }
+
+      txPowerDbm_ = desiredPowerDbm;
+      if (txPowerSlider_ != nullptr) {
+        lv_slider_set_value(txPowerSlider_, txPowerDbm_, LV_ANIM_OFF);
+      }
+      if (txPowerLabel_ != nullptr) {
+        lv_label_set_text_fmt(txPowerLabel_, "%udBm", static_cast<unsigned>(txPowerDbm_));
+      }
+      txPowerDefaultSynced_ = true;
       changed = true;
     }
   } else if (hasTxPowerReadback_) {
@@ -2273,6 +2312,24 @@ void LvglController::handleCalibrationTouch() {
     touchDebugRawY_ = -1;
     touchDebugRawZ_ = -1;
     return;
+  }
+
+  if (calibrationCancelBtn_ != nullptr) {
+    int screenX = 0;
+    int screenY = 0;
+    if (mapTouchToScreen(rawX, rawY, screenX, screenY)) {
+      const int btnX = lv_obj_get_x(calibrationCancelBtn_);
+      const int btnY = lv_obj_get_y(calibrationCancelBtn_);
+      const int btnW = lv_obj_get_width(calibrationCancelBtn_);
+      const int btnH = lv_obj_get_height(calibrationCancelBtn_);
+      if (screenX >= btnX && screenX < (btnX + btnW) &&
+          screenY >= btnY && screenY < (btnY + btnH)) {
+        cancelCalibration();
+        setCommandStatus("Calibration cancelled", true);
+        refreshUi();
+        return;
+      }
+    }
   }
 
   bool allowSample = !calibrationTouchLatch_;
@@ -2691,6 +2748,16 @@ void LvglController::onArmNoGpsToggleEvent(lv_event_t* e) {
 void LvglController::onCalibrateEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
   self->startCalibration();
+}
+
+void LvglController::onCalibrationCancelEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  self->cancelCalibration();
+  self->setCommandStatus("Calibration cancelled", true);
+  self->refreshUi();
 }
 
 void LvglController::onAltCalibrateEvent(lv_event_t* e) {
