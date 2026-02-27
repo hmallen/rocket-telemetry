@@ -757,6 +757,23 @@ void LvglController::buildUi() {
                    this,
                    kSettingsButtonHeight);
 
+  rebootBtn_ = lv_btn_create(settingsActions_);
+  lv_obj_add_flag(rebootBtn_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(rebootBtn_, LV_PCT(100));
+  lv_obj_set_height(rebootBtn_, kSettingsButtonHeight);
+  lv_obj_set_style_radius(rebootBtn_, 8, 0);
+  lv_obj_set_style_bg_color(rebootBtn_, lv_color_hex(0x6a4a1f), 0);
+  lv_obj_set_style_bg_color(rebootBtn_, lv_color_hex(0x8b6127), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(rebootBtn_, lv_color_hex(0xe3b36d), 0);
+  lv_obj_set_style_border_width(rebootBtn_, 1, 0);
+  lv_obj_add_event_cb(rebootBtn_, onRebootEvent, LV_EVENT_LONG_PRESSED, this);
+
+  lv_obj_t* rebootLabel = lv_label_create(rebootBtn_);
+  lv_label_set_text(rebootLabel, "HOLD: REBOOT PI");
+  lv_obj_set_style_text_color(rebootLabel, lv_color_hex(0xfff0e0), 0);
+  lv_obj_clear_flag(rebootLabel, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(rebootLabel);
+
   shutdownBtn_ = lv_btn_create(settingsActions_);
   lv_obj_add_flag(shutdownBtn_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_width(shutdownBtn_, LV_PCT(100));
@@ -1816,6 +1833,21 @@ void LvglController::updateDashboardActionButtons() {
     lv_obj_set_style_border_width(armBtn_, 1, 0);
   }
 
+  if (rebootBtn_ != nullptr) {
+    if (commandLockoutActive_) {
+      lv_obj_add_state(rebootBtn_, LV_STATE_DISABLED);
+      lv_obj_set_style_bg_color(rebootBtn_, lv_color_hex(0x4b566d), 0);
+      lv_obj_set_style_bg_color(rebootBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(rebootBtn_, lv_color_hex(0xffb34f), 0);
+    } else {
+      lv_obj_clear_state(rebootBtn_, LV_STATE_DISABLED);
+      lv_obj_set_style_bg_color(rebootBtn_, lv_color_hex(0x6a4a1f), 0);
+      lv_obj_set_style_bg_color(rebootBtn_, lv_color_hex(0x8b6127), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(rebootBtn_, lv_color_hex(0xe3b36d), 0);
+    }
+    lv_obj_set_style_border_width(rebootBtn_, 1, 0);
+  }
+
   if (shutdownBtn_ != nullptr) {
     if (commandLockoutActive_) {
       lv_obj_add_state(shutdownBtn_, LV_STATE_DISABLED);
@@ -2138,6 +2170,21 @@ void LvglController::toggleSettings() {
     lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
+    if (hasTxPowerReadback_) {
+      uint8_t desiredPowerDbm = txPowerActiveDbm_;
+      if (desiredPowerDbm < kTelemetryTxPowerMinDbm) {
+        desiredPowerDbm = kTelemetryTxPowerMinDbm;
+      } else if (desiredPowerDbm > kTelemetryTxPowerMaxDbm) {
+        desiredPowerDbm = kTelemetryTxPowerMaxDbm;
+      }
+      txPowerDbm_ = desiredPowerDbm;
+      if (txPowerSlider_ != nullptr) {
+        lv_slider_set_value(txPowerSlider_, txPowerDbm_, LV_ANIM_OFF);
+      }
+      if (txPowerLabel_ != nullptr) {
+        lv_label_set_text_fmt(txPowerLabel_, "%udBm", static_cast<unsigned>(txPowerDbm_));
+      }
+    }
     setSoundSettingsVisible(false);
     if (settingsActions_ != nullptr) {
       lv_obj_scroll_to_y(settingsActions_, 0, LV_ANIM_OFF);
@@ -2917,6 +2964,20 @@ void LvglController::onShutdownEvent(lv_event_t* e) {
     return;
   }
   self->sendAction("shutdown", 0);
+  self->refreshUi();
+}
+
+void LvglController::onRebootEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  if (self->commandLockoutActive_) {
+    self->setCommandStatus("Reboot locked until landing", false);
+    self->refreshUi();
+    return;
+  }
+  self->sendAction("reboot", 0);
   self->refreshUi();
 }
 

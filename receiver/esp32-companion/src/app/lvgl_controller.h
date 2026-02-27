@@ -178,6 +178,7 @@ class LvglController {
   lv_obj_t* txPowerActiveLabel_ = nullptr;
   lv_obj_t* armBtn_ = nullptr;
   lv_obj_t* armLabel_ = nullptr;
+  lv_obj_t* rebootBtn_ = nullptr;
   lv_obj_t* shutdownBtn_ = nullptr;
   lv_obj_t* settingsBody_ = nullptr;
   lv_obj_t* settingsActions_ = nullptr;
@@ -264,6 +265,7 @@ class LvglController {
   static void onAltCalibrateEvent(lv_event_t* e);
   static void onPhaseResetEvent(lv_event_t* e);
   static void onImuCalibrateEvent(lv_event_t* e);
+  static void onRebootEvent(lv_event_t* e);
   static void onShutdownEvent(lv_event_t* e);
   static void onBuzzerToggleEvent(lv_event_t* e);
   static void onBuzzerDurationChangedEvent(lv_event_t* e);

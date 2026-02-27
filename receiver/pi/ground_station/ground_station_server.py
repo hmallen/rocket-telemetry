@@ -134,7 +134,7 @@ LORA_CMD_REPEAT_COUNT = 3
 LORA_CMD_REPEAT_DELAY_S = 0.1
 
 COMMAND_LOCKOUT_PHASES = {"ascent", "descent", "boost", "coast"}
-COMMAND_LOCKOUT_ACTIONS = {"sd_stop", "telemetry_disable", "shutdown"}
+COMMAND_LOCKOUT_ACTIONS = {"sd_stop", "telemetry_disable", "shutdown", "reboot"}
 
 
 def _command_lockout_active_from_snapshot(snapshot):
@@ -1236,6 +1236,7 @@ class CompanionUartBridge:
     CMD_SHUTDOWN = 0x08
     CMD_SET_TX_POWER = 0x09
     CMD_LAUNCH_ARM = 0x0A
+    CMD_REBOOT = 0x0B
 
     def __init__(self, port, baud):
         self._port = port
@@ -1426,6 +1427,8 @@ class CompanionUartBridge:
             ok, error = send_lora_command("launch_arm", duration_s=int(arg))
         elif cmd == self.CMD_SHUTDOWN:
             ok, error = request_pi_shutdown()
+        elif cmd == self.CMD_REBOOT:
+            ok, error = request_pi_reboot()
         else:
             ok, error = False, "Unknown UART command"
 
@@ -1724,6 +1727,28 @@ def request_pi_shutdown():
         return False, f"Failed to schedule shutdown: {exc}"
 
 
+def request_pi_reboot():
+    if _is_action_locked_during_flight("reboot"):
+        return False, "reboot blocked after launch; wait for landing"
+
+    def _reboot_worker():
+        # Give the HTTP/UART ACK path a brief moment to flush before reboot.
+        time.sleep(0.3)
+        subprocess.Popen(
+            ["sudo", "reboot"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    try:
+        threading.Thread(target=_reboot_worker, daemon=True).start()
+        print("Pi reboot requested via companion command")
+        return True, None
+    except Exception as exc:  # pylint: disable=broad-except
+        return False, f"Failed to schedule reboot: {exc}"
+
+
 class GroundStationHandler(BaseHTTPRequestHandler):
     def _check_auth(self):
         """Check authentication for command endpoints. Returns True if authorized."""
@@ -1869,6 +1894,8 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             tx_power_dbm = payload.get("tx_power_dbm")
             if action == "shutdown":
                 ok, error = request_pi_shutdown()
+            elif action == "reboot":
+                ok, error = request_pi_reboot()
             else:
                 ok, error = send_lora_command(action, duration_s, tx_power_dbm)
             if not ok:
