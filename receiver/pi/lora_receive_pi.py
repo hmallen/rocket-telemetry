@@ -42,7 +42,7 @@ class VoltageMonitorConfig:
     max_reading: float = 2047.0
 
     group_sleep_s: float = 2.0
-    channel_sleep_s: float = 0.1
+    channel_sleep_s: float = 0.02
 
     vbatt_min: float = 3.1
     vin_min: float = 3.8
