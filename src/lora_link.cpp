@@ -938,7 +938,8 @@ bool LoraLink::start_navsat_tx_(uint32_t now_ms,
   uint8_t cno_max = 0;
   uint32_t cno_sum = 0;
   const uint8_t count = gps.navsat_n;
-  const uint8_t svs_used = (count > 0) ? count : gps.navsat_num_svs;
+  const uint8_t svs_used = (gps.navsat_num_svs != 0) ? gps.navsat_num_svs : count;
+  const uint8_t svs_total = gps.navsat_num_svs_total;
   for (uint8_t i = 0; i < count; ++i) {
     const uint8_t cno = gps.navsat[i].cno;
     cno_sum += cno;
@@ -949,7 +950,7 @@ bool LoraLink::start_navsat_tx_(uint32_t now_ms,
   tx_buf_[0] = 0xA1;
   tx_buf_[1] = 5;
   write_u32_le(&tx_buf_[2], (uint32_t)now_ms);
-  tx_buf_[6] = gps.navsat_num_svs;
+  tx_buf_[6] = svs_total;
   tx_buf_[7] = svs_used;
   tx_buf_[8] = cno_max;
   tx_buf_[9] = cno_avg;

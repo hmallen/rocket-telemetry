@@ -26,7 +26,10 @@ struct GnssTime {
     uint32_t flags = 0;
   };
 
+  // Number of satellites used in navigation solution (NAV-PVT numSV).
   uint8_t navsat_num_svs = 0;
+  // Number of satellites visible/tracked (NAV-SAT numSvs).
+  uint8_t navsat_num_svs_total = 0;
   uint8_t navsat_n = 0;
   Sat navsat[16];
   uint32_t last_sat_ms = 0;

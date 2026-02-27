@@ -117,7 +117,7 @@ void GnssUbx::parse_byte(uint8_t b, uint32_t now_us) {
         if (cls_ == 0x01 && id_ == 0x35 && len_ >= 8) {
           const uint8_t* p = payload_;
           const uint8_t numSvs = p[5];
-          time_.navsat_num_svs = numSvs;
+          time_.navsat_num_svs_total = numSvs;
           uint8_t nstore = 0;
           uint16_t off = 8;
           while (off + 12 <= len_ && nstore < (uint8_t)(sizeof(time_.navsat) / sizeof(time_.navsat[0]))) {
