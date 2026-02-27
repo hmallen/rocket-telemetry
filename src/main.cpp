@@ -1157,6 +1157,8 @@ void loop() {
         }
         if (sd_logging_enabled) {
           ack_enabled_state = false;
+          snprintf(ack_detail_buf, sizeof(ack_detail_buf), "Stop logging before format");
+          ack_detail = ack_detail_buf;
         } else {
 #if ENABLE_SD_LOGGER
           const bool formatted = sdlog.format_card();
@@ -1164,8 +1166,14 @@ void loop() {
             sd_logging_reset_buffers();
           }
           ack_enabled_state = formatted;
+          if (!formatted) {
+            snprintf(ack_detail_buf, sizeof(ack_detail_buf), "Format SD failed");
+            ack_detail = ack_detail_buf;
+          }
 #else
           ack_enabled_state = false;
+          snprintf(ack_detail_buf, sizeof(ack_detail_buf), "SD logger disabled");
+          ack_detail = ack_detail_buf;
 #endif
         }
       } else if (cmd == LoraCommand::kSdDumpSample) {
