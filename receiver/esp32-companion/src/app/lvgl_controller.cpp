@@ -207,9 +207,6 @@ constexpr const char* kFallbackSoundFileLanding = "/sounds/landing_detected.wav"
 constexpr const char* kFallbackSoundFileHomePointSet = "/sounds/home_point_set.wav";
 
 constexpr uint32_t kBatterySampleIntervalMs = COMPANION_BAT_SAMPLE_INTERVAL_MS;
-constexpr float kLipoCellEmptyV = 3.3f;
-constexpr float kLipoCellFullV = 4.2f;
-
 constexpr float kCompanionBatAdcRefV = 3.3f;
 constexpr float kCompanionBatAdcMaxCounts = 4095.0f;
 
@@ -226,25 +223,6 @@ static String formatFloat(float value, uint8_t decimals, const char* fallback = 
     return String(fallback);
   }
   return String(value, static_cast<unsigned int>(decimals));
-}
-
-static int batteryPercentFromVoltage(float voltage, uint8_t cells) {
-  if (isnan(voltage) || cells == 0) {
-    return -1;
-  }
-  const float emptyV = kLipoCellEmptyV * static_cast<float>(cells);
-  const float fullV = kLipoCellFullV * static_cast<float>(cells);
-  if (fullV <= emptyV) {
-    return -1;
-  }
-
-  float pct = ((voltage - emptyV) * 100.0f) / (fullV - emptyV);
-  if (pct < 0.0f) {
-    pct = 0.0f;
-  } else if (pct > 100.0f) {
-    pct = 100.0f;
-  }
-  return static_cast<int>(pct + 0.5f);
 }
 
 static bool phaseIndicatesInFlight(const String& phaseText) {
@@ -396,19 +374,26 @@ void LvglController::buildUi() {
 
   packetLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(packetLabel_, lv_color_hex(0xd9e3f8), 0);
-  lv_obj_align(packetLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -80);
+  lv_obj_add_flag(packetLabel_, LV_OBJ_FLAG_HIDDEN);
 
   callsignLabel_ = lv_label_create(telemetryPanel_);
-  lv_obj_set_style_text_color(callsignLabel_, lv_color_hex(0xd9e3f8), 0);
-  lv_obj_align(callsignLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -60);
+  lv_obj_set_width(callsignLabel_, 220);
+  lv_label_set_long_mode(callsignLabel_, LV_LABEL_LONG_DOT);
+  lv_obj_set_style_text_color(callsignLabel_, lv_color_hex(0xeaf1ff), 0);
+  lv_obj_set_style_text_font(callsignLabel_, &lv_font_montserrat_14, 0);
+  lv_obj_align(callsignLabel_, LV_ALIGN_TOP_LEFT, 0, 24);
+
+  lv_obj_align(linkMetaLabel_, LV_ALIGN_TOP_LEFT, 0, 54);
+  lv_obj_align(phaseLabel_, LV_ALIGN_TOP_LEFT, 0, 82);
+  lv_obj_align(altitudeLabel_, LV_ALIGN_TOP_LEFT, 0, 112);
 
   batteryLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(batteryLabel_, lv_color_hex(0xd9e3f8), 0);
-  lv_obj_align(batteryLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -40);
+  lv_obj_align(batteryLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -20);
 
   companionBatteryLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(companionBatteryLabel_, lv_color_hex(0xd9e3f8), 0);
-  lv_obj_align(companionBatteryLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -20);
+  lv_obj_add_flag(companionBatteryLabel_, LV_OBJ_FLAG_HIDDEN);
 
   companionBatteryDebugLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(companionBatteryDebugLabel_, lv_color_hex(0x9fb0cc), 0);
@@ -1745,7 +1730,7 @@ void LvglController::updateDashboardActionButtons() {
         lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x4b566d), 0);
         lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
       } else {
-        lv_label_set_text(sdToggleLabel_, "SD ON LOCK");
+        lv_label_set_text(sdToggleLabel_, "SD LOCK");
         lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x1f6a42), 0);
         lv_obj_set_style_bg_color(sdToggleBtn_, lv_color_hex(0x1f6a42), LV_STATE_PRESSED);
       }
@@ -1769,7 +1754,7 @@ void LvglController::updateDashboardActionButtons() {
         lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x4b566d), 0);
         lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
       } else {
-        lv_label_set_text(txToggleLabel_, "TX ON LOCK");
+        lv_label_set_text(txToggleLabel_, "TX LOCK");
         lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x1f5f73), 0);
         lv_obj_set_style_bg_color(txToggleBtn_, lv_color_hex(0x1f5f73), LV_STATE_PRESSED);
       }
@@ -2429,8 +2414,12 @@ void LvglController::refreshUi() {
   }
 
   const String snrText = formatFloat(state_.link.snr, 1, "--.-");
-  lv_label_set_text_fmt(linkMetaLabel_, "RSSI %d dBm   SNR %s   AGE %d ms", state_.link.rssi,
-                        snrText.c_str(), state_.link.lastPacketAgeMs);
+  lv_label_set_text_fmt(linkMetaLabel_,
+                        "RSSI %d   SNR %s   AGE %d   Packets: %lu",
+                        state_.link.rssi,
+                        snrText.c_str(),
+                        state_.link.lastPacketAgeMs,
+                        static_cast<unsigned long>(state_.flight.packetCount));
 
   lv_label_set_text_fmt(phaseLabel_, "PHASE: %s", state_.flight.phase.length() ? state_.flight.phase.c_str() : "unknown");
 
@@ -2449,26 +2438,12 @@ void LvglController::refreshUi() {
                         vsGpsText.c_str());
   //lv_label_set_text_fmt(vsLabel_, "VS  %s m/s", vsRecoveryText.c_str());
 
-  lv_label_set_text_fmt(packetLabel_, "Packets: %lu", static_cast<unsigned long>(state_.flight.packetCount));
-  lv_label_set_text_fmt(callsignLabel_, "Callsign: %s",
-                        state_.flight.callsign.length() ? state_.flight.callsign.c_str() : "(none)");
+  lv_label_set_text(callsignLabel_,
+                    state_.flight.callsign.length() ? state_.flight.callsign.c_str() : "No Callsign");
 
-  const String txVbat = formatFloat(state_.battery.telemetryVbatV, 2, "--.-");
-  const String groundVbat = formatFloat(state_.battery.groundVbatV, 2, "--.-");
-  const int txPct = batteryPercentFromVoltage(state_.battery.telemetryVbatV, 2);
-  const int gsPct = batteryPercentFromVoltage(state_.battery.groundVbatV, 1);
-
-  if (txPct >= 0) {
-    lv_label_set_text_fmt(batteryLabel_, "TX_VBAT: %s V (%d%%)", txVbat.c_str(), txPct);
-  } else {
-    lv_label_set_text_fmt(batteryLabel_, "TX_VBAT: %s V", txVbat.c_str());
-  }
-
-  if (gsPct >= 0) {
-    lv_label_set_text_fmt(companionBatteryLabel_, "GS_VBAT: %s V (%d%%)", groundVbat.c_str(), gsPct);
-  } else {
-    lv_label_set_text_fmt(companionBatteryLabel_, "GS_VBAT: %s V", groundVbat.c_str());
-  }
+  const String txVbat = formatFloat(state_.battery.telemetryVbatV, 2, "--.--");
+  const String groundVbat = formatFloat(state_.battery.groundVbatV, 2, "--.--");
+  lv_label_set_text_fmt(batteryLabel_, "TX: %sV / GS: %sV", txVbat.c_str(), groundVbat.c_str());
 
   String cmdStatus = "";
   if (cmdMsg_.length() > 0 && (now - cmdTs_) <= kCommandStatusShowMs) {
@@ -2778,17 +2753,52 @@ void LvglController::onAltCalibrateEvent(lv_event_t* e) {
     self->soundQueueHead_ = 0;
     self->soundQueueTail_ = 0;
     self->soundQueueCount_ = 0;
-    self->phaseResetRequested_ = true;
+    self->apogeeCalloutPending_ = false;
+
+    const int8_t phaseStep = phaseProgressStep(self->state_.flight.phase);
+    const bool phaseLaterThanLaunchDetected = (phaseStep > 1);
+    const bool hasPostLaunchEvent =
+        self->state_.recoveryApogee || self->state_.recoveryDrogueDeployed ||
+        self->state_.recoveryMainDeployed || self->state_.recoveryLandingDetected;
+    const bool replayLatestOnly = phaseLaterThanLaunchDetected || hasPostLaunchEvent;
+
+    SoundCue latestCue = SoundCue::kLaunchDetected;
+    bool hasLatestCue = false;
+    if (self->state_.recoveryLandingDetected || phaseEquals(self->state_.flight.phase, "landed")) {
+      latestCue = SoundCue::KLandingDetected;
+      hasLatestCue = true;
+    } else if (self->state_.recoveryMainDeployed) {
+      latestCue = SoundCue::kMainDeploy;
+      hasLatestCue = true;
+    } else if (self->state_.recoveryDrogueDeployed) {
+      latestCue = SoundCue::kDrogueDeploy;
+      hasLatestCue = true;
+    } else if (self->state_.recoveryApogee || phaseEquals(self->state_.flight.phase, "descent")) {
+      latestCue = SoundCue::kApogee;
+      hasLatestCue = true;
+    } else if (self->state_.recoveryLaunchDetected || phaseStep == 1) {
+      latestCue = SoundCue::kLaunchDetected;
+      hasLatestCue = true;
+    }
+
+    if (replayLatestOnly && hasLatestCue) {
+      self->phaseResetRequested_ = false;
+      self->queueSoundCue(latestCue);
+      self->setCommandStatus("Flight in progress: latest event replay only", false);
+    } else {
+      self->phaseResetRequested_ = true;
+      self->queueSoundCue(SoundCue::kPowerOn);
+      self->queueSoundCue(SoundCue::kCalibrating);
+      self->queueSoundCue(SoundCue::kSensorsReady);
+    }
+
     self->hasRecoveryDeployHistory_ = true;
-    self->lastRecoveryDrogueDeployed_ = false;
-    self->lastRecoveryMainDeployed_ = false;
+    self->lastRecoveryDrogueDeployed_ = self->state_.recoveryDrogueDeployed;
+    self->lastRecoveryMainDeployed_ = self->state_.recoveryMainDeployed;
     self->hasRecoveryEventHistory_ = true;
-    self->lastRecoveryLaunchDetected_ = false;
-    self->lastRecoveryApogee_ = false;
-    self->lastRecoveryLandingDetected_ = false;
-    self->queueSoundCue(SoundCue::kPowerOn);
-    self->queueSoundCue(SoundCue::kCalibrating);
-    self->queueSoundCue(SoundCue::kSensorsReady);
+    self->lastRecoveryLaunchDetected_ = self->state_.recoveryLaunchDetected;
+    self->lastRecoveryApogee_ = self->state_.recoveryApogee;
+    self->lastRecoveryLandingDetected_ = self->state_.recoveryLandingDetected;
   }
 
   self->panelCollapsed_ = true;
