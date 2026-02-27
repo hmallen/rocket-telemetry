@@ -107,6 +107,9 @@ static constexpr uint8_t LORA_CMD_ALT_CALIBRATE = 0x06;
 static constexpr uint8_t LORA_CMD_IMU_CALIBRATE = 0x07;
 static constexpr uint8_t LORA_CMD_SET_TX_POWER = 0x08;
 static constexpr uint8_t LORA_CMD_LAUNCH_ARM = 0x09;
+static constexpr uint8_t LORA_CMD_SD_ROTATE = 0x0A;
+static constexpr uint8_t LORA_CMD_SD_FORMAT = 0x0B;
+static constexpr uint8_t LORA_CMD_SD_DUMP_SAMPLE = 0x0C;
 static constexpr uint16_t LORA_RX_DONE_FLAG = 0x40;
 static constexpr uint8_t LORA_ACK_REPEAT_COUNT = 3;
 static constexpr uint32_t LORA_ACK_REPEAT_MS = 400;
@@ -336,7 +339,7 @@ bool LoraLink::start_recovery_tx_(uint32_t now_ms) {
   return true;
 }
 
-void LoraLink::queue_command_ack(LoraCommand cmd, bool enabled_state) {
+void LoraLink::queue_command_ack(LoraCommand cmd, bool enabled_state, const char* detail) {
   uint8_t cmd_byte = 0;
   if (cmd == LoraCommand::kSdStart) {
     cmd_byte = LORA_CMD_SD_START;
@@ -354,6 +357,12 @@ void LoraLink::queue_command_ack(LoraCommand cmd, bool enabled_state) {
     cmd_byte = LORA_CMD_SET_TX_POWER;
   } else if (cmd == LoraCommand::kLaunchArm) {
     cmd_byte = LORA_CMD_LAUNCH_ARM;
+  } else if (cmd == LoraCommand::kSdRotate) {
+    cmd_byte = LORA_CMD_SD_ROTATE;
+  } else if (cmd == LoraCommand::kSdFormat) {
+    cmd_byte = LORA_CMD_SD_FORMAT;
+  } else if (cmd == LoraCommand::kSdDumpSample) {
+    cmd_byte = LORA_CMD_SD_DUMP_SAMPLE;
   } else {
     return;
   }
@@ -368,6 +377,19 @@ void LoraLink::queue_command_ack(LoraCommand cmd, bool enabled_state) {
   } else {
     ack_len_ = 4;
   }
+
+  if (detail != nullptr && detail[0] != '\0' && ack_len_ < sizeof(ack_buf_)) {
+    size_t detail_len = strlen(detail);
+    const size_t detail_cap = sizeof(ack_buf_) - ack_len_;
+    if (detail_len > detail_cap) {
+      detail_len = detail_cap;
+    }
+    if (detail_len > 0) {
+      memcpy(&ack_buf_[ack_len_], detail, detail_len);
+      ack_len_ += detail_len;
+    }
+  }
+
   ack_pending_ = true;
   ack_retry_after_ms_ = millis() + LORA_ACK_REPEAT_MS;
   ack_retries_left_ = LORA_ACK_REPEAT_COUNT;
@@ -1088,7 +1110,10 @@ bool LoraLink::handle_command_(const uint8_t* data, size_t len) {
              cmd != LORA_CMD_TELEM_DISABLE &&
              cmd != LORA_CMD_ALT_CALIBRATE &&
              cmd != LORA_CMD_IMU_CALIBRATE &&
-             cmd != LORA_CMD_LAUNCH_ARM) {
+             cmd != LORA_CMD_LAUNCH_ARM &&
+             cmd != LORA_CMD_SD_ROTATE &&
+             cmd != LORA_CMD_SD_FORMAT &&
+             cmd != LORA_CMD_SD_DUMP_SAMPLE) {
     return false;
   }
 #if DEBUG_MODE

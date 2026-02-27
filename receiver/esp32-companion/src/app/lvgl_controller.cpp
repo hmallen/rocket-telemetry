@@ -668,6 +668,11 @@ void LvglController::buildUi() {
                    this,
                    kSettingsButtonHeight);
   makeActionButton(settingsActions_,
+                   "SD CARD FUNCTIONS",
+                   onSdFunctionsOpenEvent,
+                   this,
+                   kSettingsButtonHeight);
+  makeActionButton(settingsActions_,
                    "SOUND SETTINGS",
                    onSoundSettingsOpenEvent,
                    this,
@@ -857,7 +862,79 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(soundVolumeLabel_, LV_OBJ_FLAG_CLICKABLE);
   lv_label_set_text_fmt(soundVolumeLabel_, "%u%%", static_cast<unsigned>(audioVolumePercent_));
 
+  sdFunctionsPanel_ = lv_obj_create(settingsBody_);
+  lv_obj_set_width(sdFunctionsPanel_, LV_PCT(100));
+  lv_obj_set_height(sdFunctionsPanel_, 0);
+  lv_obj_set_flex_grow(sdFunctionsPanel_, 1);
+  lv_obj_set_style_bg_opa(sdFunctionsPanel_, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(sdFunctionsPanel_, 0, 0);
+  lv_obj_set_style_pad_all(sdFunctionsPanel_, 0, 0);
+  lv_obj_set_style_pad_gap(sdFunctionsPanel_, kSettingsGapPx, 0);
+  lv_obj_set_flex_flow(sdFunctionsPanel_, LV_FLEX_FLOW_COLUMN);
+  lv_obj_add_flag(sdFunctionsPanel_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scroll_dir(sdFunctionsPanel_, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(sdFunctionsPanel_, LV_SCROLLBAR_MODE_AUTO);
+
+  makeActionButton(sdFunctionsPanel_,
+                   "BACK",
+                   onSdFunctionsBackEvent,
+                   this,
+                   kSettingsButtonHeight);
+
+  sdRotateBtn_ = lv_btn_create(sdFunctionsPanel_);
+  lv_obj_add_flag(sdRotateBtn_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(sdRotateBtn_, LV_PCT(100));
+  lv_obj_set_height(sdRotateBtn_, kSettingsButtonHeight);
+  lv_obj_set_style_radius(sdRotateBtn_, 8, 0);
+  lv_obj_set_style_bg_color(sdRotateBtn_, lv_color_hex(0x1f2a3b), 0);
+  lv_obj_set_style_bg_color(sdRotateBtn_, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(sdRotateBtn_, lv_color_hex(0x4b7dd1), 0);
+  lv_obj_set_style_border_width(sdRotateBtn_, 1, 0);
+  lv_obj_add_event_cb(sdRotateBtn_, onSdRotateEvent, LV_EVENT_PRESSED, this);
+
+  sdRotateLabel_ = lv_label_create(sdRotateBtn_);
+  lv_label_set_text(sdRotateLabel_, "ROTATE LOGFILE");
+  lv_obj_set_style_text_color(sdRotateLabel_, lv_color_hex(0xeaf1ff), 0);
+  lv_obj_clear_flag(sdRotateLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(sdRotateLabel_);
+
+  sdFormatBtn_ = lv_btn_create(sdFunctionsPanel_);
+  lv_obj_add_flag(sdFormatBtn_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(sdFormatBtn_, LV_PCT(100));
+  lv_obj_set_height(sdFormatBtn_, kSettingsButtonHeight);
+  lv_obj_set_style_radius(sdFormatBtn_, 8, 0);
+  lv_obj_set_style_bg_color(sdFormatBtn_, lv_color_hex(0x7a1d1d), 0);
+  lv_obj_set_style_bg_color(sdFormatBtn_, lv_color_hex(0xa02828), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(sdFormatBtn_, lv_color_hex(0xdc7070), 0);
+  lv_obj_set_style_border_width(sdFormatBtn_, 1, 0);
+  lv_obj_add_event_cb(sdFormatBtn_, onSdFormatEvent, LV_EVENT_PRESSED, this);
+  lv_obj_add_event_cb(sdFormatBtn_, onSdFormatEvent, LV_EVENT_LONG_PRESSED, this);
+
+  sdFormatLabel_ = lv_label_create(sdFormatBtn_);
+  lv_label_set_text(sdFormatLabel_, "HOLD: FORMAT SD");
+  lv_obj_set_style_text_color(sdFormatLabel_, lv_color_hex(0xfff0f0), 0);
+  lv_obj_clear_flag(sdFormatLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(sdFormatLabel_);
+
+  sdDumpBtn_ = lv_btn_create(sdFunctionsPanel_);
+  lv_obj_add_flag(sdDumpBtn_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(sdDumpBtn_, LV_PCT(100));
+  lv_obj_set_height(sdDumpBtn_, kSettingsButtonHeight);
+  lv_obj_set_style_radius(sdDumpBtn_, 8, 0);
+  lv_obj_set_style_bg_color(sdDumpBtn_, lv_color_hex(0x1f2a3b), 0);
+  lv_obj_set_style_bg_color(sdDumpBtn_, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(sdDumpBtn_, lv_color_hex(0x4b7dd1), 0);
+  lv_obj_set_style_border_width(sdDumpBtn_, 1, 0);
+  lv_obj_add_event_cb(sdDumpBtn_, onSdDumpSampleEvent, LV_EVENT_PRESSED, this);
+
+  sdDumpLabel_ = lv_label_create(sdDumpBtn_);
+  lv_label_set_text(sdDumpLabel_, "DUMP SAMPLE");
+  lv_obj_set_style_text_color(sdDumpLabel_, lv_color_hex(0xeaf1ff), 0);
+  lv_obj_clear_flag(sdDumpLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(sdDumpLabel_);
+
   setSoundSettingsVisible(false);
+  setSdFunctionsVisible(false);
 
   lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
 
@@ -907,6 +984,80 @@ void LvglController::buildUi() {
   lv_obj_center(calibrationCancelLabel);
 
   lv_obj_add_flag(calibrationOverlay_, LV_OBJ_FLAG_HIDDEN);
+
+  sdDumpOverlay_ = lv_obj_create(screen);
+  lv_obj_set_size(sdDumpOverlay_, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(sdDumpOverlay_, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_bg_opa(sdDumpOverlay_, LV_OPA_80, 0);
+  lv_obj_set_style_border_width(sdDumpOverlay_, 0, 0);
+  lv_obj_set_style_pad_all(sdDumpOverlay_, 0, 0);
+  lv_obj_clear_flag(sdDumpOverlay_, LV_OBJ_FLAG_SCROLLABLE);
+
+  lv_obj_t* sdDumpCard = lv_obj_create(sdDumpOverlay_);
+  lv_obj_set_size(sdDumpCard, 430, 255);
+  lv_obj_align(sdDumpCard, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_set_style_bg_color(sdDumpCard, lv_color_hex(0x0f1728), 0);
+  lv_obj_set_style_border_color(sdDumpCard, lv_color_hex(0x2a446a), 0);
+  lv_obj_set_style_border_width(sdDumpCard, 1, 0);
+  lv_obj_set_style_radius(sdDumpCard, 10, 0);
+  lv_obj_set_style_pad_all(sdDumpCard, 10, 0);
+  lv_obj_set_style_pad_gap(sdDumpCard, 8, 0);
+  lv_obj_set_flex_flow(sdDumpCard, LV_FLEX_FLOW_COLUMN);
+  lv_obj_clear_flag(sdDumpCard, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(sdDumpCard, LV_OBJ_FLAG_CLICKABLE);
+
+  lv_obj_t* sdDumpHeader = lv_obj_create(sdDumpCard);
+  lv_obj_set_width(sdDumpHeader, LV_PCT(100));
+  lv_obj_set_height(sdDumpHeader, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(sdDumpHeader, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(sdDumpHeader, 0, 0);
+  lv_obj_set_style_pad_all(sdDumpHeader, 0, 0);
+  lv_obj_set_style_pad_gap(sdDumpHeader, 8, 0);
+  lv_obj_set_flex_flow(sdDumpHeader, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(sdDumpHeader, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_clear_flag(sdDumpHeader, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(sdDumpHeader, LV_OBJ_FLAG_CLICKABLE);
+
+  lv_obj_t* sdDumpTitle = lv_label_create(sdDumpHeader);
+  lv_label_set_text(sdDumpTitle, "SD DUMP SAMPLE");
+  lv_obj_set_style_text_color(sdDumpTitle, lv_color_hex(0xeaf1ff), 0);
+  lv_obj_clear_flag(sdDumpTitle, LV_OBJ_FLAG_CLICKABLE);
+
+  sdDumpCloseBtn_ = lv_btn_create(sdDumpHeader);
+  lv_obj_add_flag(sdDumpCloseBtn_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(sdDumpCloseBtn_, 34, 26);
+  lv_obj_set_style_radius(sdDumpCloseBtn_, 8, 0);
+  lv_obj_set_style_bg_color(sdDumpCloseBtn_, lv_color_hex(0x6a1f1f), 0);
+  lv_obj_set_style_bg_color(sdDumpCloseBtn_, lv_color_hex(0x8b2a2a), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(sdDumpCloseBtn_, lv_color_hex(0xe08b8b), 0);
+  lv_obj_set_style_border_width(sdDumpCloseBtn_, 1, 0);
+  lv_obj_add_event_cb(sdDumpCloseBtn_, onSdDumpCloseEvent, LV_EVENT_PRESSED, this);
+
+  lv_obj_t* sdDumpCloseLabel = lv_label_create(sdDumpCloseBtn_);
+  lv_label_set_text(sdDumpCloseLabel, "X");
+  lv_obj_set_style_text_color(sdDumpCloseLabel, lv_color_hex(0xfff0f0), 0);
+  lv_obj_clear_flag(sdDumpCloseLabel, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(sdDumpCloseLabel);
+
+  lv_obj_t* sdDumpBody = lv_obj_create(sdDumpCard);
+  lv_obj_set_width(sdDumpBody, LV_PCT(100));
+  lv_obj_set_height(sdDumpBody, 190);
+  lv_obj_set_style_bg_color(sdDumpBody, lv_color_hex(0x0b1220), 0);
+  lv_obj_set_style_border_color(sdDumpBody, lv_color_hex(0x223754), 0);
+  lv_obj_set_style_border_width(sdDumpBody, 1, 0);
+  lv_obj_set_style_radius(sdDumpBody, 8, 0);
+  lv_obj_set_style_pad_all(sdDumpBody, 8, 0);
+  lv_obj_set_scroll_dir(sdDumpBody, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(sdDumpBody, LV_SCROLLBAR_MODE_AUTO);
+
+  sdDumpTextLabel_ = lv_label_create(sdDumpBody);
+  lv_obj_set_width(sdDumpTextLabel_, LV_PCT(100));
+  lv_label_set_long_mode(sdDumpTextLabel_, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_text_color(sdDumpTextLabel_, lv_color_hex(0xcfe0ff), 0);
+  lv_obj_clear_flag(sdDumpTextLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_label_set_text(sdDumpTextLabel_, "No sample yet.");
+
+  lv_obj_add_flag(sdDumpOverlay_, LV_OBJ_FLAG_HIDDEN);
 }
 
 void LvglController::loadTouchCalibration() {
@@ -1000,6 +1151,99 @@ void LvglController::begin() {
     }
   }
 
+  refreshUi();
+}
+
+void LvglController::requestSdRotate() {
+  if (sdUtilityCommandPending_ || sdCommandPending_) {
+    return;
+  }
+  if (!sdLoggingEnabled_) {
+    setCommandStatus("Rotate requires SD logging ON", false);
+    refreshUi();
+    return;
+  }
+
+  sdUtilityCommandPending_ = true;
+  sdUtilityPendingAction_ = "sd_rotate";
+  sdUtilityPendingSinceMs_ = millis();
+  updateDashboardActionButtons();
+
+  if (!sendAction("sd_rotate", 0)) {
+    sdUtilityCommandPending_ = false;
+    sdUtilityPendingAction_ = "";
+    sdUtilityPendingSinceMs_ = 0;
+    setCommandStatus("SD rotate command failed", false);
+    updateDashboardActionButtons();
+    refreshUi();
+    return;
+  }
+
+  setCommandStatus("SD rotate requested", true);
+  refreshUi();
+}
+
+void LvglController::requestSdFormat() {
+  if (sdUtilityCommandPending_ || sdCommandPending_) {
+    return;
+  }
+  if (sdLoggingEnabled_) {
+    setCommandStatus("Stop SD logging before format", false);
+    refreshUi();
+    return;
+  }
+  if (commandLockoutActive_) {
+    setCommandStatus("SD format locked until landing", false);
+    refreshUi();
+    return;
+  }
+
+  sdUtilityCommandPending_ = true;
+  sdUtilityPendingAction_ = "sd_format";
+  sdUtilityPendingSinceMs_ = millis();
+  sdFormatArmed_ = false;
+  updateDashboardActionButtons();
+
+  if (!sendAction("sd_format", 0)) {
+    sdUtilityCommandPending_ = false;
+    sdUtilityPendingAction_ = "";
+    sdUtilityPendingSinceMs_ = 0;
+    setCommandStatus("SD format command failed", false);
+    updateDashboardActionButtons();
+    refreshUi();
+    return;
+  }
+
+  setCommandStatus("SD format requested", true);
+  refreshUi();
+}
+
+void LvglController::requestSdDumpSample() {
+  if (sdUtilityCommandPending_ || sdCommandPending_) {
+    return;
+  }
+  if (sdLoggingEnabled_) {
+    setCommandStatus("Stop SD logging before dump", false);
+    refreshUi();
+    return;
+  }
+
+  sdUtilityCommandPending_ = true;
+  sdUtilityPendingAction_ = "sd_dump_sample";
+  sdUtilityPendingSinceMs_ = millis();
+  updateDashboardActionButtons();
+
+  if (!sendAction("sd_dump_sample", 0)) {
+    sdUtilityCommandPending_ = false;
+    sdUtilityPendingAction_ = "";
+    sdUtilityPendingSinceMs_ = 0;
+    setCommandStatus("SD dump sample command failed", false);
+    updateDashboardActionButtons();
+    refreshUi();
+    return;
+  }
+
+  setCommandStatus("SD dump sample requested", true);
   refreshUi();
 }
 
@@ -1754,6 +1998,8 @@ void LvglController::setCommandStatus(const String& msg, bool ok) {
 }
 
 void LvglController::updateDashboardActionButtons() {
+  const uint32_t nowMs = millis();
+
   if (sdToggleBtn_ != nullptr && sdToggleLabel_ != nullptr) {
     const bool sdDisableLocked = commandLockoutActive_ && sdLoggingEnabled_;
     if (sdCommandPending_ || sdDisableLocked) {
@@ -1862,6 +2108,75 @@ void LvglController::updateDashboardActionButtons() {
     }
     lv_obj_set_style_border_width(shutdownBtn_, 1, 0);
   }
+
+  const bool sdAnyPending = sdCommandPending_ || sdUtilityCommandPending_;
+  if (sdRotateBtn_ != nullptr && sdRotateLabel_ != nullptr) {
+    const bool rotateEnabled = sdLoggingEnabled_ && !sdAnyPending;
+    if (rotateEnabled) {
+      lv_obj_clear_state(sdRotateBtn_, LV_STATE_DISABLED);
+      lv_obj_set_style_bg_color(sdRotateBtn_, lv_color_hex(0x1f2a3b), 0);
+      lv_obj_set_style_bg_color(sdRotateBtn_, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(sdRotateBtn_, lv_color_hex(0x4b7dd1), 0);
+    } else {
+      lv_obj_add_state(sdRotateBtn_, LV_STATE_DISABLED);
+      lv_obj_set_style_bg_color(sdRotateBtn_, lv_color_hex(0x4b566d), 0);
+      lv_obj_set_style_bg_color(sdRotateBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(sdRotateBtn_, lv_color_hex(0x6b7792), 0);
+    }
+    lv_obj_set_style_border_width(sdRotateBtn_, 1, 0);
+    if (sdUtilityCommandPending_ && sdUtilityPendingAction_ == "sd_rotate") {
+      lv_label_set_text(sdRotateLabel_, "ROTATING...");
+    } else {
+      lv_label_set_text(sdRotateLabel_, "ROTATE LOGFILE");
+    }
+  }
+
+  if (sdFormatBtn_ != nullptr && sdFormatLabel_ != nullptr) {
+    const bool formatEnabled = !sdLoggingEnabled_ && !sdAnyPending && !commandLockoutActive_;
+    if (formatEnabled) {
+      lv_obj_clear_state(sdFormatBtn_, LV_STATE_DISABLED);
+      lv_obj_set_style_bg_color(sdFormatBtn_, lv_color_hex(0x7a1d1d), 0);
+      lv_obj_set_style_bg_color(sdFormatBtn_, lv_color_hex(0xa02828), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(sdFormatBtn_, lv_color_hex(0xdc7070), 0);
+    } else {
+      lv_obj_add_state(sdFormatBtn_, LV_STATE_DISABLED);
+      lv_obj_set_style_bg_color(sdFormatBtn_, lv_color_hex(0x4b566d), 0);
+      lv_obj_set_style_bg_color(sdFormatBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(sdFormatBtn_, commandLockoutActive_ ? lv_color_hex(0xffb34f) : lv_color_hex(0x6b7792),
+                                    0);
+    }
+    lv_obj_set_style_border_width(sdFormatBtn_, 1, 0);
+
+    if (sdUtilityCommandPending_ && sdUtilityPendingAction_ == "sd_format") {
+      lv_label_set_text(sdFormatLabel_, "FORMATTING...");
+    } else if (sdFormatArmed_ && (nowMs - sdFormatArmSinceMs_) <= kSdFormatArmWindowMs && !sdAnyPending &&
+               !sdLoggingEnabled_ && !commandLockoutActive_) {
+      lv_label_set_text(sdFormatLabel_, "HOLD TO CONFIRM");
+    } else {
+      lv_label_set_text(sdFormatLabel_, "HOLD: FORMAT SD");
+    }
+  }
+
+  if (sdDumpBtn_ != nullptr && sdDumpLabel_ != nullptr) {
+    const bool dumpEnabled = !sdLoggingEnabled_ && !sdAnyPending;
+    if (dumpEnabled) {
+      lv_obj_clear_state(sdDumpBtn_, LV_STATE_DISABLED);
+      lv_obj_set_style_bg_color(sdDumpBtn_, lv_color_hex(0x1f2a3b), 0);
+      lv_obj_set_style_bg_color(sdDumpBtn_, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(sdDumpBtn_, lv_color_hex(0x4b7dd1), 0);
+    } else {
+      lv_obj_add_state(sdDumpBtn_, LV_STATE_DISABLED);
+      lv_obj_set_style_bg_color(sdDumpBtn_, lv_color_hex(0x4b566d), 0);
+      lv_obj_set_style_bg_color(sdDumpBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(sdDumpBtn_, lv_color_hex(0x6b7792), 0);
+    }
+    lv_obj_set_style_border_width(sdDumpBtn_, 1, 0);
+    if (sdUtilityCommandPending_ && sdUtilityPendingAction_ == "sd_dump_sample") {
+      lv_label_set_text(sdDumpLabel_, "DUMPING...");
+    } else {
+      lv_label_set_text(sdDumpLabel_, "DUMP SAMPLE");
+    }
+  }
 }
 
 void LvglController::syncCommandStateFromTelemetry() {
@@ -1882,6 +2197,55 @@ void LvglController::syncCommandStateFromTelemetry() {
         changed = true;
       }
       sdLoggingEnabled_ = reported;
+    }
+  }
+
+  if (state_.hasSdCardAckState) {
+    const uint32_t ackToken = state_.sdCardAckToken;
+    if (ackToken != 0 && ackToken != lastSdCardAckToken_) {
+      lastSdCardAckToken_ = ackToken;
+
+      const String ackAction = state_.sdCardLastCommand;
+      const bool ackOk = state_.sdCardAckOk;
+      String ackDetail = state_.sdCardDetail;
+      ackDetail.trim();
+
+      if (ackAction == "sd_rotate" || ackAction == "sd_format" || ackAction == "sd_dump_sample") {
+        if (sdUtilityCommandPending_ && ackAction == sdUtilityPendingAction_) {
+          sdUtilityCommandPending_ = false;
+          sdUtilityPendingAction_ = "";
+          sdUtilityPendingSinceMs_ = 0;
+          changed = true;
+        }
+
+        String statusPrefix;
+        if (ackAction == "sd_rotate") {
+          statusPrefix = "SD rotate";
+        } else if (ackAction == "sd_format") {
+          statusPrefix = "SD format";
+          if (ackOk) {
+            sdFormatArmed_ = false;
+          }
+        } else {
+          statusPrefix = "SD dump sample";
+        }
+
+        String statusMsg = statusPrefix;
+        statusMsg += ackOk ? " OK" : " failed";
+        if (ackDetail.length() > 0) {
+          statusMsg += ": ";
+          statusMsg += ackDetail;
+        }
+        setCommandStatus(statusMsg, ackOk);
+
+        if (ackAction == "sd_dump_sample") {
+          if (ackDetail.length() == 0) {
+            ackDetail = ackOk ? "No sample text returned." : "Dump sample failed.";
+          }
+          setSdDumpOverlayText(ackDetail);
+          setSdDumpOverlayVisible(true);
+        }
+      }
     }
   }
 
@@ -1972,6 +2336,19 @@ void LvglController::updatePendingCommandTimeouts(uint32_t now) {
     txPendingSinceMs_ = 0;
     telemetryTxEnabled_ = txPendingPreviousEnabled_;
     setCommandStatus("TX command failed (timeout)", false);
+    changed = true;
+  }
+
+  if (sdUtilityCommandPending_ && (now - sdUtilityPendingSinceMs_) > kCommandConfirmTimeoutMs) {
+    sdUtilityCommandPending_ = false;
+    sdUtilityPendingAction_ = "";
+    sdUtilityPendingSinceMs_ = 0;
+    setCommandStatus("SD utility command failed (timeout)", false);
+    changed = true;
+  }
+
+  if (sdFormatArmed_ && (now - sdFormatArmSinceMs_) > kSdFormatArmWindowMs) {
+    sdFormatArmed_ = false;
     changed = true;
   }
 
@@ -2082,6 +2459,12 @@ bool LvglController::sendAction(const String& action, int durationS) {
     pretty = "RESET FLIGHT PHASE";
   } else if (action == "launch_arm" && durationS != 0) {
     pretty = "LAUNCH ARM (NO GPS)";
+  } else if (action == "sd_rotate") {
+    pretty = "SD ROTATE";
+  } else if (action == "sd_format") {
+    pretty = "SD FORMAT";
+  } else if (action == "sd_dump_sample") {
+    pretty = "SD DUMP SAMPLE";
   }
 
   updateDashboardActionButtons();
@@ -2097,6 +2480,7 @@ void LvglController::togglePanel() {
     lv_obj_clear_flag(actionPanel_, LV_OBJ_FLAG_HIDDEN);
     settingsCollapsed_ = true;
     setSoundSettingsVisible(false);
+    setSdFunctionsVisible(false);
     lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
   }
   lv_obj_update_layout(telemetryPanel_);
@@ -2167,6 +2551,7 @@ void LvglController::toggleSettings() {
   settingsCollapsed_ = !settingsCollapsed_;
   if (settingsCollapsed_) {
     setSoundSettingsVisible(false);
+    setSdFunctionsVisible(false);
     lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
   } else {
     lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
@@ -2186,6 +2571,7 @@ void LvglController::toggleSettings() {
       }
     }
     setSoundSettingsVisible(false);
+    setSdFunctionsVisible(false);
     if (settingsActions_ != nullptr) {
       lv_obj_scroll_to_y(settingsActions_, 0, LV_ANIM_OFF);
     }
@@ -2229,23 +2615,74 @@ void LvglController::setSoundEnabled(bool enabled) {
 
 void LvglController::setSoundSettingsVisible(bool visible) {
   soundSettingsVisible_ = visible;
-  if (settingsActions_ == nullptr || soundSettingsPanel_ == nullptr) {
+  if (settingsActions_ == nullptr || soundSettingsPanel_ == nullptr || sdFunctionsPanel_ == nullptr) {
     return;
   }
 
   if (soundSettingsVisible_) {
+    sdFunctionsVisible_ = false;
     lv_obj_add_flag(settingsActions_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(soundSettingsPanel_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(sdFunctionsPanel_, LV_OBJ_FLAG_HIDDEN);
     lv_obj_scroll_to_y(soundSettingsPanel_, 0, LV_ANIM_OFF);
   } else {
-    lv_obj_clear_flag(settingsActions_, LV_OBJ_FLAG_HIDDEN);
+    if (!sdFunctionsVisible_) {
+      lv_obj_clear_flag(settingsActions_, LV_OBJ_FLAG_HIDDEN);
+    }
     lv_obj_add_flag(soundSettingsPanel_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_scroll_to_y(settingsActions_, 0, LV_ANIM_OFF);
+    if (!sdFunctionsVisible_) {
+      lv_obj_scroll_to_y(settingsActions_, 0, LV_ANIM_OFF);
+    }
   }
 
   if (settingsBody_ != nullptr) {
     lv_obj_update_layout(settingsBody_);
   }
+}
+
+void LvglController::setSdFunctionsVisible(bool visible) {
+  sdFunctionsVisible_ = visible;
+  if (settingsActions_ == nullptr || soundSettingsPanel_ == nullptr || sdFunctionsPanel_ == nullptr) {
+    return;
+  }
+
+  if (sdFunctionsVisible_) {
+    soundSettingsVisible_ = false;
+    lv_obj_add_flag(settingsActions_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(soundSettingsPanel_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(sdFunctionsPanel_, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_scroll_to_y(sdFunctionsPanel_, 0, LV_ANIM_OFF);
+  } else {
+    if (!soundSettingsVisible_) {
+      lv_obj_clear_flag(settingsActions_, LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_obj_add_flag(sdFunctionsPanel_, LV_OBJ_FLAG_HIDDEN);
+    if (!soundSettingsVisible_) {
+      lv_obj_scroll_to_y(settingsActions_, 0, LV_ANIM_OFF);
+    }
+  }
+
+  if (settingsBody_ != nullptr) {
+    lv_obj_update_layout(settingsBody_);
+  }
+}
+
+void LvglController::setSdDumpOverlayVisible(bool visible) {
+  if (sdDumpOverlay_ == nullptr) {
+    return;
+  }
+  if (visible) {
+    lv_obj_clear_flag(sdDumpOverlay_, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(sdDumpOverlay_, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+void LvglController::setSdDumpOverlayText(const String& text) {
+  if (sdDumpTextLabel_ == nullptr) {
+    return;
+  }
+  lv_label_set_text(sdDumpTextLabel_, text.c_str());
 }
 
 void LvglController::advanceCalibrationTarget() {
@@ -2795,6 +3232,22 @@ void LvglController::onArmNoGpsToggleEvent(lv_event_t* e) {
   self->refreshUi();
 }
 
+void LvglController::onSdFunctionsOpenEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  self->setSdFunctionsVisible(true);
+}
+
+void LvglController::onSdFunctionsBackEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  self->setSdFunctionsVisible(false);
+}
+
 void LvglController::onCalibrateEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
   if (self == nullptr) {
@@ -2873,6 +3326,7 @@ void LvglController::onAltCalibrateEvent(lv_event_t* e) {
   self->panelCollapsed_ = true;
   self->settingsCollapsed_ = true;
   self->setSoundSettingsVisible(false);
+  self->setSdFunctionsVisible(false);
   if (self->actionPanel_ != nullptr) {
     lv_obj_add_flag(self->actionPanel_, LV_OBJ_FLAG_HIDDEN);
   }
@@ -2914,6 +3368,7 @@ void LvglController::onPhaseResetEvent(lv_event_t* e) {
   self->panelCollapsed_ = true;
   self->settingsCollapsed_ = true;
   self->setSoundSettingsVisible(false);
+  self->setSdFunctionsVisible(false);
   if (self->actionPanel_ != nullptr) {
     lv_obj_add_flag(self->actionPanel_, LV_OBJ_FLAG_HIDDEN);
   }
@@ -2940,6 +3395,7 @@ void LvglController::onImuCalibrateEvent(lv_event_t* e) {
   self->panelCollapsed_ = true;
   self->settingsCollapsed_ = true;
   self->setSoundSettingsVisible(false);
+  self->setSdFunctionsVisible(false);
   if (self->actionPanel_ != nullptr) {
     lv_obj_add_flag(self->actionPanel_, LV_OBJ_FLAG_HIDDEN);
   }
@@ -3066,6 +3522,7 @@ void LvglController::onArmEvent(lv_event_t* e) {
   self->panelCollapsed_ = true;
   self->settingsCollapsed_ = true;
   self->setSoundSettingsVisible(false);
+  self->setSdFunctionsVisible(false);
   if (self->actionPanel_ != nullptr) {
     lv_obj_add_flag(self->actionPanel_, LV_OBJ_FLAG_HIDDEN);
   }
@@ -3084,6 +3541,7 @@ void LvglController::onSoundSettingsOpenEvent(lv_event_t* e) {
   if (self == nullptr) {
     return;
   }
+  self->setSdFunctionsVisible(false);
   self->setSoundSettingsVisible(true);
 }
 
@@ -3093,6 +3551,69 @@ void LvglController::onSoundSettingsBackEvent(lv_event_t* e) {
     return;
   }
   self->setSoundSettingsVisible(false);
+}
+
+void LvglController::onSdRotateEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  self->requestSdRotate();
+  self->refreshUi();
+}
+
+void LvglController::onSdFormatEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+
+  const lv_event_code_t code = lv_event_get_code(e);
+  if (code == LV_EVENT_PRESSED) {
+    if (self->sdLoggingEnabled_) {
+      self->setCommandStatus("Stop SD logging before format", false);
+    } else if (self->commandLockoutActive_) {
+      self->setCommandStatus("SD format locked until landing", false);
+    } else {
+      self->sdFormatArmed_ = true;
+      self->sdFormatArmSinceMs_ = millis();
+      self->setCommandStatus("Hold FORMAT to confirm", true);
+    }
+    self->updateDashboardActionButtons();
+    self->refreshUi();
+    return;
+  }
+
+  if (code == LV_EVENT_LONG_PRESSED) {
+    const uint32_t now = millis();
+    if (!self->sdFormatArmed_ || (now - self->sdFormatArmSinceMs_) > kSdFormatArmWindowMs) {
+      self->sdFormatArmed_ = false;
+      self->setCommandStatus("Tap then hold FORMAT to confirm", false);
+      self->updateDashboardActionButtons();
+      self->refreshUi();
+      return;
+    }
+    self->requestSdFormat();
+    self->refreshUi();
+  }
+}
+
+void LvglController::onSdDumpSampleEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  self->requestSdDumpSample();
+  self->refreshUi();
+}
+
+void LvglController::onSdDumpCloseEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  self->setSdDumpOverlayVisible(false);
+  self->refreshUi();
 }
 
 void LvglController::onSoundEnableToggleEvent(lv_event_t* e) {

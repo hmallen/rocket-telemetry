@@ -64,6 +64,13 @@ class LvglController {
   bool sdPendingTargetEnabled_ = false;
   bool sdPendingPreviousEnabled_ = false;
   uint32_t sdPendingSinceMs_ = 0;
+  bool sdUtilityCommandPending_ = false;
+  String sdUtilityPendingAction_;
+  uint32_t sdUtilityPendingSinceMs_ = 0;
+  uint32_t lastSdCardAckToken_ = 0;
+  bool sdFormatArmed_ = false;
+  uint32_t sdFormatArmSinceMs_ = 0;
+  static constexpr uint32_t kSdFormatArmWindowMs = 4000;
   bool txCommandPending_ = false;
   bool txPendingTargetEnabled_ = false;
   bool txPendingPreviousEnabled_ = false;
@@ -130,6 +137,7 @@ class LvglController {
   bool panelCollapsed_ = true;
   bool settingsCollapsed_ = true;
   bool soundSettingsVisible_ = false;
+  bool sdFunctionsVisible_ = false;
 
   bool calibrationActive_ = false;
   bool calibrationTouchLatch_ = false;
@@ -183,6 +191,13 @@ class LvglController {
   lv_obj_t* settingsBody_ = nullptr;
   lv_obj_t* settingsActions_ = nullptr;
   lv_obj_t* soundSettingsPanel_ = nullptr;
+  lv_obj_t* sdFunctionsPanel_ = nullptr;
+  lv_obj_t* sdRotateBtn_ = nullptr;
+  lv_obj_t* sdRotateLabel_ = nullptr;
+  lv_obj_t* sdFormatBtn_ = nullptr;
+  lv_obj_t* sdFormatLabel_ = nullptr;
+  lv_obj_t* sdDumpBtn_ = nullptr;
+  lv_obj_t* sdDumpLabel_ = nullptr;
   lv_obj_t* armNoGpsCheckbox_ = nullptr;
   lv_obj_t* soundEnabledCheckbox_ = nullptr;
   lv_obj_t* soundVolumeSlider_ = nullptr;
@@ -208,6 +223,9 @@ class LvglController {
   lv_obj_t* calibrationRawLabel_ = nullptr;
   lv_obj_t* calibrationTarget_ = nullptr;
   lv_obj_t* calibrationCancelBtn_ = nullptr;
+  lv_obj_t* sdDumpOverlay_ = nullptr;
+  lv_obj_t* sdDumpTextLabel_ = nullptr;
+  lv_obj_t* sdDumpCloseBtn_ = nullptr;
 
   void initLvgl();
   void buildUi();
@@ -218,7 +236,12 @@ class LvglController {
   void syncCommandStateFromTelemetry();
   void updatePendingCommandTimeouts(uint32_t now);
   void requestSdToggle(bool enable);
+  void requestSdRotate();
+  void requestSdFormat();
+  void requestSdDumpSample();
   void requestTxToggle(bool enable);
+  void setSdDumpOverlayVisible(bool visible);
+  void setSdDumpOverlayText(const String& text);
 
   void updateStaleness();
   void updateCompanionBattery();
@@ -241,6 +264,7 @@ class LvglController {
   void setAllowArmWithoutGpsFix(bool enabled);
   void setSoundEnabled(bool enabled);
   void setSoundSettingsVisible(bool visible);
+  void setSdFunctionsVisible(bool visible);
   void setTouchDebugVisible(bool visible);
 
   void loadTouchCalibration();
@@ -274,11 +298,17 @@ class LvglController {
   static void onTxPowerSendEvent(lv_event_t* e);
   static void onArmEvent(lv_event_t* e);
   static void onArmNoGpsToggleEvent(lv_event_t* e);
+  static void onSdFunctionsOpenEvent(lv_event_t* e);
+  static void onSdFunctionsBackEvent(lv_event_t* e);
   static void onSoundSettingsOpenEvent(lv_event_t* e);
   static void onSoundSettingsBackEvent(lv_event_t* e);
   static void onSoundEnableToggleEvent(lv_event_t* e);
   static void onSoundTestEvent(lv_event_t* e);
   static void onSoundVolumeChangedEvent(lv_event_t* e);
+  static void onSdRotateEvent(lv_event_t* e);
+  static void onSdFormatEvent(lv_event_t* e);
+  static void onSdDumpSampleEvent(lv_event_t* e);
+  static void onSdDumpCloseEvent(lv_event_t* e);
   static void onSdToggleEvent(lv_event_t* e);
   static void onTxToggleEvent(lv_event_t* e);
 };

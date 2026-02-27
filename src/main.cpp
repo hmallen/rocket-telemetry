@@ -1064,6 +1064,9 @@ void loop() {
     uint8_t cmd_arg = 0;
     if (lora.pop_command(cmd, &cmd_arg)) {
       bool ack_enabled_state = sd_logging_enabled;
+      const char* ack_detail = nullptr;
+      char ack_detail_buf[160];
+      ack_detail_buf[0] = '\0';
       if (cmd == LoraCommand::kSdStart) {
         if (!buzzer_busy()) {
           buzzer_start_seq(60, 0, 1, now_ms);
@@ -1123,9 +1126,55 @@ void loop() {
         const bool allow_without_gps_fix = (cmd_arg != 0);
         const bool launch_armed = lora.arm_launch_detect_mode(allow_without_gps_fix);
         ack_enabled_state = launch_armed;
+      } else if (cmd == LoraCommand::kSdRotate) {
+        if (!buzzer_busy()) {
+          buzzer_start_seq(60, 0, 1, now_ms);
+        }
+        if (!sd_logging_enabled) {
+          ack_enabled_state = false;
+        } else {
+          sd_rotate_log();
+          ack_enabled_state = sd_logging_enabled;
+        }
+      } else if (cmd == LoraCommand::kSdFormat) {
+        if (!buzzer_busy()) {
+          buzzer_start_seq(60, 0, 1, now_ms);
+        }
+        if (sd_logging_enabled) {
+          ack_enabled_state = false;
+        } else {
+#if ENABLE_SD_LOGGER
+          const bool formatted = sdlog.format_card();
+          if (formatted) {
+            sd_logging_reset_buffers();
+          }
+          ack_enabled_state = formatted;
+#else
+          ack_enabled_state = false;
+#endif
+        }
+      } else if (cmd == LoraCommand::kSdDumpSample) {
+        if (!buzzer_busy()) {
+          buzzer_start_seq(60, 0, 1, now_ms);
+        }
+        if (sd_logging_enabled) {
+          ack_enabled_state = false;
+          snprintf(ack_detail_buf, sizeof(ack_detail_buf), "Stop logging before dump");
+          ack_detail = ack_detail_buf;
+        } else {
+#if ENABLE_SD_LOGGER
+          const bool sample_ok = sdlog.dump_latest_sample(ack_detail_buf, sizeof(ack_detail_buf));
+          ack_enabled_state = sample_ok;
+          ack_detail = ack_detail_buf;
+#else
+          ack_enabled_state = false;
+          snprintf(ack_detail_buf, sizeof(ack_detail_buf), "SD logger disabled");
+          ack_detail = ack_detail_buf;
+#endif
+        }
       }
       if (cmd != LoraCommand::kBuzzer) {
-        lora.queue_command_ack(cmd, ack_enabled_state);
+        lora.queue_command_ack(cmd, ack_enabled_state, ack_detail);
       }
     }
   }

@@ -475,6 +475,9 @@ CMD_ALT_CALIBRATE = 0x06
 CMD_IMU_CALIBRATE = 0x07
 CMD_SET_TX_POWER = 0x08
 CMD_LAUNCH_ARM = 0x09
+CMD_SD_ROTATE = 0x0A
+CMD_SD_FORMAT = 0x0B
+CMD_SD_DUMP_SAMPLE = 0x0C
 
 RECOVERY_PHASE_LABELS = {
     0: "idle",
@@ -688,11 +691,33 @@ def decode_payload(payload):
         elif cmd == CMD_LAUNCH_ARM:
             cmd_label = "launch_arm"
             state_label = "launch_detect_mode"
+        elif cmd == CMD_SD_ROTATE:
+            cmd_label = "sd_rotate"
+            state_label = "logging"
+        elif cmd == CMD_SD_FORMAT:
+            cmd_label = "sd_format"
+            state_label = "sd_card"
+        elif cmd == CMD_SD_DUMP_SAMPLE:
+            cmd_label = "sd_dump_sample"
+            state_label = "sd_card"
         else:
             cmd_label = "0x%02X" % cmd
+
+        detail = None
+        detail_offset = 4
         if cmd == CMD_SET_TX_POWER and len(payload) >= 5:
             tx_power_dbm = int(payload[4])
+            detail_offset = 5
+            if len(payload) > detail_offset:
+                detail = payload[detail_offset:].decode("ascii", errors="replace").strip("\x00").strip()
+            if detail:
+                return "ACK %s ok=%s active=%ddBm detail=%s" % (cmd_label, enabled, tx_power_dbm, detail)
             return "ACK %s ok=%s active=%ddBm" % (cmd_label, enabled, tx_power_dbm)
+
+        if len(payload) > detail_offset:
+            detail = payload[detail_offset:].decode("ascii", errors="replace").strip("\x00").strip()
+        if detail:
+            return "ACK %s %s=%s detail=%s" % (cmd_label, state_label, enabled, detail)
         return "ACK %s %s=%s" % (cmd_label, state_label, enabled)
     if payload[0] != 0xA1:
         return None
@@ -842,6 +867,12 @@ def parse_payload(payload):
             cmd_label = "telemetry_tx_power"
         elif cmd == CMD_LAUNCH_ARM:
             cmd_label = "launch_arm"
+        elif cmd == CMD_SD_ROTATE:
+            cmd_label = "sd_rotate"
+        elif cmd == CMD_SD_FORMAT:
+            cmd_label = "sd_format"
+        elif cmd == CMD_SD_DUMP_SAMPLE:
+            cmd_label = "sd_dump_sample"
         else:
             cmd_label = "unknown"
         enabled = bool(payload[3])
@@ -850,9 +881,17 @@ def parse_payload(payload):
             "command": cmd_label,
             "enabled": enabled,
         }
+        detail_offset = 4
         if cmd == CMD_SET_TX_POWER and len(payload) >= 5:
             parsed["tx_power_dbm"] = int(payload[4])
+            detail_offset = 5
+        if len(payload) > detail_offset:
+            detail_text = payload[detail_offset:].decode("ascii", errors="replace").strip("\x00").strip()
+            if detail_text:
+                parsed["detail"] = detail_text
         if cmd_label in ("sd_start", "sd_stop"):
+            parsed["logging_enabled"] = enabled
+        elif cmd_label == "sd_rotate":
             parsed["logging_enabled"] = enabled
         elif cmd_label in ("telemetry_enable", "telemetry_disable"):
             parsed["telemetry_enabled"] = enabled

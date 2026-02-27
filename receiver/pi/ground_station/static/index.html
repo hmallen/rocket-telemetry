@@ -53,6 +53,15 @@
                 <p class="control-status" id="sd-status">Idle</p>
               </div>
               <div class="control-panel">
+                <span class="label">SD Card Functions</span>
+                <div class="control-buttons">
+                  <button class="control-button" id="sd-rotate" type="button">Rotate logfile</button>
+                  <button class="control-button danger" id="sd-format" type="button">Format SD card</button>
+                  <button class="control-button" id="sd-dump-sample" type="button">Dump sample</button>
+                </div>
+                <p class="control-status" id="sd-util-status">Idle</p>
+              </div>
+              <div class="control-panel">
                 <span class="label">Telemetry TX</span>
                 <div class="control-buttons">
                   <button class="control-button" id="telem-enable" type="button">Enable telemetry</button>
@@ -327,6 +336,16 @@
     <footer class="footer">
       <span>Rocket telemetry ground station · receiver-side display</span>
     </footer>
+
+    <div class="modal-backdrop hidden" id="sd-dump-modal" role="dialog" aria-modal="true" aria-labelledby="sd-dump-title">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3 id="sd-dump-title">SD Dump Sample</h3>
+          <button class="modal-close" id="sd-dump-close" type="button" aria-label="Close">&times;</button>
+        </div>
+        <pre class="sd-dump-content" id="sd-dump-content">No sample yet.</pre>
+      </div>
+    </div>
 
     <script
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"

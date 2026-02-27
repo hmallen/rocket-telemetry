@@ -303,6 +303,26 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
     ioState.hasSdLoggingState = false;
   }
 
+  JsonObject sdCard = state["sd_card"];
+  if (!sdCard.isNull() && !sdCard["ack_timestamp"].isNull()) {
+    ioState.hasSdCardAckState = true;
+    const double ackSeconds = sdCard["ack_timestamp"].as<double>();
+    if (ackSeconds > 0.0) {
+      ioState.sdCardAckToken = static_cast<uint32_t>(ackSeconds * 1000.0);
+    } else {
+      ioState.sdCardAckToken = 0;
+    }
+    ioState.sdCardAckOk = sdCard["ok"].as<bool>();
+    ioState.sdCardLastCommand = String((const char*)(sdCard["last_command"] | ""));
+    ioState.sdCardDetail = String((const char*)(sdCard["detail"] | ""));
+  } else {
+    ioState.hasSdCardAckState = false;
+    ioState.sdCardAckToken = 0;
+    ioState.sdCardAckOk = false;
+    ioState.sdCardLastCommand = "";
+    ioState.sdCardDetail = "";
+  }
+
   JsonObject telemetryTx = state["telemetry_tx"];
   if (!telemetryTx.isNull() && !telemetryTx["enabled"].isNull()) {
     ioState.hasTelemetryTxState = true;

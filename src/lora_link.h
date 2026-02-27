@@ -16,6 +16,9 @@ enum class LoraCommand : uint8_t {
   kImuCalibrate = 0x07,
   kSetTxPower = 0x08,
   kLaunchArm = 0x09,
+  kSdRotate = 0x0A,
+  kSdFormat = 0x0B,
+  kSdDumpSample = 0x0C,
 };
 
 class LoraLink {
@@ -31,7 +34,7 @@ public:
   bool ready() const;
   bool tx_enabled() const;
   bool pop_command(LoraCommand& cmd, uint8_t* arg = nullptr);
-  void queue_command_ack(LoraCommand cmd, bool enabled_state);
+  void queue_command_ack(LoraCommand cmd, bool enabled_state, const char* detail = nullptr);
   void request_recovery_calibration();
 
   // Cleartext telemetry payload (ASCII, human-decodable):
@@ -157,5 +160,5 @@ private:
   uint32_t ack_retry_after_ms_ = 0;
   uint8_t ack_retries_left_ = 0;
   size_t ack_len_ = 0;
-  uint8_t ack_buf_[8] = {0};
+  uint8_t ack_buf_[64] = {0};
 };
