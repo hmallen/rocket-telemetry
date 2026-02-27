@@ -182,16 +182,10 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
   JsonObject state = doc["state"].is<JsonObject>() ? doc["state"].as<JsonObject>() : JsonObject();
   if (state.isNull()) return false;
 
-  uint32_t sampleTms = millis();
-  if (!state["ts"].isNull()) {
-    const double stateTs = state["ts"].as<double>();
-    if (stateTs > 0.0) {
-      sampleTms = static_cast<uint32_t>(stateTs * 1000.0);
-    }
-  }
+  const uint32_t sampleTms = millis();
 
   ioState.seq = state["seq"] | ioState.seq;
-  ioState.tsMs = millis();
+  ioState.tsMs = sampleTms;
 
   JsonObject link = state["link"];
   ioState.link.connected = link["connected"] | false;
