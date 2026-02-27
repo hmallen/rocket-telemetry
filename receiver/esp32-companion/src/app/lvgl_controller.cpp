@@ -1124,7 +1124,7 @@ const char* LvglController::cueFilePath(SoundCue cue) const {
       return COMPANION_SOUND_FILE_DROGUE_DEPLOYED;
     case SoundCue::kMainDeploy:
       return COMPANION_SOUND_FILE_MAIN_DEPLOYED;
-    case SoundCue::KLandingDetected:
+    case SoundCue::kLandingDetected:
       return COMPANION_SOUND_FILE_LANDING_DETECTED;
     case SoundCue::kHomePointSet:
       return COMPANION_SOUND_FILE_HOME_POINT_SET;
@@ -1199,7 +1199,7 @@ void LvglController::handleEventSoundTriggers(const String& previousPhase,
       }
 
       if (!lastRecoveryLandingDetected_ && state_.recoveryLandingDetected) {
-        queueSoundCue(SoundCue::KLandingDetected);
+        queueSoundCue(SoundCue::kLandingDetected);
         apogeeCalloutPending_ = true;
       }
     }
@@ -1273,7 +1273,7 @@ void LvglController::handleEventSoundTriggers(const String& previousPhase,
     }
 
     if (phaseEquals(currentPhase, "landed") && !phaseEquals(previousPhase, "landed")) {
-      queueSoundCue(SoundCue::KLandingDetected);
+      queueSoundCue(SoundCue::kLandingDetected);
       apogeeCalloutPending_ = true;
     }
   }
@@ -1425,7 +1425,7 @@ void LvglController::playNextQueuedSound() {
         (void)playWavFromSd(kFallbackSoundFileMainLegacyDir);
       }
       break;
-    case SoundCue::KLandingDetected:
+    case SoundCue::kLandingDetected:
       (void)playWavFromSd(kFallbackSoundFileLanding);
       break;
     case SoundCue::kHomePointSet:
@@ -2765,7 +2765,7 @@ void LvglController::onAltCalibrateEvent(lv_event_t* e) {
     SoundCue latestCue = SoundCue::kLaunchDetected;
     bool hasLatestCue = false;
     if (self->state_.recoveryLandingDetected || phaseEquals(self->state_.flight.phase, "landed")) {
-      latestCue = SoundCue::KLandingDetected;
+      latestCue = SoundCue::kLandingDetected;
       hasLatestCue = true;
     } else if (self->state_.recoveryMainDeployed) {
       latestCue = SoundCue::kMainDeploy;

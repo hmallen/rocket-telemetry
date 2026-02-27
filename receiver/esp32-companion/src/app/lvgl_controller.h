@@ -31,7 +31,7 @@ class LvglController {
     kApogee,
     kDrogueDeploy,
     kMainDeploy,
-    KLandingDetected,
+    kLandingDetected,
     kHomePointSet,
   };
 
