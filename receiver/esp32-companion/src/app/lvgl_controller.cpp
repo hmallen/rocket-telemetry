@@ -96,11 +96,14 @@ static HardwareSerial& companionUartPort() {
 #endif
 }
 
-static String formatFloat(float value, uint8_t decimals, const char* fallback = "---") {
+static void formatFloatToBuffer(char* buffer, size_t size, float value, uint8_t decimals, const char* fallback = "---") {
   if (isnan(value)) {
-    return String(fallback);
+    snprintf(buffer, size, "%s", fallback);
+  } else {
+    char fmt[6];
+    snprintf(fmt, sizeof(fmt), "%%.%df", decimals);
+    snprintf(buffer, size, fmt, value);
   }
-  return String(value, static_cast<unsigned int>(decimals));
 }
 
 static int batteryPercentFromVoltage(float voltage, uint8_t cells) {
@@ -1068,41 +1071,46 @@ void LvglController::setBuzzerConfigVisible(bool visible) {
   } else {
     lv_obj_add_flag(buzzerConfigRow_, LV_OBJ_FLAG_HIDDEN);
   }
-  if (actionPanel_ != nullptr) {
-    lv_obj_update_layout(actionPanel_);
-  }
-}
+  char snrBuf[16];
+  formatFloatToBuffer(snrBuf, sizeof(snrBuf), state_.link.snr, 1, "--.-");
+  lv_label_set_text_fmt(linkMetaLabel_, "RSSI %d dBm   SNR %s   AGE %d ms", state_.link.rssi,
+                        snrBuf, state_.link.lastPacketAgeMs);
 
-bool LvglController::sendAction(const String& action, int durationS) {
-  bool sent = false;
-  if (COMPANION_LINK_UART) {
-    sent = uart_.sendCommand(action, durationS);
+  lv_label_set_text_fmt(phaseLabel_, "PHASE: %s", state_.flight.phase.length() ? state_.flight.phase.c_str() : "unknown");
+
+  char baroAltBuf[16];
+  char gpsAltBuf[16];
+  char vsBuf[16];
+  formatFloatToBuffer(baroAltBuf, sizeof(baroAltBuf), state_.alt.altitudeAglM, 1);
+  formatFloatToBuffer(gpsAltBuf, sizeof(gpsAltBuf), state_.alt.gpsAltitudeM, 1);
+  formatFloatToBuffer(vsBuf, sizeof(vsBuf), state_.alt.verticalSpeedMps, 1);
+
+  lv_label_set_text_fmt(altitudeLabel_, "BARO %s m\nGPS  %s m\nVS  %s m/s", baroAltBuf, gpsAltBuf, vsBuf);
+  //lv_label_set_text_fmt(vsLabel_, "VS  %s m/s", vsText.c_str());
+
+  lv_label_set_text_fmt(packetLabel_, "Packets: %lu", static_cast<unsigned long>(state_.flight.packetCount));
+  lv_label_set_text_fmt(callsignLabel_, "Callsign: %s",
+                        state_.flight.callsign.length() ? state_.flight.callsign.c_str() : "(none)");
+
+  char txVbatBuf[16];
+  char groundVbatBuf[16];
+  formatFloatToBuffer(txVbatBuf, sizeof(txVbatBuf), state_.battery.telemetryVbatV, 2, "--.-");
+  formatFloatToBuffer(groundVbatBuf, sizeof(groundVbatBuf), state_.battery.groundVbatV, 2, "--.-");
+
+  const int txPct = batteryPercentFromVoltage(state_.battery.telemetryVbatV, 2);
+  const int gsPct = batteryPercentFromVoltage(state_.battery.groundVbatV, 1);
+
+  if (txPct >= 0) {
+    lv_label_set_text_fmt(batteryLabel_, "TX_VBAT: %s V (%d%%)", txVbatBuf, txPct);
   } else {
-    sent = api_.sendCommand(action, durationS);
+    lv_label_set_text_fmt(batteryLabel_, "TX_VBAT: %s V", txVbatBuf);
   }
 
-  String pretty = action;
-  pretty.replace("_", " ");
-  pretty.toUpperCase();
-
-  if (action == "buzzer") {
-    pretty = "BUZZER " + String(durationS) + "s";
-  } else if (action == "telemetry_tx_power") {
-    pretty = "TELEM TX POWER " + String(durationS) + "dBm";
-  }
-
-  updateDashboardActionButtons();
-  setCommandStatus(sent ? (pretty + " sent") : (pretty + " failed"), sent);
-  return sent;
-}
-
-void LvglController::togglePanel() {
-  panelCollapsed_ = !panelCollapsed_;
-  if (panelCollapsed_) {
-    lv_obj_add_flag(actionPanel_, LV_OBJ_FLAG_HIDDEN);
+  if (gsPct >= 0) {
+    lv_label_set_text_fmt(companionBatteryLabel_, "GS_VBAT: %s V (%d%%)", groundVbatBuf, gsPct);
   } else {
-    lv_obj_clear_flag(actionPanel_, LV_OBJ_FLAG_HIDDEN);
-    settingsCollapsed_ = true;
+    lv_label_set_text_fmt(companionBatteryLabel_, "GS_VBAT: %s V", groundVbatBuf);
+  }
     lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
   }
   lv_obj_update_layout(telemetryPanel_);
