@@ -21,8 +21,10 @@ constexpr int kCalMarginPx = 24;
 constexpr int32_t kCalRetouchDistancePx = 120;
 constexpr int32_t kTouchPressThreshold = 140;
 constexpr int32_t kTouchReleaseThreshold = 90;
+constexpr lv_coord_t kActionPanelGapPx = 10;
+constexpr lv_coord_t kActionItemsGapPx = 8;
 constexpr lv_coord_t kSettingsButtonHeight = 28;
-constexpr lv_coord_t kSettingsGapPx = 4;
+constexpr lv_coord_t kSettingsGapPx = 6;
 
 static uint16_t median3(uint16_t a, uint16_t b, uint16_t c) {
   if (a > b) {
@@ -393,19 +395,19 @@ void LvglController::buildUi() {
 
   packetLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(packetLabel_, lv_color_hex(0xd9e3f8), 0);
-  lv_obj_align(packetLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -88);
+  lv_obj_align(packetLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -80);
 
   callsignLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(callsignLabel_, lv_color_hex(0xd9e3f8), 0);
-  lv_obj_align(callsignLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -68);
+  lv_obj_align(callsignLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -60);
 
   batteryLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(batteryLabel_, lv_color_hex(0xd9e3f8), 0);
-  lv_obj_align(batteryLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -48);
+  lv_obj_align(batteryLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -40);
 
   companionBatteryLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(companionBatteryLabel_, lv_color_hex(0xd9e3f8), 0);
-  lv_obj_align(companionBatteryLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -28);
+  lv_obj_align(companionBatteryLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -20);
 
   companionBatteryDebugLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(companionBatteryDebugLabel_, lv_color_hex(0x9fb0cc), 0);
@@ -503,7 +505,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_border_width(actionPanel_, 1, 0);
   lv_obj_set_style_radius(actionPanel_, 10, 0);
   lv_obj_set_style_pad_all(actionPanel_, 8, 0);
-  lv_obj_set_style_pad_gap(actionPanel_, 8, 0);
+  lv_obj_set_style_pad_gap(actionPanel_, kActionPanelGapPx, 0);
   lv_obj_set_flex_flow(actionPanel_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(actionPanel_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_clear_flag(actionPanel_, LV_OBJ_FLAG_SCROLLABLE);
@@ -521,7 +523,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_opa(actionContent_, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(actionContent_, 0, 0);
   lv_obj_set_style_pad_all(actionContent_, 0, 0);
-  lv_obj_set_style_pad_gap(actionContent_, 6, 0);
+  lv_obj_set_style_pad_gap(actionContent_, kActionItemsGapPx, 0);
   lv_obj_set_flex_flow(actionContent_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(actionContent_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_clear_flag(actionContent_, LV_OBJ_FLAG_SCROLLABLE);
