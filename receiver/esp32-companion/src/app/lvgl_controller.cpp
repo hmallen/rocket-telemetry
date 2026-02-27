@@ -697,7 +697,8 @@ void LvglController::buildUi() {
   lv_obj_add_event_cb(txPowerSlider_, onTxPowerChangedEvent, LV_EVENT_VALUE_CHANGED, this);
 
   txPowerLabel_ = lv_label_create(txPowerConfigRow_);
-  lv_obj_set_width(txPowerLabel_, 42);
+  lv_obj_set_width(txPowerLabel_, 58);
+  lv_label_set_long_mode(txPowerLabel_, LV_LABEL_LONG_CLIP);
   lv_obj_set_style_text_align(txPowerLabel_, LV_TEXT_ALIGN_RIGHT, 0);
   lv_obj_set_style_text_color(txPowerLabel_, lv_color_hex(0xcfe0ff), 0);
   lv_obj_clear_flag(txPowerLabel_, LV_OBJ_FLAG_CLICKABLE);
