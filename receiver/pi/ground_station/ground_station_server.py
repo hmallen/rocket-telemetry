@@ -1735,7 +1735,7 @@ def request_pi_reboot():
         # Give the HTTP/UART ACK path a brief moment to flush before reboot.
         time.sleep(0.3)
         subprocess.Popen(
-            ["sudo", "reboot"],
+            ["sudo", "shutdown", "-r", "now"],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             start_new_session=True,
