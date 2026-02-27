@@ -29,12 +29,12 @@ class UartLink {
   float lastBaroAltM_ = NAN;
   float lastGpsAltM_ = NAN;
   bool havePacketCount_ = false;
-  uint8_t lastPacketCount_ = 0;
+  uint16_t lastPacketCount_ = 0;
 
   void applyTelemetry(const companion_proto::TelemetryV1& t,
                       bool hasTxPower,
                       bool hasRecoveryEvents,
                       CompanionState& ioState);
-  void updateDerivedVerticalSpeeds(uint32_t sampleTms, uint8_t packetCount, CompanionState& ioState);
+  void updateDerivedVerticalSpeeds(uint32_t sampleTms, uint16_t packetCount, CompanionState& ioState);
   void debugTick();
 };

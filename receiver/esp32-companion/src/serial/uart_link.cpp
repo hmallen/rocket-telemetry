@@ -11,7 +11,7 @@ UartLink::UartLink(HardwareSerial& serial, uint32_t baud, int rxPin, int txPin)
     : serial_(serial), baud_(baud), rxPin_(rxPin), txPin_(txPin) {}
 
 void UartLink::updateDerivedVerticalSpeeds(uint32_t sampleTms,
-                                           uint8_t packetCount,
+                                           uint16_t packetCount,
                                            CompanionState& ioState) {
   const bool hasNewPacket = !havePacketCount_ || packetCount != lastPacketCount_;
   if (!hasNewPacket) {
