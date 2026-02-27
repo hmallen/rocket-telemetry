@@ -65,6 +65,11 @@ struct CompanionState {
   bool recoverySensorsCalibrated = false;
   bool recoveryLaunchArmed = false;
   bool recoveryGpsFix3d = false;
+  bool hasGpsSvsState = false;
+  uint8_t gpsSvsUsed = 0;
+  uint8_t gpsSvsTotal = 0;
+  bool hasGpsHdopState = false;
+  float gpsHdop = NAN;
   bool recoveryLaunchDetected = false;
   bool recoveryApogee = false;
   bool recoveryLandingDetected = false;

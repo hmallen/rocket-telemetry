@@ -949,7 +949,8 @@ bool LoraLink::start_navsat_tx_(uint32_t now_ms,
   tx_buf_[7] = gps.navsat_n;
   tx_buf_[8] = cno_max;
   tx_buf_[9] = cno_avg;
-  const size_t n = 10;
+  write_u16_le(&tx_buf_[10], gps.hdop_x100);
+  const size_t n = 12;
 
   pending_valid_ = true;
   pending_type_ = 5;

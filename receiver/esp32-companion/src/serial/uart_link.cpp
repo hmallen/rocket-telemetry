@@ -1,6 +1,7 @@
 #include "uart_link.h"
 
 #include <math.h>
+#include <stddef.h>
 #include <string.h>
 
 #include "config.h"
@@ -54,6 +55,7 @@ void UartLink::begin() {
 void UartLink::applyTelemetry(const TelemetryV1& t,
                               bool hasTxPower,
                               bool hasRecoveryEvents,
+                              bool hasGpsQuality,
                               CompanionState& ioState) {
   ioState.tsMs = millis();
   ioState.seq++;
@@ -109,13 +111,22 @@ void UartLink::applyTelemetry(const TelemetryV1& t,
     ioState.recoveryGpsFix3d = (t.flags & 0x80) != 0;
   }
 
+  const bool gpsSvsValid = hasGpsQuality && t.gps_svs_used != 0xFF && t.gps_svs_total != 0xFF;
+  ioState.hasGpsSvsState = gpsSvsValid;
+  ioState.gpsSvsUsed = gpsSvsValid ? t.gps_svs_used : 0;
+  ioState.gpsSvsTotal = gpsSvsValid ? t.gps_svs_total : 0;
+
+  const bool gpsHdopValid = hasGpsQuality && t.gps_hdop_x100 != 0xFFFF;
+  ioState.hasGpsHdopState = gpsHdopValid;
+  ioState.gpsHdop = gpsHdopValid ? (static_cast<float>(t.gps_hdop_x100) / 100.0f) : NAN;
+
   ioState.stale = false;
 }
 
 bool UartLink::poll(CompanionState& ioState) {
-  static constexpr size_t kTelemetryV1NoEventFlagsLen = sizeof(TelemetryV1) - sizeof(uint8_t);
-  static constexpr size_t kTelemetryV1NoTxPowerOrEventsLen =
-      sizeof(TelemetryV1) - sizeof(uint8_t) - sizeof(uint8_t);
+  static constexpr size_t kTelemetryV1NoGpsQualityLen = offsetof(TelemetryV1, gps_svs_used);
+  static constexpr size_t kTelemetryV1NoEventFlagsLen = offsetof(TelemetryV1, recovery_event_flags);
+  static constexpr size_t kTelemetryV1NoTxPowerOrEventsLen = offsetof(TelemetryV1, telemetry_tx_power_dbm);
   bool updated = false;
   while (serial_.available() > 0) {
     uint8_t b = static_cast<uint8_t>(serial_.read());
@@ -126,19 +137,25 @@ bool UartLink::poll(CompanionState& ioState) {
       if (frame.len >= sizeof(TelemetryV1)) {
         TelemetryV1 t{};
         memcpy(&t, frame.payload, sizeof(TelemetryV1));
-        applyTelemetry(t, true, true, ioState);
+        applyTelemetry(t, true, true, true, ioState);
+        updated = true;
+        rxFrames_++;
+      } else if (frame.len >= kTelemetryV1NoGpsQualityLen) {
+        TelemetryV1 t{};
+        memcpy(&t, frame.payload, kTelemetryV1NoGpsQualityLen);
+        applyTelemetry(t, true, true, false, ioState);
         updated = true;
         rxFrames_++;
       } else if (frame.len >= kTelemetryV1NoEventFlagsLen) {
         TelemetryV1 t{};
         memcpy(&t, frame.payload, kTelemetryV1NoEventFlagsLen);
-        applyTelemetry(t, true, false, ioState);
+        applyTelemetry(t, true, false, false, ioState);
         updated = true;
         rxFrames_++;
       } else if (frame.len >= kTelemetryV1NoTxPowerOrEventsLen) {
         TelemetryV1 t{};
         memcpy(&t, frame.payload, kTelemetryV1NoTxPowerOrEventsLen);
-        applyTelemetry(t, false, false, ioState);
+        applyTelemetry(t, false, false, false, ioState);
         updated = true;
         rxFrames_++;
       } else if (frame.len >= sizeof(TelemetryV1Legacy)) {
@@ -181,6 +198,11 @@ bool UartLink::poll(CompanionState& ioState) {
         ioState.recoverySensorsCalibrated = false;
         ioState.recoveryLaunchArmed = false;
         ioState.recoveryGpsFix3d = false;
+        ioState.hasGpsSvsState = false;
+        ioState.gpsSvsUsed = 0;
+        ioState.gpsSvsTotal = 0;
+        ioState.hasGpsHdopState = false;
+        ioState.gpsHdop = NAN;
         ioState.recoveryLaunchDetected = false;
         ioState.recoveryApogee = false;
         ioState.recoveryLandingDetected = false;

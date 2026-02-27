@@ -496,6 +496,8 @@ class TelemetryStore:
                 "svs_used": None,
                 "cno_max": None,
                 "cno_avg": None,
+                "hdop": None,
+                "hdop_x100": None,
             },
             "alt": {
                 "t_ms": None,
@@ -664,6 +666,8 @@ class TelemetryStore:
                         "svs_used": parsed.get("svs_used"),
                         "cno_max": parsed.get("cno_max"),
                         "cno_avg": parsed.get("cno_avg"),
+                        "hdop": parsed.get("hdop"),
+                        "hdop_x100": parsed.get("hdop_x100"),
                     })
                 elif payload_type == "alt":
                     press_pa_x10 = parsed.get("press_pa_x10")
@@ -1184,6 +1188,9 @@ def _build_companion_state(snapshot, seq=None):
             "alt_m": gps.get("alt_m"),
             "svs_used": navsat.get("svs_used"),
             "svs_total": navsat.get("svs_total"),
+            "hdop": navsat.get("hdop"),
+            "hdop_x100": navsat.get("hdop_x100"),
+            "gps_fix_3d": recovery.get("gps_fix_3d"),
         },
         "alt": {
             "press_kpa": alt.get("press_kpa"),
@@ -1368,6 +1375,13 @@ class CompanionUartBridge:
         if altitude_agl_m is None:
             altitude_agl_m = alt_m
         gps_alt_mm = -2147483648 if alt_m is None else int(alt_m * 1000)
+        svs_used = gps.get("svs_used")
+        svs_total = gps.get("svs_total")
+        hdop_x100 = gps.get("hdop_x100")
+        if hdop_x100 is None:
+            hdop = gps.get("hdop")
+            if hdop is not None:
+                hdop_x100 = int(round(float(hdop) * 100.0))
 
         phase_code = self._phase_to_code(flight.get("phase"))
         flags = 0
@@ -1412,8 +1426,12 @@ class CompanionUartBridge:
         else:
             tx_power_dbm = int(tx_power_dbm) & 0xFF
 
+        svs_used_field = 0xFF if svs_used is None else (int(svs_used) & 0xFF)
+        svs_total_field = 0xFF if svs_total is None else (int(svs_total) & 0xFF)
+        hdop_x100_field = 0xFFFF if hdop_x100 is None else (int(hdop_x100) & 0xFFFF)
+
         payload = struct.pack(
-            "<IiiihhbBHHBHiBB",
+            "<IiiihhbBHHBHiBBBBH",
             int((state.get("ts") or time.time()) * 1000) & 0xFFFFFFFF,
             int((lat_deg or 0.0) * 1e7),
             int((lon_deg or 0.0) * 1e7),
@@ -1429,6 +1447,9 @@ class CompanionUartBridge:
             gps_alt_mm,
             tx_power_dbm,
             int(event_flags),
+            svs_used_field,
+            svs_total_field,
+            hdop_x100_field,
         )
         frame = self._encode_frame(self.MSG_TELEM_SNAPSHOT, payload)
         with self._lock:

@@ -10,6 +10,7 @@ struct GnssTime {
   uint32_t tow_ms = 0;
   bool fix_ok = false;
   uint8_t fix_type = 0;
+  uint16_t hdop_x100 = 0;
   int32_t lon_e7 = 0;
   int32_t lat_e7 = 0;
   int32_t height_mm = 0;
