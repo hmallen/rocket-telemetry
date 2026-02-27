@@ -19,6 +19,8 @@ const elements = {
   navsatTime: document.getElementById("navsat-time"),
   navsatSvsUsed: document.getElementById("navsat-svs-used"),
   navsatSvsTotal: document.getElementById("navsat-svs-total"),
+  navsatHdop: document.getElementById("navsat-hdop"),
+  navsatFix3d: document.getElementById("navsat-fix-3d"),
   navsatCnoMax: document.getElementById("navsat-cno-max"),
   navsatCnoAvg: document.getElementById("navsat-cno-avg"),
   altTime: document.getElementById("alt-time"),
@@ -1516,6 +1518,11 @@ function updateFromTelemetry(snapshot) {
   elements.navsatSvsTotal.textContent = navsat.svs_total !== null && navsat.svs_total !== undefined
     ? navsat.svs_total
     : "--";
+  elements.navsatHdop.textContent = navsat.hdop !== null && navsat.hdop !== undefined
+    ? formatNumber(navsat.hdop, 2)
+    : "--";
+  const navsatRecovery = snapshot.recovery || {};
+  elements.navsatFix3d.textContent = navsatRecovery.gps_fix_3d === true ? "3D FIX" : "NO FIX";
   elements.navsatCnoMax.textContent = navsat.cno_max !== null && navsat.cno_max !== undefined
     ? `${navsat.cno_max} dB-Hz`
     : "--";

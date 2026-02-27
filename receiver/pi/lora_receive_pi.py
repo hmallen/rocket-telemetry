@@ -784,6 +784,16 @@ def decode_payload(payload):
         svs_used = int(payload[7])
         cno_max = int(payload[8])
         cno_avg = int(payload[9])
+        hdop_x100 = int.from_bytes(payload[10:12], "little", signed=False) if len(payload) >= 12 else None
+        if hdop_x100 is not None:
+            return "NAVSAT t_ms=%d svs=%d/%d cno_max=%d cno_avg=%d hdop=%.2f" % (
+                t_ms,
+                svs_used,
+                svs_total,
+                cno_max,
+                cno_avg,
+                hdop_x100 / 100.0,
+            )
         return "NAVSAT t_ms=%d svs=%d/%d cno_max=%d cno_avg=%d" % (
             t_ms,
             svs_used,
@@ -976,6 +986,7 @@ def parse_payload(payload):
         if len(payload) < 10:
             return None
         t_ms = int.from_bytes(payload[2:6], "little", signed=False)
+        hdop_x100 = int.from_bytes(payload[10:12], "little", signed=False) if len(payload) >= 12 else None
         return {
             "type": "navsat",
             "t_ms": t_ms,
@@ -983,6 +994,8 @@ def parse_payload(payload):
             "svs_used": int(payload[7]),
             "cno_max": int(payload[8]),
             "cno_avg": int(payload[9]),
+            "hdop": (hdop_x100 / 100.0) if hdop_x100 is not None else None,
+            "hdop_x100": hdop_x100,
         }
     if typ == 6:
         if len(payload) < 26:

@@ -66,6 +66,9 @@ struct TelemetryV1 {
   int32_t gps_alt_mm;
   uint8_t telemetry_tx_power_dbm;
   uint8_t recovery_event_flags;
+  uint8_t gps_svs_used;
+  uint8_t gps_svs_total;
+  uint16_t gps_hdop_x100;
 };
 
 struct AlertV1 {

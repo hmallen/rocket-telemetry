@@ -884,7 +884,10 @@ void loop() {
 
     const GnssTime& gt = gnss_use_backup_as_primary ? bt : pt;
     if (gt.last_sat_ms != 0) {
-      DBG_PRINTF(" sat=%u/%u", (unsigned)gt.navsat_n, (unsigned)gt.navsat_num_svs);
+      DBG_PRINTF(" sat=%u/%u used=%u",
+                 (unsigned)gt.navsat_n,
+                 (unsigned)gt.navsat_num_svs_total,
+                 (unsigned)gt.navsat_num_svs);
       const uint8_t show = (gt.navsat_n < 4) ? gt.navsat_n : 4;
       for (uint8_t i = 0; i < show; ++i) {
         const auto& s = gt.navsat[i];

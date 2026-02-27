@@ -211,6 +211,22 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
   const float baroAlt = recovery["altitude_agl_m"].isNull() ? NAN : (float)recovery["altitude_agl_m"].as<float>();
   JsonObject gps = state["gps"];
   const float gpsAlt = gps["alt_m"].isNull() ? NAN : (float)gps["alt_m"].as<float>();
+  if (!gps.isNull() && !gps["svs_used"].isNull() && !gps["svs_total"].isNull()) {
+    ioState.hasGpsSvsState = true;
+    ioState.gpsSvsUsed = static_cast<uint8_t>(gps["svs_used"].as<unsigned int>());
+    ioState.gpsSvsTotal = static_cast<uint8_t>(gps["svs_total"].as<unsigned int>());
+  } else {
+    ioState.hasGpsSvsState = false;
+    ioState.gpsSvsUsed = 0;
+    ioState.gpsSvsTotal = 0;
+  }
+  if (!gps.isNull() && !gps["hdop"].isNull()) {
+    ioState.hasGpsHdopState = true;
+    ioState.gpsHdop = gps["hdop"].as<float>();
+  } else {
+    ioState.hasGpsHdopState = false;
+    ioState.gpsHdop = NAN;
+  }
   ioState.alt.altitudeAglM = isnan(baroAlt) ? gpsAlt : baroAlt;
   ioState.alt.gpsAltitudeM = gpsAlt;
   ioState.alt.verticalSpeedMps = recovery["vertical_speed_mps"].isNull() ? NAN : (float)recovery["vertical_speed_mps"].as<float>();
@@ -221,7 +237,9 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
   } else {
     ioState.recoveryLaunchArmed = false;
   }
-  if (!recovery.isNull() && !recovery["gps_fix_3d"].isNull()) {
+  if (!gps.isNull() && !gps["gps_fix_3d"].isNull()) {
+    ioState.recoveryGpsFix3d = gps["gps_fix_3d"].as<bool>();
+  } else if (!recovery.isNull() && !recovery["gps_fix_3d"].isNull()) {
     ioState.recoveryGpsFix3d = recovery["gps_fix_3d"].as<bool>();
   } else {
     ioState.recoveryGpsFix3d = false;

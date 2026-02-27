@@ -808,7 +808,10 @@ void LoraLink::poll_telem(uint32_t now_ms,
     if (last_bat_tx_ms_ == 0) bat_late = (int32_t)now_ms;
     else bat_late = (int32_t)((uint32_t)(now_ms - last_bat_tx_ms_) - bat_int_ms);
   }
-  if (gps != nullptr && navsat_int_ms != 0 && gps->last_sat_ms != 0) {
+  const uint32_t navsat_source_ms = (gps != nullptr)
+                                      ? (gps->last_sat_ms != 0 ? gps->last_sat_ms : gps->last_pvt_ms)
+                                      : 0;
+  if (gps != nullptr && navsat_int_ms != 0 && navsat_source_ms != 0) {
     if (last_navsat_tx_ms_ == 0) navsat_late = (int32_t)now_ms;
     else navsat_late = (int32_t)((uint32_t)(now_ms - last_navsat_tx_ms_) - navsat_int_ms);
   }
@@ -935,6 +938,8 @@ bool LoraLink::start_navsat_tx_(uint32_t now_ms,
   uint8_t cno_max = 0;
   uint32_t cno_sum = 0;
   const uint8_t count = gps.navsat_n;
+  const uint8_t svs_used = gps.navsat_num_svs;
+  const uint8_t svs_total = gps.navsat_num_svs_total;
   for (uint8_t i = 0; i < count; ++i) {
     const uint8_t cno = gps.navsat[i].cno;
     cno_sum += cno;
@@ -945,11 +950,12 @@ bool LoraLink::start_navsat_tx_(uint32_t now_ms,
   tx_buf_[0] = 0xA1;
   tx_buf_[1] = 5;
   write_u32_le(&tx_buf_[2], (uint32_t)now_ms);
-  tx_buf_[6] = gps.navsat_num_svs;
-  tx_buf_[7] = gps.navsat_n;
+  tx_buf_[6] = svs_total;
+  tx_buf_[7] = svs_used;
   tx_buf_[8] = cno_max;
   tx_buf_[9] = cno_avg;
-  const size_t n = 10;
+  write_u16_le(&tx_buf_[10], gps.hdop_x100);
+  const size_t n = 12;
 
   pending_valid_ = true;
   pending_type_ = 5;

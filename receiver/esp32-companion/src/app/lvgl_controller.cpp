@@ -2935,12 +2935,20 @@ void LvglController::refreshUi() {
     preferredVerticalSpeedMps = state_.alt.gpsVerticalSpeedMps;
   }
   const String vsText = formatFloat(preferredVerticalSpeedMps, 1);
+  const String svsText = state_.hasGpsSvsState
+                             ? (String(state_.gpsSvsUsed) + "/" + String(state_.gpsSvsTotal))
+                             : String("--/--");
+  const String hdopText = state_.hasGpsHdopState ? formatFloat(state_.gpsHdop, 2, "--") : String("--");
+  const char* fixText = state_.recoveryGpsFix3d ? "3D" : "NO";
 
   lv_label_set_text_fmt(altitudeLabel_,
-                        "BARO %s m\nGPS  %s m\nVS   %s m/s",
+                        "BARO %s m\nGPS  %s m\nVS   %s m/s\nSAT  %s\nHDOP %s\nFIX  %s",
                         baroAltText.c_str(),
                         gpsAltText.c_str(),
-                        vsText.c_str());
+                        vsText.c_str(),
+                        svsText.c_str(),
+                        hdopText.c_str(),
+                        fixText);
 
   lv_label_set_text(callsignLabel_,
                     state_.flight.callsign.length() ? state_.flight.callsign.c_str() : "No Callsign");

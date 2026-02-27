@@ -89,6 +89,8 @@ void GnssUbx::parse_byte(uint8_t b, uint32_t now_us) {
           const uint32_t iTOW = rd_u32_le(p + 0);
           const uint8_t fixType = p[20];
           const uint8_t flags = p[21];
+          const uint8_t numSV = p[23];
+          const uint16_t hdopX100 = (len_ >= 78) ? rd_u16_le(p + 76) : 0;
           const int32_t lon = rd_i32_le(p + 24);
           const int32_t lat = rd_i32_le(p + 28);
           const int32_t height = rd_i32_le(p + 32);
@@ -96,6 +98,8 @@ void GnssUbx::parse_byte(uint8_t b, uint32_t now_us) {
           time_.tow_ms = iTOW;
           time_.fix_type = fixType;
           time_.fix_ok = (flags & 0x01) != 0;
+          time_.navsat_num_svs = numSV;
+          time_.hdop_x100 = hdopX100;
           time_.lon_e7 = lon;
           time_.lat_e7 = lat;
           time_.height_mm = height;
@@ -113,7 +117,7 @@ void GnssUbx::parse_byte(uint8_t b, uint32_t now_us) {
         if (cls_ == 0x01 && id_ == 0x35 && len_ >= 8) {
           const uint8_t* p = payload_;
           const uint8_t numSvs = p[5];
-          time_.navsat_num_svs = numSvs;
+          time_.navsat_num_svs_total = numSvs;
           uint8_t nstore = 0;
           uint16_t off = 8;
           while (off + 12 <= len_ && nstore < (uint8_t)(sizeof(time_.navsat) / sizeof(time_.navsat[0]))) {

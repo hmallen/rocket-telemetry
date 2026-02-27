@@ -34,6 +34,7 @@ class UartLink {
   void applyTelemetry(const companion_proto::TelemetryV1& t,
                       bool hasTxPower,
                       bool hasRecoveryEvents,
+                      bool hasGpsQuality,
                       CompanionState& ioState);
   void updateDerivedVerticalSpeeds(uint32_t sampleTms, uint16_t packetCount, CompanionState& ioState);
   void debugTick();
