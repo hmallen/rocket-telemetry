@@ -1,0 +1,22 @@
+[Unit]
+Description=Rocket Telemetry Ground Station Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+Group=pi
+SupplementaryGroups=gpio spi dialout i2c
+WorkingDirectory=/home/pi/rocket-telemetry/receiver/pi/ground_station
+ExecStart=/usr/bin/env python3 /home/pi/rocket-telemetry/receiver/pi/ground_station/ground_station_server.py
+Environment=PYTHONUNBUFFERED=1
+Restart=always
+RestartSec=3
+KillSignal=SIGINT
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
