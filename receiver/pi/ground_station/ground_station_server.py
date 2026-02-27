@@ -1,4 +1,6 @@
 import copy
+import hmac
+import ipaddress
 import json
 import math
 import mimetypes
@@ -1723,30 +1725,42 @@ def request_pi_shutdown():
 
 
 class GroundStationHandler(BaseHTTPRequestHandler):
+    @staticmethod
+    def _is_loopback_client(client_ip):
+        if not client_ip:
+            return False
+        try:
+            return ipaddress.ip_address(client_ip).is_loopback
+        except ValueError:
+            return client_ip in ("localhost",)
+
     def _check_auth(self):
         """Check authentication for command endpoints. Returns True if authorized."""
         # FIX: Simple token-based authentication for command endpoints.
-        # If AUTH_TOKEN is None or empty, auth is disabled (not recommended for HOST="0.0.0.0").
+        # If AUTH_TOKEN is unset, only loopback clients are authorized.
         if AUTH_TOKEN is None or AUTH_TOKEN == "" or AUTH_TOKEN == "CHANGE_ME_BEFORE_FLIGHT":
-            # No auth configured - only allow if localhost
-            if HOST == "127.0.0.1" or HOST == "localhost":
+            client_ip = self.client_address[0] if self.client_address else ""
+            if self._is_loopback_client(client_ip):
                 return True
-            # Warn but allow for now (should fail in production)
-            print(f"WARNING: No auth token configured and HOST={HOST} - this is insecure!")
-            return True
-        
+
+            print(
+                "WARNING: command rejected because GS_AUTH_TOKEN is not configured "
+                f"and client is non-loopback ({client_ip})."
+            )
+            return False
+
         # Check for token in Authorization header (Bearer token format)
         auth_header = self.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             token = auth_header[7:]  # Strip "Bearer " prefix
-            if token == AUTH_TOKEN:
+            if hmac.compare_digest(token, AUTH_TOKEN):
                 return True
-        
+
         # Also check X-Auth-Token header (simpler format for curl/scripts)
         x_token = self.headers.get("X-Auth-Token", "")
-        if x_token == AUTH_TOKEN:
+        if hmac.compare_digest(x_token, AUTH_TOKEN):
             return True
-        
+
         return False
     
     def _send_auth_error(self):
