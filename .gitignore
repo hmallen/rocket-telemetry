@@ -59,3 +59,5 @@ receiver/tmp/
 receiver/esp32-companion/resources/figma/
 receiver/esp32-companion/resources/squareline/
 receiver/esp32-companion/include/config.h
+host_tests/run_tests
+host_tests/*.o
