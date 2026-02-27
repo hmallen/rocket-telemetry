@@ -120,7 +120,16 @@ void ApiClient::closeEventStream() {
   dataBuffer_ = "";
 }
 
-void ApiClient::updateDerivedVerticalSpeeds(uint32_t sampleTms, CompanionState& ioState) {
+void ApiClient::updateDerivedVerticalSpeeds(uint32_t sampleTms,
+                                            uint32_t packetCount,
+                                            CompanionState& ioState) {
+  const bool hasNewPacket = !havePacketCount_ || packetCount != lastPacketCount_;
+  if (!hasNewPacket) {
+    return;
+  }
+
+  havePacketCount_ = true;
+  lastPacketCount_ = packetCount;
   ioState.alt.baroVerticalSpeedMps = NAN;
   ioState.alt.gpsVerticalSpeedMps = NAN;
 
@@ -205,7 +214,7 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
   ioState.alt.altitudeAglM = isnan(baroAlt) ? gpsAlt : baroAlt;
   ioState.alt.gpsAltitudeM = gpsAlt;
   ioState.alt.verticalSpeedMps = recovery["vertical_speed_mps"].isNull() ? NAN : (float)recovery["vertical_speed_mps"].as<float>();
-  updateDerivedVerticalSpeeds(sampleTms, ioState);
+  updateDerivedVerticalSpeeds(sampleTms, ioState.flight.packetCount, ioState);
 
   if (!recovery.isNull() && !recovery["launch_armed"].isNull()) {
     ioState.recoveryLaunchArmed = recovery["launch_armed"].as<bool>();

@@ -16,7 +16,7 @@ class ApiClient {
 
  private:
   bool applyStateJson(const String& jsonPayload, CompanionState& ioState);
-  void updateDerivedVerticalSpeeds(uint32_t sampleTms, CompanionState& ioState);
+  void updateDerivedVerticalSpeeds(uint32_t sampleTms, uint32_t packetCount, CompanionState& ioState);
   void markLastRx();
 
   String host_;
@@ -30,4 +30,6 @@ class ApiClient {
   uint32_t lastAltSampleTms_ = 0;
   float lastBaroAltM_ = NAN;
   float lastGpsAltM_ = NAN;
+  bool havePacketCount_ = false;
+  uint32_t lastPacketCount_ = 0;
 };

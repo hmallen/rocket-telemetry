@@ -10,7 +10,16 @@ using namespace companion_proto;
 UartLink::UartLink(HardwareSerial& serial, uint32_t baud, int rxPin, int txPin)
     : serial_(serial), baud_(baud), rxPin_(rxPin), txPin_(txPin) {}
 
-void UartLink::updateDerivedVerticalSpeeds(uint32_t sampleTms, CompanionState& ioState) {
+void UartLink::updateDerivedVerticalSpeeds(uint32_t sampleTms,
+                                           uint8_t packetCount,
+                                           CompanionState& ioState) {
+  const bool hasNewPacket = !havePacketCount_ || packetCount != lastPacketCount_;
+  if (!hasNewPacket) {
+    return;
+  }
+
+  havePacketCount_ = true;
+  lastPacketCount_ = packetCount;
   ioState.alt.baroVerticalSpeedMps = NAN;
   ioState.alt.gpsVerticalSpeedMps = NAN;
 
@@ -60,7 +69,7 @@ void UartLink::applyTelemetry(const TelemetryV1& t,
   ioState.alt.altitudeAglM = static_cast<float>(t.alt_mm) / 1000.0f;
   ioState.alt.gpsAltitudeM = (t.gps_alt_mm == INT32_MIN) ? NAN : (static_cast<float>(t.gps_alt_mm) / 1000.0f);
   ioState.alt.verticalSpeedMps = static_cast<float>(t.vs_cms) / 100.0f;
-  updateDerivedVerticalSpeeds(t.t_ms, ioState);
+  updateDerivedVerticalSpeeds(t.t_ms, t.packet_count_lsb, ioState);
 
   ioState.battery.telemetryVbatV = static_cast<float>(t.vbat_mv) / 1000.0f;
   ioState.battery.groundVbatV =
@@ -150,7 +159,7 @@ bool UartLink::poll(CompanionState& ioState) {
         ioState.alt.altitudeAglM = static_cast<float>(t.alt_mm) / 1000.0f;
         ioState.alt.gpsAltitudeM = NAN;
         ioState.alt.verticalSpeedMps = static_cast<float>(t.vs_cms) / 100.0f;
-        updateDerivedVerticalSpeeds(t.t_ms, ioState);
+        updateDerivedVerticalSpeeds(t.t_ms, t.packet_count_lsb, ioState);
 
         ioState.battery.telemetryVbatV = static_cast<float>(t.vbat_mv) / 1000.0f;
         ioState.battery.groundVbatV =

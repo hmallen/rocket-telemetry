@@ -717,7 +717,9 @@ void LoraLink::poll_telem(uint32_t now_ms,
       if (!recovery_main_deployed_) {
         const bool fast_descent = recovery_vspeed_cms_ <= RECOVERY_MAIN_FAST_DESCENT_CMS;
         const bool low_enough_for_fast_backup = recovery_agl_mm_ <= RECOVERY_MAIN_FAST_DESCENT_MAX_AGL_MM;
-        const bool backup_alt_trigger = recovery_agl_mm_ <= RECOVERY_MAIN_BACKUP_AGL_MM;
+        const bool crossed_backup_altitude = recovery_max_agl_mm_ > RECOVERY_MAIN_BACKUP_AGL_MM;
+        const bool backup_alt_trigger = crossed_backup_altitude
+          && recovery_agl_mm_ <= RECOVERY_MAIN_BACKUP_AGL_MM;
 
         if (recovery_drogue_deployed_) {
           const bool enough_drop = recovery_drogue_deploy_agl_mm_ < 0
