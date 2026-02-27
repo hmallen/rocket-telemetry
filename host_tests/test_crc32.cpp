@@ -81,6 +81,6 @@ int main() {
         return 0;
     } else {
         std::cerr << "\n" << failures << " tests failed." << std::endl;
-        failures++;
+        return 1;
     }
 }
