@@ -1,5 +1,6 @@
 #include "sd_logger.h"
 #include "cfg.h"
+#include "crc32.h"
 #include <cstdio>
 #include <cstring>
 
@@ -168,6 +169,11 @@ bool SdLogger::format_card() {
     DBG_PRINTLN("sd: format failed");
     return false;
   }
+  // SdFat format can leave the volume unmounted; remount so logging can restart immediately.
+  if (!sd_.begin(SdioConfig(FIFO_SDIO))) {
+    DBG_PRINTLN("sd: remount failed after format");
+    return false;
+  }
   DBG_PRINTLN("sd: format complete");
   return true;
 }
@@ -263,7 +269,7 @@ void SdLogger::append_record_summary(char* out,
     memcpy(&r.t_us, payload, sizeof(RecImuFast) - sizeof(RecHdr));
     snprintf(line,
              sizeof(line),
-             "IMU t=%lu ax=%d ay=%d az=%d gx=%d gy=%d gz=%d",
+             "IMU t=%lu a=%d,%d,%d g=%d,%d,%d",
              (unsigned long)r.t_us,
              (int)r.ax,
              (int)r.ay,
@@ -276,7 +282,7 @@ void SdLogger::append_record_summary(char* out,
     memcpy(&r.t_us, payload, sizeof(RecBaro) - sizeof(RecHdr));
     snprintf(line,
              sizeof(line),
-             "%s t=%lu p=%.1fPa temp=%.2fC",
+             "%s t=%lu p=%.1f T=%.1f",
              (type == REC_BARO2) ? "BARO2" : "BARO",
              (unsigned long)r.t_us,
              (double)r.press_pa_x10 / 10.0,
@@ -286,13 +292,13 @@ void SdLogger::append_record_summary(char* out,
     uint16_t n = 0;
     memcpy(&t_us, payload, sizeof(t_us));
     memcpy(&n, payload + sizeof(t_us), sizeof(n));
-    snprintf(line, sizeof(line), "GNSS t=%lu bytes=%u", (unsigned long)t_us, (unsigned)n);
+    snprintf(line, sizeof(line), "GNSS t=%lu n=%u", (unsigned long)t_us, (unsigned)n);
   } else if (type == REC_TIME_ANCHOR && payload_len >= (sizeof(RecTimeAnchor) - sizeof(RecHdr))) {
     RecTimeAnchor r{};
     memcpy(&r.t_us_at_pps, payload, sizeof(RecTimeAnchor) - sizeof(RecHdr));
     snprintf(line,
              sizeof(line),
-             "TIME t_pps=%lu week=%u tow=%lu fix=%u",
+             "TIME t=%lu w=%u tow=%lu f=%u",
              (unsigned long)r.t_us_at_pps,
              (unsigned)r.gps_week,
              (unsigned long)r.tow_ms,
@@ -302,7 +308,7 @@ void SdLogger::append_record_summary(char* out,
     memcpy(&r.t_us, payload, sizeof(RecEvent) - sizeof(RecHdr));
     snprintf(line,
              sizeof(line),
-             "EVENT t=%lu id=%u val=%d",
+             "EV t=%lu id=%u v=%d",
              (unsigned long)r.t_us,
              (unsigned)r.event_id,
              (int)r.value);
@@ -311,14 +317,14 @@ void SdLogger::append_record_summary(char* out,
     memcpy(&r.t_us, payload, sizeof(RecStats) - sizeof(RecHdr));
     snprintf(line,
              sizeof(line),
-             "STATS t=%lu ring=%lu spool=%lu sd_err=%lu vb=%u",
+             "ST t=%lu rd=%lu sd=%lu e=%lu vb=%u",
              (unsigned long)r.t_us,
              (unsigned long)r.ring_drops,
              (unsigned long)r.spool_drops,
              (unsigned long)r.sd_write_errs,
              (unsigned)r.vbat_mv);
   } else {
-    snprintf(line, sizeof(line), "REC type=0x%02X len=%u", (unsigned)type, (unsigned)payload_len);
+    snprintf(line, sizeof(line), "REC t=0x%02X n=%u", (unsigned)type, (unsigned)payload_len);
   }
 
   append_text(out, out_len, line);
@@ -401,8 +407,8 @@ bool SdLogger::dump_latest_sample(char* out, size_t out_len) {
     return false;
   }
 
-  static constexpr uint8_t kSummaryKeep = 3;
-  char summaries[kSummaryKeep][128];
+  static constexpr uint8_t kSummaryKeep = 15;
+  char summaries[kSummaryKeep][96];
   for (uint8_t i = 0; i < kSummaryKeep; ++i) {
     summaries[i][0] = '\0';
   }
@@ -440,7 +446,7 @@ bool SdLogger::dump_latest_sample(char* out, size_t out_len) {
     remaining -= payload_len;
     rec_count++;
 
-    char line[128];
+    char line[96];
     line[0] = '\0';
     append_record_summary(line, sizeof(line), rec_type, payload_buf, read_len);
     if (summary_count < kSummaryKeep) {
@@ -458,10 +464,11 @@ bool SdLogger::dump_latest_sample(char* out, size_t out_len) {
 
   snprintf(out,
            out_len,
-           "Log %s seq=%lu records=%lu",
+           "Log %s seq=%lu records=%lu show_last=%u",
            target_name,
            (unsigned long)last_hdr.seq,
-           (unsigned long)rec_count);
+           (unsigned long)rec_count,
+           (unsigned)summary_count);
   for (uint8_t i = 0; i < summary_count; ++i) {
     append_text(out, out_len, "\n");
     append_text(out, out_len, summaries[i]);

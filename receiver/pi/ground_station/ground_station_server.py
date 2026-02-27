@@ -1445,8 +1445,8 @@ class CompanionUartBridge:
         payload = bytearray(struct.pack("<BBB", cmd, 1 if ok else 0, err & 0xFF))
         if detail:
             detail_bytes = str(detail).encode("ascii", errors="replace")
-            if len(detail_bytes) > 90:
-                detail_bytes = detail_bytes[:90]
+            if len(detail_bytes) > 120:
+                detail_bytes = detail_bytes[:120]
             payload.extend(detail_bytes)
         frame = self._encode_frame(self.MSG_CMD_ACK, bytes(payload))
         with self._lock:

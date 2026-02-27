@@ -202,7 +202,7 @@ bool UartLink::poll(CompanionState& ioState) {
       String detail;
       if (frame.len > sizeof(CmdAckV1)) {
         const size_t rawLen = static_cast<size_t>(frame.len - sizeof(CmdAckV1));
-        char detailBuf[96];
+        char detailBuf[128];
         size_t copyLen = rawLen;
         if (copyLen >= sizeof(detailBuf)) {
           copyLen = sizeof(detailBuf) - 1;

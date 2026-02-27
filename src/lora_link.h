@@ -160,5 +160,5 @@ private:
   uint32_t ack_retry_after_ms_ = 0;
   uint8_t ack_retries_left_ = 0;
   size_t ack_len_ = 0;
-  uint8_t ack_buf_[64] = {0};
+  uint8_t ack_buf_[255] = {0};
 };

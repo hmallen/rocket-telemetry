@@ -1065,7 +1065,7 @@ void loop() {
     if (lora.pop_command(cmd, &cmd_arg)) {
       bool ack_enabled_state = sd_logging_enabled;
       const char* ack_detail = nullptr;
-      char ack_detail_buf[160];
+      char ack_detail_buf[320];
       ack_detail_buf[0] = '\0';
       if (cmd == LoraCommand::kSdStart) {
         if (!buzzer_busy()) {
@@ -1132,9 +1132,24 @@ void loop() {
         }
         if (!sd_logging_enabled) {
           ack_enabled_state = false;
+          snprintf(ack_detail_buf, sizeof(ack_detail_buf), "sd_rotate requires logging active");
+          ack_detail = ack_detail_buf;
         } else {
-          sd_rotate_log();
-          ack_enabled_state = sd_logging_enabled;
+#if ENABLE_SD_LOGGER
+          const bool close_ok = sdlog.close_log();
+          const bool open_ok = sdlog.open_new_log(PREALLOC_BYTES);
+          const bool rotate_ok = close_ok && open_ok;
+          sd_logging_enabled = rotate_ok;
+          ack_enabled_state = rotate_ok;
+          if (!rotate_ok) {
+            snprintf(ack_detail_buf, sizeof(ack_detail_buf), "Rotate log failed");
+            ack_detail = ack_detail_buf;
+          }
+#else
+          ack_enabled_state = false;
+          snprintf(ack_detail_buf, sizeof(ack_detail_buf), "SD logger disabled");
+          ack_detail = ack_detail_buf;
+#endif
         }
       } else if (cmd == LoraCommand::kSdFormat) {
         if (!buzzer_busy()) {
