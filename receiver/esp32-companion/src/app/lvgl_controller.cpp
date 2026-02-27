@@ -640,11 +640,6 @@ void LvglController::buildUi() {
                    this,
                    kSettingsButtonHeight);
   makeActionButton(settingsActions_,
-                   "SCREEN CALIBRATION",
-                   onCalibrateEvent,
-                   this,
-                   kSettingsButtonHeight);
-  makeActionButton(settingsActions_,
                    "SOUND SETTINGS",
                    onSoundSettingsOpenEvent,
                    this,
@@ -742,6 +737,12 @@ void LvglController::buildUi() {
     lv_obj_clear_state(touchDebugCheckbox, LV_STATE_CHECKED);
   }
   lv_obj_add_event_cb(touchDebugCheckbox, onTouchDebugToggleEvent, LV_EVENT_VALUE_CHANGED, this);
+
+  makeActionButton(settingsActions_,
+                   "SCREEN CALIBRATION",
+                   onCalibrateEvent,
+                   this,
+                   kSettingsButtonHeight);
 
   soundSettingsPanel_ = lv_obj_create(settingsBody_);
   lv_obj_set_width(soundSettingsPanel_, LV_PCT(100));
