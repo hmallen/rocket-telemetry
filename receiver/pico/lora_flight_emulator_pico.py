@@ -398,7 +398,7 @@ class RecoveryState:
 
         self.vspeed_cms = 0
         dt_ms = now_ms - self.last_t_ms
-        if dt_ms > 0 and dt_ms <= 10_000:
+        if self.liftoff_detected and dt_ms > 0 and dt_ms <= 10_000:
             # Mirror rocket firmware behavior: derive vertical speed from AGL, not raw GPS altitude.
             self.vspeed_cms = clamp_i((self.agl_mm - self.last_alt_mm) * 100 / dt_ms, -32768, 32767)
 

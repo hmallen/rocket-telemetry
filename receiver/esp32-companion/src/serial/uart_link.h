@@ -24,10 +24,15 @@ class UartLink {
   uint32_t rxFrames_ = 0;
   uint32_t txFrames_ = 0;
   uint32_t lastDbgMs_ = 0;
+  bool haveAltHistory_ = false;
+  uint32_t lastAltSampleTms_ = 0;
+  float lastBaroAltM_ = NAN;
+  float lastGpsAltM_ = NAN;
 
   void applyTelemetry(const companion_proto::TelemetryV1& t,
                       bool hasTxPower,
                       bool hasRecoveryEvents,
                       CompanionState& ioState);
+  void updateDerivedVerticalSpeeds(uint32_t sampleTms, CompanionState& ioState);
   void debugTick();
 };

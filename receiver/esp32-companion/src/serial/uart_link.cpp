@@ -10,6 +10,29 @@ using namespace companion_proto;
 UartLink::UartLink(HardwareSerial& serial, uint32_t baud, int rxPin, int txPin)
     : serial_(serial), baud_(baud), rxPin_(rxPin), txPin_(txPin) {}
 
+void UartLink::updateDerivedVerticalSpeeds(uint32_t sampleTms, CompanionState& ioState) {
+  ioState.alt.baroVerticalSpeedMps = NAN;
+  ioState.alt.gpsVerticalSpeedMps = NAN;
+
+  if (haveAltHistory_) {
+    const uint32_t dtMs = sampleTms - lastAltSampleTms_;
+    if (dtMs > 0 && dtMs <= 10000) {
+      const float dtS = static_cast<float>(dtMs) / 1000.0f;
+      if (!isnan(ioState.alt.altitudeAglM) && !isnan(lastBaroAltM_)) {
+        ioState.alt.baroVerticalSpeedMps = (ioState.alt.altitudeAglM - lastBaroAltM_) / dtS;
+      }
+      if (!isnan(ioState.alt.gpsAltitudeM) && !isnan(lastGpsAltM_)) {
+        ioState.alt.gpsVerticalSpeedMps = (ioState.alt.gpsAltitudeM - lastGpsAltM_) / dtS;
+      }
+    }
+  }
+
+  haveAltHistory_ = true;
+  lastAltSampleTms_ = sampleTms;
+  lastBaroAltM_ = ioState.alt.altitudeAglM;
+  lastGpsAltM_ = ioState.alt.gpsAltitudeM;
+}
+
 void UartLink::begin() {
   if (&serial_ == &Serial) {
     // UART0 is fixed on GPIO3/GPIO1; do not pass remap pins.
@@ -37,6 +60,7 @@ void UartLink::applyTelemetry(const TelemetryV1& t,
   ioState.alt.altitudeAglM = static_cast<float>(t.alt_mm) / 1000.0f;
   ioState.alt.gpsAltitudeM = (t.gps_alt_mm == INT32_MIN) ? NAN : (static_cast<float>(t.gps_alt_mm) / 1000.0f);
   ioState.alt.verticalSpeedMps = static_cast<float>(t.vs_cms) / 100.0f;
+  updateDerivedVerticalSpeeds(t.t_ms, ioState);
 
   ioState.battery.telemetryVbatV = static_cast<float>(t.vbat_mv) / 1000.0f;
   ioState.battery.groundVbatV =
@@ -126,6 +150,7 @@ bool UartLink::poll(CompanionState& ioState) {
         ioState.alt.altitudeAglM = static_cast<float>(t.alt_mm) / 1000.0f;
         ioState.alt.gpsAltitudeM = NAN;
         ioState.alt.verticalSpeedMps = static_cast<float>(t.vs_cms) / 100.0f;
+        updateDerivedVerticalSpeeds(t.t_ms, ioState);
 
         ioState.battery.telemetryVbatV = static_cast<float>(t.vbat_mv) / 1000.0f;
         ioState.battery.groundVbatV =

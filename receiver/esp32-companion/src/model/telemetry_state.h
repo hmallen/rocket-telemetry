@@ -20,7 +20,12 @@ struct AltState {
   float altitudeAglM = NAN;
   // Absolute GPS altitude from GNSS solution.
   float gpsAltitudeM = NAN;
+  // Recovery vertical speed downlinked from flight computer (cm/s over LoRa, converted to m/s here).
   float verticalSpeedMps = NAN;
+  // Companion-derived vertical speed from BARO/AGL altitude delta.
+  float baroVerticalSpeedMps = NAN;
+  // Companion-derived vertical speed from GPS altitude delta.
+  float gpsVerticalSpeedMps = NAN;
 };
 
 struct BatteryState {

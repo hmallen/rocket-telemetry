@@ -2316,10 +2316,18 @@ void LvglController::refreshUi() {
 
   const String baroAltText = formatFloat(state_.alt.altitudeAglM, 1);
   const String gpsAltText = formatFloat(state_.alt.gpsAltitudeM, 1);
-  const String vsText = formatFloat(state_.alt.verticalSpeedMps, 1);
+  const String vsRecoveryText = formatFloat(state_.alt.verticalSpeedMps, 1);
+  const String vsBaroText = formatFloat(state_.alt.baroVerticalSpeedMps, 1);
+  const String vsGpsText = formatFloat(state_.alt.gpsVerticalSpeedMps, 1);
 
-  lv_label_set_text_fmt(altitudeLabel_, "BARO %s m\nGPS  %s m\nVS  %s m/s", baroAltText.c_str(), gpsAltText.c_str(), vsText.c_str());
-  //lv_label_set_text_fmt(vsLabel_, "VS  %s m/s", vsText.c_str());
+  lv_label_set_text_fmt(altitudeLabel_,
+                        "BARO %s m\nGPS  %s m\nVS-R %s m/s\nVS-B %s m/s\nVS-G %s m/s",
+                        baroAltText.c_str(),
+                        gpsAltText.c_str(),
+                        vsRecoveryText.c_str(),
+                        vsBaroText.c_str(),
+                        vsGpsText.c_str());
+  //lv_label_set_text_fmt(vsLabel_, "VS  %s m/s", vsRecoveryText.c_str());
 
   lv_label_set_text_fmt(packetLabel_, "Packets: %lu", static_cast<unsigned long>(state_.flight.packetCount));
   lv_label_set_text_fmt(callsignLabel_, "Callsign: %s",

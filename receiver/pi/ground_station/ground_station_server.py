@@ -726,16 +726,74 @@ class TelemetryStore:
                         "bat_state_label": BAT_STATE_LABELS.get(bat_state, "UNKNOWN"),
                     })
                 elif payload_type == "recovery":
-                    drogue_deployed = bool(parsed.get("drogue_deployed"))
-                    main_deployed = bool(parsed.get("main_deployed"))
+                    prev_recovery = self._state.get("recovery", {})
+                    prev_drogue = prev_recovery.get("drogue", {})
+                    prev_main = prev_recovery.get("main", {})
+
+                    phase = parsed.get("phase") or "unknown"
+                    phase_lower = phase.lower() if isinstance(phase, str) else "unknown"
+
+                    raw_launch_detected = bool(parsed.get("launch_detected"))
+                    raw_apogee = bool(parsed.get("apogee"))
+                    raw_drogue_deployed = bool(parsed.get("drogue_deployed"))
+                    raw_main_deployed = bool(parsed.get("main_deployed"))
+                    raw_landing_detected = bool(parsed.get("landing_detected"))
+
+                    # New preflight cycle from clean idle frame: clear latched event state.
+                    cycle_reset = (
+                        phase_lower == "idle"
+                        and not raw_launch_detected
+                        and not raw_apogee
+                        and not raw_drogue_deployed
+                        and not raw_main_deployed
+                        and not raw_landing_detected
+                    )
+
+                    prev_launch_detected = bool(prev_recovery.get("launch_detected")) if not cycle_reset else False
+                    prev_apogee = bool(prev_recovery.get("apogee")) if not cycle_reset else False
+                    prev_drogue_deployed = bool(prev_drogue.get("deployed")) if not cycle_reset else False
+                    prev_main_deployed = bool(prev_main.get("deployed")) if not cycle_reset else False
+                    prev_landing_detected = bool(prev_recovery.get("landing_detected")) if not cycle_reset else False
+
+                    # Latch forward and enforce rough sequence ordering so spurious frames
+                    # cannot produce impossible transitions (e.g., landing right after launch).
+                    launch_detected = prev_launch_detected or raw_launch_detected
+                    apogee = prev_apogee or (raw_apogee and launch_detected)
+                    drogue_deployed = prev_drogue_deployed or (
+                        raw_drogue_deployed and (apogee or raw_apogee or launch_detected)
+                    )
+                    main_deployed = prev_main_deployed or (
+                        raw_main_deployed
+                        and (drogue_deployed or raw_drogue_deployed or apogee or raw_apogee or launch_detected)
+                    )
+                    landing_detected = prev_landing_detected or (
+                        raw_landing_detected
+                        and main_deployed
+                        and phase_lower in ("descent", "landed")
+                    )
+
                     sensors_calibrated = bool(parsed.get("sensors_calibrated"))
-                    launch_detected = bool(parsed.get("launch_detected"))
-                    apogee = bool(parsed.get("apogee"))
-                    landing_detected = bool(parsed.get("landing_detected"))
+
+                    drogue_deploy_alt = parsed.get("drogue_deploy_alt_agl_m")
+                    if drogue_deployed and drogue_deploy_alt is None:
+                        drogue_deploy_alt = prev_drogue.get("deploy_alt_agl_m")
+
+                    main_deploy_alt = parsed.get("main_deploy_alt_agl_m")
+                    if main_deployed and main_deploy_alt is None:
+                        main_deploy_alt = prev_main.get("deploy_alt_agl_m")
+
+                    drogue_reason = None
+                    if drogue_deployed:
+                        drogue_reason = parsed.get("drogue_reason") if raw_drogue_deployed else prev_drogue.get("reason")
+
+                    main_reason = None
+                    if main_deployed:
+                        main_reason = parsed.get("main_reason") if raw_main_deployed else prev_main.get("reason")
+
                     self._state["recovery"].update({
                         "enabled": True,
                         "mode": "downlink",
-                        "phase": parsed.get("phase") or "unknown",
+                        "phase": phase,
                         "sensors_calibrated": sensors_calibrated,
                         "launch_armed": bool(parsed.get("launch_armed")),
                         "gps_fix_3d": bool(parsed.get("gps_fix_3d")),
@@ -749,14 +807,14 @@ class TelemetryStore:
                         "drogue": {
                             "deployed": drogue_deployed,
                             "deploy_timestamp": None,
-                            "deploy_alt_agl_m": parsed.get("drogue_deploy_alt_agl_m"),
-                            "reason": parsed.get("drogue_reason") if drogue_deployed else None,
+                            "deploy_alt_agl_m": drogue_deploy_alt,
+                            "reason": drogue_reason,
                         },
                         "main": {
                             "deployed": main_deployed,
                             "deploy_timestamp": None,
-                            "deploy_alt_agl_m": parsed.get("main_deploy_alt_agl_m"),
-                            "reason": parsed.get("main_reason") if main_deployed else None,
+                            "deploy_alt_agl_m": main_deploy_alt,
+                            "reason": main_reason,
                         },
                         "rules": None,
                     })

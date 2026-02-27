@@ -120,6 +120,29 @@ void ApiClient::closeEventStream() {
   dataBuffer_ = "";
 }
 
+void ApiClient::updateDerivedVerticalSpeeds(uint32_t sampleTms, CompanionState& ioState) {
+  ioState.alt.baroVerticalSpeedMps = NAN;
+  ioState.alt.gpsVerticalSpeedMps = NAN;
+
+  if (haveAltHistory_) {
+    const uint32_t dtMs = sampleTms - lastAltSampleTms_;
+    if (dtMs > 0 && dtMs <= 10000) {
+      const float dtS = static_cast<float>(dtMs) / 1000.0f;
+      if (!isnan(ioState.alt.altitudeAglM) && !isnan(lastBaroAltM_)) {
+        ioState.alt.baroVerticalSpeedMps = (ioState.alt.altitudeAglM - lastBaroAltM_) / dtS;
+      }
+      if (!isnan(ioState.alt.gpsAltitudeM) && !isnan(lastGpsAltM_)) {
+        ioState.alt.gpsVerticalSpeedMps = (ioState.alt.gpsAltitudeM - lastGpsAltM_) / dtS;
+      }
+    }
+  }
+
+  haveAltHistory_ = true;
+  lastAltSampleTms_ = sampleTms;
+  lastBaroAltM_ = ioState.alt.altitudeAglM;
+  lastGpsAltM_ = ioState.alt.gpsAltitudeM;
+}
+
 void ApiClient::markLastRx() { lastRxMs_ = millis(); }
 
 bool ApiClient::sendCommand(const String& action, int durationS) {
@@ -159,6 +182,14 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
   JsonObject state = doc["state"].is<JsonObject>() ? doc["state"].as<JsonObject>() : JsonObject();
   if (state.isNull()) return false;
 
+  uint32_t sampleTms = millis();
+  if (!state["ts"].isNull()) {
+    const double stateTs = state["ts"].as<double>();
+    if (stateTs > 0.0) {
+      sampleTms = static_cast<uint32_t>(stateTs * 1000.0);
+    }
+  }
+
   ioState.seq = state["seq"] | ioState.seq;
   ioState.tsMs = millis();
 
@@ -180,6 +211,7 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
   ioState.alt.altitudeAglM = isnan(baroAlt) ? gpsAlt : baroAlt;
   ioState.alt.gpsAltitudeM = gpsAlt;
   ioState.alt.verticalSpeedMps = recovery["vertical_speed_mps"].isNull() ? NAN : (float)recovery["vertical_speed_mps"].as<float>();
+  updateDerivedVerticalSpeeds(sampleTms, ioState);
 
   if (!recovery.isNull() && !recovery["launch_armed"].isNull()) {
     ioState.recoveryLaunchArmed = recovery["launch_armed"].as<bool>();
