@@ -1291,7 +1291,7 @@ class CompanionUartBridge:
         if self._ser is not None:
             try:
                 self._ser.close()
-            except Exception:  # pylint: disable=broad-except
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
                 pass
         self._ser = None
 
@@ -1394,7 +1394,7 @@ class CompanionUartBridge:
             try:
                 self._ser.write(frame)
                 self._tx_frames += 1
-            except Exception:  # pylint: disable=broad-except
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
                 pass
         self._debug_tick()
 
@@ -1406,7 +1406,7 @@ class CompanionUartBridge:
         with self._lock:
             try:
                 self._ser.write(frame)
-            except Exception:  # pylint: disable=broad-except
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
                 pass
 
     def _handle_cmd(self, cmd, arg):
@@ -1446,7 +1446,7 @@ class CompanionUartBridge:
         while self._running:
             try:
                 chunk = self._ser.read(128)
-            except Exception:  # pylint: disable=broad-except
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
                 time.sleep(0.05)
                 continue
 
@@ -1992,7 +1992,7 @@ class GroundStationHandler(BaseHTTPRequestHandler):
 
                 self.wfile.write(f"data: {data}\n\n".encode("utf-8"))
                 self.wfile.flush()
-        except Exception:  # pylint: disable=broad-except
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             # FIX: Catch all connection errors (BrokenPipeError, ConnectionResetError,
             # ConnectionAbortedError, OSError, etc.) to ensure client cleanup always runs.
             # Client disconnects can manifest in various ways depending on OS and network state.
@@ -2034,7 +2034,7 @@ class GroundStationHandler(BaseHTTPRequestHandler):
 
                 self.wfile.write(f"event: telemetry\ndata: {data}\n\n".encode("utf-8"))
                 self.wfile.flush()
-        except Exception:  # pylint: disable=broad-except
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             pass
         finally:
             with COMPANION_CLIENTS_LOCK:
