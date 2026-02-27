@@ -260,6 +260,7 @@ class LvglController {
   static void onCalibrateEvent(lv_event_t* e);
   static void onCalibrationCancelEvent(lv_event_t* e);
   static void onAltCalibrateEvent(lv_event_t* e);
+  static void onPhaseResetEvent(lv_event_t* e);
   static void onImuCalibrateEvent(lv_event_t* e);
   static void onShutdownEvent(lv_event_t* e);
   static void onBuzzerToggleEvent(lv_event_t* e);

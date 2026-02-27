@@ -1648,6 +1648,8 @@ def send_lora_command(action, duration_s=None, tx_power_dbm=None):
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_TELEM_DISABLE])
     elif action == "alt_calibrate":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_ALT_CALIBRATE])
+    elif action == "phase_reset":
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_ALT_CALIBRATE])
     elif action == "imu_calibrate":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_IMU_CALIBRATE])
     elif action == "telemetry_tx_power":

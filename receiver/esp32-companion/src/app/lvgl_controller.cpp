@@ -659,7 +659,7 @@ void LvglController::buildUi() {
                    kSettingsButtonHeight);
   makeActionButton(settingsActions_,
                    "RESET FLIGHT PHASE",
-                   onAltCalibrateEvent,
+                   onPhaseResetEvent,
                    this,
                    kSettingsButtonHeight);
   makeActionButton(settingsActions_,
@@ -2041,6 +2041,8 @@ bool LvglController::sendAction(const String& action, int durationS) {
     pretty = "BUZZER " + String(durationS) + "s";
   } else if (action == "telemetry_tx_power") {
     pretty = "TELEM TX POWER " + String(durationS) + "dBm";
+  } else if (action == "phase_reset") {
+    pretty = "RESET FLIGHT PHASE";
   } else if (action == "launch_arm" && durationS != 0) {
     pretty = "LAUNCH ARM (NO GPS)";
   }
@@ -2802,6 +2804,47 @@ void LvglController::onAltCalibrateEvent(lv_event_t* e) {
       self->queueSoundCue(SoundCue::kCalibrating);
       self->queueSoundCue(SoundCue::kSensorsReady);
     }
+
+    self->hasRecoveryDeployHistory_ = true;
+    self->lastRecoveryDrogueDeployed_ = self->state_.recoveryDrogueDeployed;
+    self->lastRecoveryMainDeployed_ = self->state_.recoveryMainDeployed;
+    self->hasRecoveryEventHistory_ = true;
+    self->lastRecoveryLaunchDetected_ = self->state_.recoveryLaunchDetected;
+    self->lastRecoveryApogee_ = self->state_.recoveryApogee;
+    self->lastRecoveryLandingDetected_ = self->state_.recoveryLandingDetected;
+  }
+
+  self->panelCollapsed_ = true;
+  self->settingsCollapsed_ = true;
+  self->setSoundSettingsVisible(false);
+  if (self->actionPanel_ != nullptr) {
+    lv_obj_add_flag(self->actionPanel_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (self->settingsBody_ != nullptr) {
+    lv_obj_add_flag(self->settingsBody_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (self->telemetryPanel_ != nullptr) {
+    lv_obj_update_layout(self->telemetryPanel_);
+  }
+
+  self->refreshUi();
+}
+
+void LvglController::onPhaseResetEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+
+  if (self->sendAction("phase_reset", 0)) {
+    self->soundQueueHead_ = 0;
+    self->soundQueueTail_ = 0;
+    self->soundQueueCount_ = 0;
+    self->apogeeCalloutPending_ = false;
+    self->phaseResetRequested_ = true;
+    self->queueSoundCue(SoundCue::kPowerOn);
+    self->queueSoundCue(SoundCue::kCalibrating);
+    self->queueSoundCue(SoundCue::kSensorsReady);
 
     self->hasRecoveryDeployHistory_ = true;
     self->lastRecoveryDrogueDeployed_ = self->state_.recoveryDrogueDeployed;
