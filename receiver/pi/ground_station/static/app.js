@@ -1521,7 +1521,8 @@ function updateFromTelemetry(snapshot) {
   elements.navsatHdop.textContent = navsat.hdop !== null && navsat.hdop !== undefined
     ? formatNumber(navsat.hdop, 2)
     : "--";
-  elements.navsatFix3d.textContent = snapshot.recovery?.gps_fix_3d === true ? "3D FIX" : "NO FIX";
+  const navsatRecovery = snapshot.recovery || {};
+  elements.navsatFix3d.textContent = navsatRecovery.gps_fix_3d === true ? "3D FIX" : "NO FIX";
   elements.navsatCnoMax.textContent = navsat.cno_max !== null && navsat.cno_max !== undefined
     ? `${navsat.cno_max} dB-Hz`
     : "--";
