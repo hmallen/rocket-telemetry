@@ -691,7 +691,8 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(txPowerConfigRow_, LV_OBJ_FLAG_CLICKABLE);
 
   txPowerSlider_ = lv_slider_create(txPowerConfigRow_);
-  lv_obj_set_width(txPowerSlider_, 126);
+  lv_obj_set_width(txPowerSlider_, 1);
+  lv_obj_set_flex_grow(txPowerSlider_, 1);
   lv_slider_set_range(txPowerSlider_, kTelemetryTxPowerMinDbm, kTelemetryTxPowerMaxDbm);
   lv_slider_set_value(txPowerSlider_, txPowerDbm_, LV_ANIM_OFF);
   lv_obj_add_event_cb(txPowerSlider_, onTxPowerChangedEvent, LV_EVENT_VALUE_CHANGED, this);
