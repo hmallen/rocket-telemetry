@@ -2718,11 +2718,17 @@ void LvglController::readTouchCb(lv_indev_t* indev, lv_indev_data_t* data) {
 
 void LvglController::onPanelToggleEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   self->togglePanel();
 }
 
 void LvglController::onSettingsToggleEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   self->toggleSettings();
 }
 
@@ -2747,6 +2753,9 @@ void LvglController::onArmNoGpsToggleEvent(lv_event_t* e) {
 
 void LvglController::onCalibrateEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   self->startCalibration();
 }
 
@@ -2826,6 +2835,9 @@ void LvglController::onImuCalibrateEvent(lv_event_t* e) {
 
 void LvglController::onShutdownEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   if (self->commandLockoutActive_) {
     self->setCommandStatus("Shutdown locked until landing", false);
     self->refreshUi();
@@ -2837,12 +2849,15 @@ void LvglController::onShutdownEvent(lv_event_t* e) {
 
 void LvglController::onBuzzerToggleEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   self->setBuzzerConfigVisible(!self->buzzerConfigVisible_);
 }
 
 void LvglController::onBuzzerDurationChangedEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
-  if (self->buzzerDurationSlider_ == nullptr) {
+  if (self == nullptr || self->buzzerDurationSlider_ == nullptr) {
     return;
   }
   int value = lv_slider_get_value(self->buzzerDurationSlider_);
@@ -2859,6 +2874,9 @@ void LvglController::onBuzzerDurationChangedEvent(lv_event_t* e) {
 
 void LvglController::onBuzzerSendEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   self->sendAction("buzzer", self->buzzerDurationS_);
   self->refreshUi();
 }
@@ -2999,6 +3017,9 @@ void LvglController::onSoundVolumeChangedEvent(lv_event_t* e) {
 
 void LvglController::onSdToggleEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   const lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_PRESSED) {
     if (!self->sdLoggingEnabled_) {
@@ -3013,6 +3034,9 @@ void LvglController::onSdToggleEvent(lv_event_t* e) {
 
 void LvglController::onTxToggleEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   const lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_PRESSED) {
     if (!self->telemetryTxEnabled_) {
