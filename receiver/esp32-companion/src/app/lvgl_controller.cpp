@@ -2762,6 +2762,9 @@ void LvglController::onCalibrationCancelEvent(lv_event_t* e) {
 
 void LvglController::onAltCalibrateEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   if (self->sendAction("alt_calibrate", 0)) {
     self->soundQueueHead_ = 0;
     self->soundQueueTail_ = 0;
@@ -2774,19 +2777,50 @@ void LvglController::onAltCalibrateEvent(lv_event_t* e) {
     self->lastRecoveryLaunchDetected_ = false;
     self->lastRecoveryApogee_ = false;
     self->lastRecoveryLandingDetected_ = false;
-    self->queueSoundCue(SoundCue::kArmed);
+    self->queueSoundCue(SoundCue::kPowerOn);
     self->queueSoundCue(SoundCue::kCalibrating);
     self->queueSoundCue(SoundCue::kSensorsReady);
   }
+
+  self->panelCollapsed_ = true;
+  self->settingsCollapsed_ = true;
+  self->setSoundSettingsVisible(false);
+  if (self->actionPanel_ != nullptr) {
+    lv_obj_add_flag(self->actionPanel_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (self->settingsBody_ != nullptr) {
+    lv_obj_add_flag(self->settingsBody_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (self->telemetryPanel_ != nullptr) {
+    lv_obj_update_layout(self->telemetryPanel_);
+  }
+
   self->refreshUi();
 }
 
 void LvglController::onImuCalibrateEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
   if (self->sendAction("imu_calibrate", 0)) {
     self->queueSoundCue(SoundCue::kCalibrating);
     self->queueSoundCue(SoundCue::kSensorsReady);
   }
+
+  self->panelCollapsed_ = true;
+  self->settingsCollapsed_ = true;
+  self->setSoundSettingsVisible(false);
+  if (self->actionPanel_ != nullptr) {
+    lv_obj_add_flag(self->actionPanel_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (self->settingsBody_ != nullptr) {
+    lv_obj_add_flag(self->settingsBody_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (self->telemetryPanel_ != nullptr) {
+    lv_obj_update_layout(self->telemetryPanel_);
+  }
+
   self->refreshUi();
 }
 
