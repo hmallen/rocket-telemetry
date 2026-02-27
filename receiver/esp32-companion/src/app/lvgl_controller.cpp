@@ -1208,6 +1208,7 @@ void LvglController::handleEventSoundTriggers(const String& previousPhase,
       if (!lastRecoveryLandingDetected_ && state_.recoveryLandingDetected) {
         queueSoundCue(SoundCue::kLandingDetected);
         apogeeCalloutPending_ = true;
+        apogeeCalloutReadyAtMs_ = millis() + kApogeeCalloutDelayMs;
       }
     }
 
@@ -1239,6 +1240,7 @@ void LvglController::handleEventSoundTriggers(const String& previousPhase,
       lastRecoveryLandingDetected_ = false;
       maxObservedAglM_ = NAN;
       apogeeCalloutPending_ = false;
+      apogeeCalloutReadyAtMs_ = 0;
     }
 
     const bool prevInAscent = phaseEquals(previousPhase, "ascent") || phaseEquals(previousPhase, "boost") ||
@@ -1273,6 +1275,7 @@ void LvglController::handleEventSoundTriggers(const String& previousPhase,
       queueSoundCue(SoundCue::kLaunchDetected);
       maxObservedAglM_ = currentAglM;
       apogeeCalloutPending_ = false;
+      apogeeCalloutReadyAtMs_ = 0;
     }
 
     if (phaseEquals(currentPhase, "descent") && prevInAscent) {
@@ -1282,6 +1285,7 @@ void LvglController::handleEventSoundTriggers(const String& previousPhase,
     if (phaseEquals(currentPhase, "landed") && !phaseEquals(previousPhase, "landed")) {
       queueSoundCue(SoundCue::kLandingDetected);
       apogeeCalloutPending_ = true;
+      apogeeCalloutReadyAtMs_ = millis() + kApogeeCalloutDelayMs;
     }
   }
 
@@ -2598,9 +2602,11 @@ void LvglController::tick() {
   updatePendingCommandTimeouts(now);
   updateStaleness();
   playNextQueuedSound();
-  if (apogeeCalloutPending_ && soundEnabled_ && soundQueueCount_ == 0) {
+  if (apogeeCalloutPending_ && soundEnabled_ && soundQueueCount_ == 0 &&
+      apogeeCalloutReadyAtMs_ != 0 && now >= apogeeCalloutReadyAtMs_) {
     (void)playApogeeAltitudeCallout();
     apogeeCalloutPending_ = false;
+    apogeeCalloutReadyAtMs_ = 0;
   }
 
   const bool statusVisible = cmdMsg_.length() > 0 && (now - cmdTs_) <= kCommandStatusShowMs;

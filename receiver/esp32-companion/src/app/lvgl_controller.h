@@ -92,6 +92,8 @@ class LvglController {
   bool phaseResetRequested_ = false;
   float maxObservedAglM_ = NAN;
   bool apogeeCalloutPending_ = false;
+  uint32_t apogeeCalloutReadyAtMs_ = 0;
+  static constexpr uint32_t kApogeeCalloutDelayMs = 3000;
   static constexpr uint8_t kSoundQueueCapacity = 16;
   SoundCue soundQueue_[kSoundQueueCapacity] = {};
   uint8_t soundQueueHead_ = 0;
