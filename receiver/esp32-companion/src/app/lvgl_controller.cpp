@@ -590,6 +590,9 @@ void LvglController::buildUi() {
   setBuzzerConfigVisible(false);
   lv_obj_add_flag(actionPanel_, LV_OBJ_FLAG_HIDDEN);
 
+  // Resolve percentage/flex layout before deriving pixel height for settings panel.
+  lv_obj_update_layout(root_);
+
   settingsBody_ = lv_obj_create(telemetryPanel_);
   lv_obj_set_width(settingsBody_, kSettingsPanelWidth);
   const lv_coord_t settingsBodyHeight =
