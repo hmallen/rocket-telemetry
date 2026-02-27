@@ -658,6 +658,11 @@ void LvglController::buildUi() {
                    this,
                    kSettingsButtonHeight);
   makeActionButton(settingsActions_,
+                   "RESET FLIGHT PHASE",
+                   onAltCalibrateEvent,
+                   this,
+                   kSettingsButtonHeight);
+  makeActionButton(settingsActions_,
                    "IMU CALIBRATION",
                    onImuCalibrateEvent,
                    this,
@@ -1366,6 +1371,11 @@ bool LvglController::playApogeeAltitudeCallout() {
   }
   if (apogeeM > 10000) {
     apogeeM = 10000;
+  }
+
+  bool played = playWavFromSd(cueFilePath(SoundCue::kApogee));
+  if (!played) {
+    (void)playWavFromSd(kFallbackSoundFileApogee);
   }
 
   if (!playNumberCue(apogeeM)) {
