@@ -592,8 +592,9 @@ void LvglController::buildUi() {
 
   settingsBody_ = lv_obj_create(telemetryPanel_);
   lv_obj_set_width(settingsBody_, kSettingsPanelWidth);
-  lv_obj_set_height(settingsBody_,
-                    kScreenHeight - kSettingsPanelTopOffsetPx - kSettingsPanelBottomMarginPx);
+  const lv_coord_t settingsBodyHeight =
+      lv_obj_get_content_height(telemetryPanel_) - kSettingsPanelTopOffsetPx - kSettingsPanelBottomMarginPx;
+  lv_obj_set_height(settingsBody_, settingsBodyHeight > 0 ? settingsBodyHeight : 0);
   lv_obj_set_style_bg_color(settingsBody_, lv_color_hex(0x111c2e), 0);
   lv_obj_set_style_border_color(settingsBody_, lv_color_hex(0x2a446a), 0);
   lv_obj_set_style_border_width(settingsBody_, 1, 0);
