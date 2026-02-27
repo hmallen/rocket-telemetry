@@ -593,7 +593,7 @@ void LvglController::buildUi() {
   settingsBody_ = lv_obj_create(telemetryPanel_);
   lv_obj_set_width(settingsBody_, kSettingsPanelWidth);
   const lv_coord_t settingsBodyHeight =
-      lv_obj_get_content_height(telemetryPanel_) - kSettingsPanelTopOffsetPx - kSettingsPanelBottomMarginPx;
+      lv_obj_get_height(telemetryPanel_) - kSettingsPanelTopOffsetPx - kSettingsPanelBottomMarginPx;
   lv_obj_set_height(settingsBody_, settingsBodyHeight > 0 ? settingsBodyHeight : 0);
   lv_obj_set_style_bg_color(settingsBody_, lv_color_hex(0x111c2e), 0);
   lv_obj_set_style_border_color(settingsBody_, lv_color_hex(0x2a446a), 0);
@@ -645,18 +645,6 @@ void LvglController::buildUi() {
                    onSoundSettingsOpenEvent,
                    this,
                    kSettingsButtonHeight);
-
-  armNoGpsCheckbox_ = lv_checkbox_create(settingsActions_);
-  lv_checkbox_set_text(armNoGpsCheckbox_, "Allow arm without GPS fix");
-  lv_obj_set_width(armNoGpsCheckbox_, LV_PCT(100));
-  lv_obj_set_style_text_color(armNoGpsCheckbox_, lv_color_hex(0xeaf1ff), 0);
-  lv_obj_set_style_text_color(armNoGpsCheckbox_, lv_color_hex(0xeaf1ff), LV_STATE_CHECKED);
-  if (allowArmWithoutGpsFix_) {
-    lv_obj_add_state(armNoGpsCheckbox_, LV_STATE_CHECKED);
-  } else {
-    lv_obj_clear_state(armNoGpsCheckbox_, LV_STATE_CHECKED);
-  }
-  lv_obj_add_event_cb(armNoGpsCheckbox_, onArmNoGpsToggleEvent, LV_EVENT_VALUE_CHANGED, this);
 
   lv_obj_t* txPowerTitle = lv_label_create(settingsActions_);
   lv_label_set_text(txPowerTitle, "TELEMETRY TX POWER");
@@ -738,6 +726,18 @@ void LvglController::buildUi() {
     lv_obj_clear_state(touchDebugCheckbox, LV_STATE_CHECKED);
   }
   lv_obj_add_event_cb(touchDebugCheckbox, onTouchDebugToggleEvent, LV_EVENT_VALUE_CHANGED, this);
+
+  armNoGpsCheckbox_ = lv_checkbox_create(settingsActions_);
+  lv_checkbox_set_text(armNoGpsCheckbox_, "Allow arm without GPS fix");
+  lv_obj_set_width(armNoGpsCheckbox_, LV_PCT(100));
+  lv_obj_set_style_text_color(armNoGpsCheckbox_, lv_color_hex(0xeaf1ff), 0);
+  lv_obj_set_style_text_color(armNoGpsCheckbox_, lv_color_hex(0xeaf1ff), LV_STATE_CHECKED);
+  if (allowArmWithoutGpsFix_) {
+    lv_obj_add_state(armNoGpsCheckbox_, LV_STATE_CHECKED);
+  } else {
+    lv_obj_clear_state(armNoGpsCheckbox_, LV_STATE_CHECKED);
+  }
+  lv_obj_add_event_cb(armNoGpsCheckbox_, onArmNoGpsToggleEvent, LV_EVENT_VALUE_CHANGED, this);
 
   makeActionButton(settingsActions_,
                    "SCREEN CALIBRATION",
