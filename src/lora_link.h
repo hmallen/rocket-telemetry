@@ -56,7 +56,7 @@ private:
   void poll_rx_(uint32_t now_ms);
   bool handle_command_(const uint8_t* data, size_t len);
   void reset_recovery_state_();
-  static int32_t agl_from_press_mm_(int32_t press_pa_x10, int32_t ref_press_pa_x10);
+  public: static int32_t agl_from_press_mm_(int32_t press_pa_x10, int32_t ref_press_pa_x10);
   bool start_id_tx_(uint32_t now_ms, uint16_t vbat_mv);
   bool start_alt_tx_(uint32_t now_ms,
                      int32_t press_pa_x10,
