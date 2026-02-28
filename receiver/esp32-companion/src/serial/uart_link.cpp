@@ -8,6 +8,26 @@
 
 using namespace companion_proto;
 
+namespace {
+
+String parseCallsignFromTail(const uint8_t* payload, size_t payloadLen, size_t baseLen) {
+  if (payload == nullptr || payloadLen <= baseLen) {
+    return String();
+  }
+
+  const size_t tailLen = payloadLen - baseLen;
+  char buf[25];
+  const size_t copyLen = (tailLen < (sizeof(buf) - 1)) ? tailLen : (sizeof(buf) - 1);
+  memcpy(buf, payload + baseLen, copyLen);
+  buf[copyLen] = '\0';
+
+  String callsign(buf);
+  callsign.trim();
+  return callsign;
+}
+
+}  // namespace
+
 UartLink::UartLink(HardwareSerial& serial, uint32_t baud, int rxPin, int txPin)
     : serial_(serial), baud_(baud), rxPin_(rxPin), txPin_(txPin) {}
 
@@ -138,24 +158,32 @@ bool UartLink::poll(CompanionState& ioState) {
         TelemetryV1 t{};
         memcpy(&t, frame.payload, sizeof(TelemetryV1));
         applyTelemetry(t, true, true, true, ioState);
+        ioState.flight.callsign =
+            parseCallsignFromTail(frame.payload, frame.len, sizeof(TelemetryV1));
         updated = true;
         rxFrames_++;
       } else if (frame.len >= kTelemetryV1NoGpsQualityLen) {
         TelemetryV1 t{};
         memcpy(&t, frame.payload, kTelemetryV1NoGpsQualityLen);
         applyTelemetry(t, true, true, false, ioState);
+        ioState.flight.callsign =
+            parseCallsignFromTail(frame.payload, frame.len, kTelemetryV1NoGpsQualityLen);
         updated = true;
         rxFrames_++;
       } else if (frame.len >= kTelemetryV1NoEventFlagsLen) {
         TelemetryV1 t{};
         memcpy(&t, frame.payload, kTelemetryV1NoEventFlagsLen);
         applyTelemetry(t, true, false, false, ioState);
+        ioState.flight.callsign =
+            parseCallsignFromTail(frame.payload, frame.len, kTelemetryV1NoEventFlagsLen);
         updated = true;
         rxFrames_++;
       } else if (frame.len >= kTelemetryV1NoTxPowerOrEventsLen) {
         TelemetryV1 t{};
         memcpy(&t, frame.payload, kTelemetryV1NoTxPowerOrEventsLen);
         applyTelemetry(t, false, false, false, ioState);
+        ioState.flight.callsign =
+            parseCallsignFromTail(frame.payload, frame.len, kTelemetryV1NoTxPowerOrEventsLen);
         updated = true;
         rxFrames_++;
       } else if (frame.len >= sizeof(TelemetryV1Legacy)) {
@@ -172,6 +200,8 @@ bool UartLink::poll(CompanionState& ioState) {
 
         ioState.flight.phase = String(phaseToText(t.phase));
         ioState.flight.packetCount = t.packet_count_lsb;
+        ioState.flight.callsign =
+            parseCallsignFromTail(frame.payload, frame.len, sizeof(TelemetryV1Legacy));
 
         ioState.alt.altitudeAglM = static_cast<float>(t.alt_mm) / 1000.0f;
         ioState.alt.gpsAltitudeM = NAN;

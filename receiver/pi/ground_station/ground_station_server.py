@@ -1456,6 +1456,11 @@ class CompanionUartBridge:
             svs_total_field,
             hdop_x100_field,
         )
+        callsign = flight.get("callsign")
+        if isinstance(callsign, str) and callsign:
+            callsign_bytes = safe_ascii(callsign).encode("ascii", errors="ignore")[:24]
+            if callsign_bytes:
+                payload += callsign_bytes
         frame = self._encode_frame(self.MSG_TELEM_SNAPSHOT, payload)
         with self._lock:
             try:
