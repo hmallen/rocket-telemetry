@@ -283,6 +283,43 @@ static int8_t phaseProgressStep(const String& phaseText) {
   return -1;
 }
 
+static int8_t phaseChecklistIndex(const String& phaseText) {
+  String phase = phaseText;
+  phase.toLowerCase();
+  if (phase == "idle" || phase == "pad") {
+    return 0;
+  }
+  if (phase == "boost") {
+    return 1;
+  }
+  if (phase == "coast") {
+    return 2;
+  }
+  if (phase == "ascent") {
+    return 3;
+  }
+  if (phase == "descent") {
+    return 4;
+  }
+  if (phase == "landed") {
+    return 5;
+  }
+  return -1;
+}
+
+static const char* checklistMarkerForStage(int8_t currentPhaseIndex, int8_t stageIndex) {
+  if (currentPhaseIndex < 0) {
+    return "[ ]";
+  }
+  if (stageIndex < currentPhaseIndex) {
+    return "[x]";
+  }
+  if (stageIndex == currentPhaseIndex) {
+    return "[>]";
+  }
+  return "[ ]";
+}
+
 static lv_obj_t* makeActionButton(lv_obj_t* parent,
                                   const char* text,
                                   lv_event_cb_t cb,
@@ -3026,6 +3063,16 @@ void LvglController::refreshUi() {
                         static_cast<unsigned long>(state_.flight.packetCount));
 
   lv_label_set_text_fmt(phaseLabel_, "PHASE: %s", state_.flight.phase.length() ? state_.flight.phase.c_str() : "unknown");
+
+  const int8_t checklistIndex = phaseChecklistIndex(state_.flight.phase);
+  lv_label_set_text_fmt(phaseChecklistLabel_,
+                        "%s Idle\n%s Boost\n%s Coast\n%s Ascent\n%s Descent\n%s Landed",
+                        checklistMarkerForStage(checklistIndex, 0),
+                        checklistMarkerForStage(checklistIndex, 1),
+                        checklistMarkerForStage(checklistIndex, 2),
+                        checklistMarkerForStage(checklistIndex, 3),
+                        checklistMarkerForStage(checklistIndex, 4),
+                        checklistMarkerForStage(checklistIndex, 5));
 
   const String baroAltText = formatFloat(state_.alt.altitudeAglM, 1);
   const String gpsAltText = formatFloat(state_.alt.gpsAltitudeM, 1);
