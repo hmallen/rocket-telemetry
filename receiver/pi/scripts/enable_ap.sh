@@ -191,7 +191,7 @@ systemctl restart hostapd
 echo "DONE.
 AP SSID: ${SSID}
 AP IP:   ${AP_IP_CIDR%/*}
-DHCP:    10.42.0.50-10.42.0.150
+DHCP:    ${NETWORK_BASE}.50-${NETWORK_BASE}.150
 NAT via: ${UPLINK_IF}
 
 To undo: sudo ./restore-original-network.sh"
