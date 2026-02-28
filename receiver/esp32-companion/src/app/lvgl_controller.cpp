@@ -840,6 +840,23 @@ void LvglController::buildUi() {
   }
   lv_obj_add_event_cb(armNoGpsCheckbox_, onArmNoGpsToggleEvent, LV_EVENT_VALUE_CHANGED, this);
 
+  wifiApToggleBtn_ = lv_btn_create(settingsActions_);
+  lv_obj_add_flag(wifiApToggleBtn_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(wifiApToggleBtn_, LV_PCT(100));
+  lv_obj_set_height(wifiApToggleBtn_, kSettingsButtonHeight);
+  lv_obj_set_style_radius(wifiApToggleBtn_, 8, 0);
+  lv_obj_set_style_bg_color(wifiApToggleBtn_, lv_color_hex(0x244374), 0);
+  lv_obj_set_style_bg_color(wifiApToggleBtn_, lv_color_hex(0x2e5ca0), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(wifiApToggleBtn_, lv_color_hex(0x6ea4ff), 0);
+  lv_obj_set_style_border_width(wifiApToggleBtn_, 1, 0);
+  lv_obj_add_event_cb(wifiApToggleBtn_, onWifiApToggleEvent, LV_EVENT_LONG_PRESSED, this);
+
+  wifiApToggleLabel_ = lv_label_create(wifiApToggleBtn_);
+  lv_label_set_text(wifiApToggleLabel_, "HOLD: TOGGLE AP");
+  lv_obj_set_style_text_color(wifiApToggleLabel_, lv_color_hex(0xeaf1ff), 0);
+  lv_obj_clear_flag(wifiApToggleLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(wifiApToggleLabel_);
+
   makeActionButton(settingsActions_,
                    "SCREEN CALIBRATION",
                    onCalibrateEvent,
@@ -2250,6 +2267,30 @@ void LvglController::updateDashboardActionButtons() {
     lv_obj_set_style_border_width(shutdownBtn_, 1, 0);
   }
 
+  if (wifiApToggleBtn_ != nullptr && wifiApToggleLabel_ != nullptr) {
+    const bool apKnown = state_.hasWifiApState;
+    const bool apActive = apKnown && state_.wifiApActive;
+
+    lv_obj_clear_state(wifiApToggleBtn_, LV_STATE_DISABLED);
+    if (apActive) {
+      lv_label_set_text(wifiApToggleLabel_, "HOLD: DISABLE AP");
+      lv_obj_set_style_bg_color(wifiApToggleBtn_, lv_color_hex(0x6a2a1f), 0);
+      lv_obj_set_style_bg_color(wifiApToggleBtn_, lv_color_hex(0x8e3a2a), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(wifiApToggleBtn_, lv_color_hex(0xffb199), 0);
+    } else if (apKnown) {
+      lv_label_set_text(wifiApToggleLabel_, "HOLD: ENABLE AP");
+      lv_obj_set_style_bg_color(wifiApToggleBtn_, lv_color_hex(0x1f5a45), 0);
+      lv_obj_set_style_bg_color(wifiApToggleBtn_, lv_color_hex(0x26755b), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(wifiApToggleBtn_, lv_color_hex(0xa3f2cf), 0);
+    } else {
+      lv_label_set_text(wifiApToggleLabel_, "HOLD: TOGGLE AP");
+      lv_obj_set_style_bg_color(wifiApToggleBtn_, lv_color_hex(0x244374), 0);
+      lv_obj_set_style_bg_color(wifiApToggleBtn_, lv_color_hex(0x2e5ca0), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(wifiApToggleBtn_, lv_color_hex(0x6ea4ff), 0);
+    }
+    lv_obj_set_style_border_width(wifiApToggleBtn_, 1, 0);
+  }
+
   const bool sdAnyPending = sdCommandPending_ || sdUtilityCommandPending_;
   if (sdRotateBtn_ != nullptr && sdRotateLabel_ != nullptr) {
     const bool rotateEnabled = sdLoggingEnabled_ && !sdAnyPending;
@@ -2606,6 +2647,8 @@ bool LvglController::sendAction(const String& action, int durationS) {
     pretty = "SD FORMAT";
   } else if (action == "sd_dump_sample") {
     pretty = "SD DUMP SAMPLE";
+  } else if (action == "wifi_ap_toggle") {
+    pretty = "WIFI AP TOGGLE";
   }
 
   updateDashboardActionButtons();
@@ -3030,29 +3073,44 @@ void LvglController::refreshUi() {
       0);
 
   if (wifiIndicator_ != nullptr && wifiIndicatorIcon_ != nullptr && wifiIndicatorState_ != nullptr) {
+    const bool wifiApActive = state_.hasWifiApState && state_.wifiApActive;
 #if (!COMPANION_LINK_UART) || OTA_ENABLE
     const bool wifiConnected = (WiFi.status() == WL_CONNECTED);
     lv_label_set_text(wifiIndicatorIcon_, LV_SYMBOL_WIFI);
     lv_obj_set_style_text_color(wifiIndicatorIcon_, lv_color_hex(wifiConnected ? 0xe6f2ff : 0xa7b4c9), 0);
 
-    lv_label_set_text(wifiIndicatorState_, wifiConnected ? LV_SYMBOL_OK : LV_SYMBOL_CLOSE);
-    lv_obj_set_style_text_color(wifiIndicatorState_,
-                                lv_color_hex(wifiConnected ? 0x10351f : 0x3a1111),
-                                0);
-    lv_obj_set_style_bg_color(wifiIndicatorState_,
-                              lv_color_hex(wifiConnected ? 0x6cff95 : 0xff8e8e),
-                              0);
-    lv_obj_set_style_border_color(wifiIndicatorState_,
-                                  lv_color_hex(wifiConnected ? 0xb4ffd0 : 0xffc3c3),
+    if (wifiApActive) {
+      lv_label_set_text(wifiIndicatorState_, LV_SYMBOL_BARS);
+      lv_obj_set_style_text_color(wifiIndicatorState_, lv_color_hex(0x102436), 0);
+      lv_obj_set_style_bg_color(wifiIndicatorState_, lv_color_hex(0x7ec8ff), 0);
+      lv_obj_set_style_border_color(wifiIndicatorState_, lv_color_hex(0xb5e4ff), 0);
+    } else {
+      lv_label_set_text(wifiIndicatorState_, wifiConnected ? LV_SYMBOL_OK : LV_SYMBOL_CLOSE);
+      lv_obj_set_style_text_color(wifiIndicatorState_,
+                                  lv_color_hex(wifiConnected ? 0x10351f : 0x3a1111),
                                   0);
+      lv_obj_set_style_bg_color(wifiIndicatorState_,
+                                lv_color_hex(wifiConnected ? 0x6cff95 : 0xff8e8e),
+                                0);
+      lv_obj_set_style_border_color(wifiIndicatorState_,
+                                    lv_color_hex(wifiConnected ? 0xb4ffd0 : 0xffc3c3),
+                                    0);
+    }
 #else
     lv_label_set_text(wifiIndicatorIcon_, LV_SYMBOL_WIFI);
     lv_obj_set_style_text_color(wifiIndicatorIcon_, lv_color_hex(0x637287), 0);
 
-    lv_label_set_text(wifiIndicatorState_, "-");
-    lv_obj_set_style_text_color(wifiIndicatorState_, lv_color_hex(0x93a3bc), 0);
-    lv_obj_set_style_bg_color(wifiIndicatorState_, lv_color_hex(0x2d394d), 0);
-    lv_obj_set_style_border_color(wifiIndicatorState_, lv_color_hex(0x4d5f79), 0);
+    if (wifiApActive) {
+      lv_label_set_text(wifiIndicatorState_, LV_SYMBOL_BARS);
+      lv_obj_set_style_text_color(wifiIndicatorState_, lv_color_hex(0x102436), 0);
+      lv_obj_set_style_bg_color(wifiIndicatorState_, lv_color_hex(0x7ec8ff), 0);
+      lv_obj_set_style_border_color(wifiIndicatorState_, lv_color_hex(0xb5e4ff), 0);
+    } else {
+      lv_label_set_text(wifiIndicatorState_, "-");
+      lv_obj_set_style_text_color(wifiIndicatorState_, lv_color_hex(0x93a3bc), 0);
+      lv_obj_set_style_bg_color(wifiIndicatorState_, lv_color_hex(0x2d394d), 0);
+      lv_obj_set_style_border_color(wifiIndicatorState_, lv_color_hex(0x4d5f79), 0);
+    }
 #endif
   }
 
@@ -3395,6 +3453,15 @@ void LvglController::onArmNoGpsToggleEvent(lv_event_t* e) {
     return;
   }
   self->setAllowArmWithoutGpsFix(lv_obj_has_state(target, LV_STATE_CHECKED));
+  self->refreshUi();
+}
+
+void LvglController::onWifiApToggleEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  self->sendAction("wifi_ap_toggle", 0);
   self->refreshUi();
 }
 

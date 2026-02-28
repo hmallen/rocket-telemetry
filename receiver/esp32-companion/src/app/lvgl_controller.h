@@ -192,6 +192,8 @@ class LvglController {
   lv_obj_t* txPowerActiveLabel_ = nullptr;
   lv_obj_t* armBtn_ = nullptr;
   lv_obj_t* armLabel_ = nullptr;
+  lv_obj_t* wifiApToggleBtn_ = nullptr;
+  lv_obj_t* wifiApToggleLabel_ = nullptr;
   lv_obj_t* rebootBtn_ = nullptr;
   lv_obj_t* shutdownBtn_ = nullptr;
   lv_obj_t* settingsBody_ = nullptr;
@@ -306,6 +308,7 @@ class LvglController {
   static void onTxPowerSendEvent(lv_event_t* e);
   static void onArmEvent(lv_event_t* e);
   static void onArmNoGpsToggleEvent(lv_event_t* e);
+  static void onWifiApToggleEvent(lv_event_t* e);
   static void onSdFunctionsOpenEvent(lv_event_t* e);
   static void onSdFunctionsBackEvent(lv_event_t* e);
   static void onSoundSettingsOpenEvent(lv_event_t* e);
