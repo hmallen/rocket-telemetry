@@ -71,6 +71,9 @@ class LvglController {
   bool sdFormatArmed_ = false;
   uint32_t sdFormatArmSinceMs_ = 0;
   static constexpr uint32_t kSdFormatArmWindowMs = 4000;
+  bool resetFlightArmed_ = false;
+  uint32_t resetFlightArmSinceMs_ = 0;
+  static constexpr uint32_t kResetFlightArmWindowMs = 4000;
   bool txCommandPending_ = false;
   bool txPendingTargetEnabled_ = false;
   bool txPendingPreviousEnabled_ = false;
@@ -127,6 +130,7 @@ class LvglController {
   bool lastConnected_ = false;
   bool lastStale_ = true;
   String lastPrimaryAlert_;
+  bool phaseChecklistCleared_ = false;
   bool flightTimerActive_ = false;
   uint32_t flightTimerStartMs_ = 0;
   uint32_t flightDurationMs_ = 0;
@@ -194,6 +198,8 @@ class LvglController {
   lv_obj_t* armLabel_ = nullptr;
   lv_obj_t* wifiApToggleBtn_ = nullptr;
   lv_obj_t* wifiApToggleLabel_ = nullptr;
+  lv_obj_t* resetFlightBtn_ = nullptr;
+  lv_obj_t* resetFlightLabel_ = nullptr;
   lv_obj_t* rebootBtn_ = nullptr;
   lv_obj_t* shutdownBtn_ = nullptr;
   lv_obj_t* settingsBody_ = nullptr;
@@ -296,7 +302,6 @@ class LvglController {
   static void onTouchDebugToggleEvent(lv_event_t* e);
   static void onCalibrateEvent(lv_event_t* e);
   static void onCalibrationCancelEvent(lv_event_t* e);
-  static void onAltCalibrateEvent(lv_event_t* e);
   static void onPhaseResetEvent(lv_event_t* e);
   static void onImuCalibrateEvent(lv_event_t* e);
   static void onRebootEvent(lv_event_t* e);

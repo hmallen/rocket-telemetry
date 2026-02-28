@@ -736,16 +736,24 @@ void LvglController::buildUi() {
   lv_obj_set_scroll_dir(settingsActions_, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(settingsActions_, LV_SCROLLBAR_MODE_AUTO);
 
-  makeActionButton(settingsActions_,
-                   "ALTITUDE ZERO",
-                   onAltCalibrateEvent,
-                   this,
-                   kSettingsButtonHeight);
-  makeActionButton(settingsActions_,
-                   "RESET FLIGHT PHASE",
-                   onPhaseResetEvent,
-                   this,
-                   kSettingsButtonHeight);
+  resetFlightBtn_ = lv_btn_create(settingsActions_);
+  lv_obj_add_flag(resetFlightBtn_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(resetFlightBtn_, LV_PCT(100));
+  lv_obj_set_height(resetFlightBtn_, kSettingsButtonHeight);
+  lv_obj_set_style_radius(resetFlightBtn_, 8, 0);
+  lv_obj_set_style_bg_color(resetFlightBtn_, lv_color_hex(0x7a1d1d), 0);
+  lv_obj_set_style_bg_color(resetFlightBtn_, lv_color_hex(0xa02828), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(resetFlightBtn_, lv_color_hex(0xdc7070), 0);
+  lv_obj_set_style_border_width(resetFlightBtn_, 1, 0);
+  lv_obj_add_event_cb(resetFlightBtn_, onPhaseResetEvent, LV_EVENT_PRESSED, this);
+  lv_obj_add_event_cb(resetFlightBtn_, onPhaseResetEvent, LV_EVENT_LONG_PRESSED, this);
+
+  resetFlightLabel_ = lv_label_create(resetFlightBtn_);
+  lv_label_set_text(resetFlightLabel_, "HOLD: RESET FLIGHT");
+  lv_obj_set_style_text_color(resetFlightLabel_, lv_color_hex(0xfff0f0), 0);
+  lv_obj_clear_flag(resetFlightLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(resetFlightLabel_);
+
   makeActionButton(settingsActions_,
                    "IMU CALIBRATION",
                    onImuCalibrateEvent,
@@ -2057,6 +2065,16 @@ void LvglController::updateFlightTimerState(uint32_t now) {
     landingDetected = (phase == "landed");
   }
 
+  if (phaseChecklistCleared_) {
+    flightTimerActive_ = false;
+    flightTimerStartMs_ = 0;
+    flightDurationMs_ = 0;
+    flightTimerInitialized_ = true;
+    lastFlightLaunchDetected_ = false;
+    lastFlightLandingDetected_ = false;
+    return;
+  }
+
   if (phaseEquals(state_.flight.phase, "idle") && !launchDetected && !landingDetected) {
     flightTimerActive_ = false;
     flightTimerStartMs_ = 0;
@@ -2289,6 +2307,22 @@ void LvglController::updateDashboardActionButtons() {
       lv_obj_set_style_border_color(wifiApToggleBtn_, lv_color_hex(0x6ea4ff), 0);
     }
     lv_obj_set_style_border_width(wifiApToggleBtn_, 1, 0);
+  }
+
+  if (resetFlightBtn_ != nullptr && resetFlightLabel_ != nullptr) {
+    lv_obj_clear_state(resetFlightBtn_, LV_STATE_DISABLED);
+    lv_obj_set_style_bg_color(resetFlightBtn_, lv_color_hex(0x7a1d1d), 0);
+    lv_obj_set_style_bg_color(resetFlightBtn_, lv_color_hex(0xa02828), LV_STATE_PRESSED);
+    lv_obj_set_style_border_color(resetFlightBtn_, lv_color_hex(0xdc7070), 0);
+    lv_obj_set_style_border_width(resetFlightBtn_, 1, 0);
+
+    if (phaseResetRequested_) {
+      lv_label_set_text(resetFlightLabel_, "RESETTING...");
+    } else if (resetFlightArmed_ && (nowMs - resetFlightArmSinceMs_) <= kResetFlightArmWindowMs) {
+      lv_label_set_text(resetFlightLabel_, "HOLD TO CONFIRM");
+    } else {
+      lv_label_set_text(resetFlightLabel_, "HOLD: RESET FLIGHT");
+    }
   }
 
   const bool sdAnyPending = sdCommandPending_ || sdUtilityCommandPending_;
@@ -2534,6 +2568,10 @@ void LvglController::updatePendingCommandTimeouts(uint32_t now) {
     changed = true;
   }
 
+  if (resetFlightArmed_ && (now - resetFlightArmSinceMs_) > kResetFlightArmWindowMs) {
+    resetFlightArmed_ = false;
+  }
+
   if (changed) {
     updateDashboardActionButtons();
   }
@@ -2638,7 +2676,7 @@ bool LvglController::sendAction(const String& action, int durationS) {
   } else if (action == "telemetry_tx_power") {
     pretty = "TELEM TX POWER " + String(durationS) + "dBm";
   } else if (action == "phase_reset") {
-    pretty = "RESET FLIGHT PHASE";
+    pretty = "RESET FLIGHT";
   } else if (action == "launch_arm" && durationS != 0) {
     pretty = "LAUNCH ARM (NO GPS)";
   } else if (action == "sd_rotate") {
@@ -3124,7 +3162,7 @@ void LvglController::refreshUi() {
 
   lv_label_set_text_fmt(phaseLabel_, "PHASE: %s", state_.flight.phase.length() ? state_.flight.phase.c_str() : "unknown");
 
-  const int8_t checklistIndex = phaseChecklistIndex(state_.flight.phase);
+  const int8_t checklistIndex = phaseChecklistCleared_ ? -1 : phaseChecklistIndex(state_.flight.phase);
   lv_label_set_text_fmt(phaseChecklistLabel_,
                         "%s Idle\n\n%s Boost\n\n%s Coast\n\n%s Descent\n\n%s Landed",
                         checklistMarkerForStage(checklistIndex, 0),
@@ -3288,6 +3326,14 @@ void LvglController::tick() {
     }
 
     state_.flight.phase = effectivePhase;
+
+    if (phaseChecklistCleared_) {
+      const bool previousIdleOrPad = phaseEquals(previousPhase, "idle") || phaseEquals(previousPhase, "pad");
+      const int8_t effectiveStep = phaseProgressStep(state_.flight.phase);
+      if (previousIdleOrPad && effectiveStep > 0) {
+        phaseChecklistCleared_ = false;
+      }
+    }
 
     syncCommandStateFromTelemetry();
 
@@ -3499,85 +3545,34 @@ void LvglController::onCalibrationCancelEvent(lv_event_t* e) {
   self->refreshUi();
 }
 
-void LvglController::onAltCalibrateEvent(lv_event_t* e) {
-  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
-  if (self == nullptr) {
-    return;
-  }
-  if (self->sendAction("alt_calibrate", 0)) {
-    self->soundQueueHead_ = 0;
-    self->soundQueueTail_ = 0;
-    self->soundQueueCount_ = 0;
-    self->apogeeCalloutPending_ = false;
-
-    const int8_t phaseStep = phaseProgressStep(self->state_.flight.phase);
-    const bool phaseLaterThanLaunchDetected = (phaseStep > 1);
-    const bool hasPostLaunchEvent =
-        self->state_.recoveryApogee || self->state_.recoveryDrogueDeployed ||
-        self->state_.recoveryMainDeployed || self->state_.recoveryLandingDetected;
-    const bool replayLatestOnly = phaseLaterThanLaunchDetected || hasPostLaunchEvent;
-
-    SoundCue latestCue = SoundCue::kLaunchDetected;
-    bool hasLatestCue = false;
-    if (self->state_.recoveryLandingDetected || phaseEquals(self->state_.flight.phase, "landed")) {
-      latestCue = SoundCue::kLandingDetected;
-      hasLatestCue = true;
-    } else if (self->state_.recoveryMainDeployed) {
-      latestCue = SoundCue::kMainDeploy;
-      hasLatestCue = true;
-    } else if (self->state_.recoveryDrogueDeployed) {
-      latestCue = SoundCue::kDrogueDeploy;
-      hasLatestCue = true;
-    } else if (self->state_.recoveryApogee || phaseEquals(self->state_.flight.phase, "descent")) {
-      latestCue = SoundCue::kApogee;
-      hasLatestCue = true;
-    } else if (self->state_.recoveryLaunchDetected || phaseStep == 1) {
-      latestCue = SoundCue::kLaunchDetected;
-      hasLatestCue = true;
-    }
-
-    if (replayLatestOnly && hasLatestCue) {
-      self->phaseResetRequested_ = false;
-      self->queueSoundCue(latestCue);
-      self->setCommandStatus("Flight in progress: latest event replay only", false);
-    } else {
-      self->phaseResetRequested_ = true;
-      self->queueSoundCue(SoundCue::kPowerOn);
-      self->queueSoundCue(SoundCue::kCalibrating);
-      self->queueSoundCue(SoundCue::kSensorsReady);
-    }
-
-    self->hasRecoveryDeployHistory_ = true;
-    self->lastRecoveryDrogueDeployed_ = self->state_.recoveryDrogueDeployed;
-    self->lastRecoveryMainDeployed_ = self->state_.recoveryMainDeployed;
-    self->hasRecoveryEventHistory_ = true;
-    self->lastRecoveryLaunchDetected_ = self->state_.recoveryLaunchDetected;
-    self->lastRecoveryApogee_ = self->state_.recoveryApogee;
-    self->lastRecoveryLandingDetected_ = self->state_.recoveryLandingDetected;
-  }
-
-  self->panelCollapsed_ = true;
-  self->settingsCollapsed_ = true;
-  self->setSoundSettingsVisible(false);
-  self->setSdFunctionsVisible(false);
-  if (self->actionPanel_ != nullptr) {
-    lv_obj_add_flag(self->actionPanel_, LV_OBJ_FLAG_HIDDEN);
-  }
-  if (self->settingsBody_ != nullptr) {
-    lv_obj_add_flag(self->settingsBody_, LV_OBJ_FLAG_HIDDEN);
-  }
-  if (self->telemetryPanel_ != nullptr) {
-    lv_obj_update_layout(self->telemetryPanel_);
-  }
-
-  self->refreshUi();
-}
-
 void LvglController::onPhaseResetEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
   if (self == nullptr) {
     return;
   }
+
+  const lv_event_code_t code = lv_event_get_code(e);
+  if (code == LV_EVENT_PRESSED) {
+    self->resetFlightArmed_ = true;
+    self->resetFlightArmSinceMs_ = millis();
+    self->setCommandStatus("Hold RESET FLIGHT to confirm", true);
+    self->refreshUi();
+    return;
+  }
+
+  if (code != LV_EVENT_LONG_PRESSED) {
+    return;
+  }
+
+  const uint32_t now = millis();
+  if (!self->resetFlightArmed_ || (now - self->resetFlightArmSinceMs_) > kResetFlightArmWindowMs) {
+    self->resetFlightArmed_ = false;
+    self->setCommandStatus("Tap then hold RESET FLIGHT to confirm", false);
+    self->refreshUi();
+    return;
+  }
+
+  self->resetFlightArmed_ = false;
 
   if (self->sendAction("phase_reset", 0)) {
     self->soundQueueHead_ = 0;
@@ -3585,6 +3580,13 @@ void LvglController::onPhaseResetEvent(lv_event_t* e) {
     self->soundQueueCount_ = 0;
     self->apogeeCalloutPending_ = false;
     self->phaseResetRequested_ = true;
+    self->phaseChecklistCleared_ = true;
+    self->flightTimerActive_ = false;
+    self->flightTimerStartMs_ = 0;
+    self->flightDurationMs_ = 0;
+    self->flightTimerInitialized_ = true;
+    self->lastFlightLaunchDetected_ = false;
+    self->lastFlightLandingDetected_ = false;
     self->queueSoundCue(SoundCue::kPowerOn);
     self->queueSoundCue(SoundCue::kCalibrating);
     self->queueSoundCue(SoundCue::kSensorsReady);
