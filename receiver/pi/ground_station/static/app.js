@@ -144,6 +144,7 @@ const state = {
   flightTimerActive: false,
   flightTimerStartMs: 0,
   flightTimerElapsedMs: 0,
+  flightTimerInitialized: false,
   flightLaunchDetected: false,
   flightLandingDetected: false,
 };
@@ -661,6 +662,13 @@ function updateFlightStopwatch(recovery) {
     state.flightTimerActive = false;
     state.flightTimerStartMs = 0;
     state.flightTimerElapsedMs = 0;
+  }
+
+  if (!state.flightTimerInitialized) {
+    state.flightLaunchDetected = launchDetected;
+    state.flightLandingDetected = landingDetected;
+    state.flightTimerInitialized = true;
+    return;
   }
 
   if (launchDetected && !state.flightLaunchDetected) {

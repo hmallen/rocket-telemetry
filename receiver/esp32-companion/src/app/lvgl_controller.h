@@ -130,6 +130,7 @@ class LvglController {
   bool flightTimerActive_ = false;
   uint32_t flightTimerStartMs_ = 0;
   uint32_t flightDurationMs_ = 0;
+  bool flightTimerInitialized_ = false;
   bool lastFlightLaunchDetected_ = false;
   bool lastFlightLandingDetected_ = false;
 
