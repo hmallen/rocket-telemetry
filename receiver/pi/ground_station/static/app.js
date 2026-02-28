@@ -62,6 +62,9 @@ const elements = {
   mapOverlay: document.getElementById("map-overlay"),
   mapJump: document.getElementById("map-jump"),
   mapSetHome: document.getElementById("map-set-home"),
+  flightTrendCanvas: document.getElementById("flight-trend-canvas"),
+  flightTrendOverlay: document.getElementById("flight-trend-overlay"),
+  flightTrendWindow: document.getElementById("flight-trend-window"),
   sdStart: document.getElementById("sd-start"),
   sdStop: document.getElementById("sd-stop"),
   sdStatus: document.getElementById("sd-status"),
@@ -103,6 +106,8 @@ elements.phaseNodes = Array.from(document.querySelectorAll("#phase-flow .phase-n
 const rocketCanvas = document.getElementById("rocket-canvas");
 const mapContainer = document.getElementById("map");
 const rocketCtx = rocketCanvas.getContext("2d");
+const flightTrendCanvas = elements.flightTrendCanvas;
+const flightTrendCtx = flightTrendCanvas ? flightTrendCanvas.getContext("2d") : null;
 
 const state = {
   lastUpdateMs: 0,
@@ -120,6 +125,8 @@ const state = {
   mapHomePending: false,
   mapHome: null,
   mapLastFix: null,
+  flightTrendSamples: [],
+  lastTrendPacketCount: null,
   sdLoggingAckTs: null,
   sdLoggingEnabled: null,
   sdCommandPending: false,
@@ -161,6 +168,8 @@ const FILTER_LABELS = {
   "accel-threshold": "Accel Threshold",
 };
 const MAP_PATH_LIMIT = 200;
+const FLIGHT_TREND_MAX_POINTS = 720;
+const FLIGHT_TREND_WINDOW_SEC = 180;
 const SOUND_ENABLED_STORAGE_KEY = "gs_sound_enabled";
 const SOUND_VOLUME_STORAGE_KEY = "gs_sound_volume";
 const SD_FORMAT_HOLD_MS = 1200;
@@ -1586,6 +1595,246 @@ function updateConnection(connected) {
   elements.connStatus.textContent = connected ? "Live" : "Waiting";
 }
 
+function appendFlightTrendSample(snapshot, recovery) {
+  const packetCount = Number(snapshot.packet_count);
+  if (Number.isFinite(packetCount)) {
+    if (state.lastTrendPacketCount === packetCount) {
+      return;
+    }
+    state.lastTrendPacketCount = packetCount;
+  } else {
+    state.lastTrendPacketCount = null;
+  }
+
+  const altitudeM = Number(recovery.altitude_agl_m);
+  const verticalSpeedMps = Number(recovery.vertical_speed_mps);
+  const hasAltitude = Number.isFinite(altitudeM);
+  const hasVerticalSpeed = Number.isFinite(verticalSpeedMps);
+  if (!hasAltitude && !hasVerticalSpeed) {
+    return;
+  }
+
+  const timestampSec = Number(snapshot.timestamp);
+  const sampleTimeSec = Number.isFinite(timestampSec) && timestampSec > 0
+    ? timestampSec
+    : (Date.now() / 1000);
+
+  state.flightTrendSamples.push({
+    tSec: sampleTimeSec,
+    altitudeM: hasAltitude ? altitudeM : null,
+    verticalSpeedMps: hasVerticalSpeed ? verticalSpeedMps : null,
+  });
+
+  if (state.flightTrendSamples.length > FLIGHT_TREND_MAX_POINTS) {
+    state.flightTrendSamples.splice(0, state.flightTrendSamples.length - FLIGHT_TREND_MAX_POINTS);
+  }
+}
+
+function calculateTrendBounds(values, minSpan, includeZero) {
+  let minValue = Number.POSITIVE_INFINITY;
+  let maxValue = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < values.length; i += 1) {
+    const value = values[i];
+    if (!Number.isFinite(value)) {
+      continue;
+    }
+    if (value < minValue) {
+      minValue = value;
+    }
+    if (value > maxValue) {
+      maxValue = value;
+    }
+  }
+
+  if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) {
+    return null;
+  }
+
+  if (includeZero) {
+    minValue = Math.min(minValue, 0);
+    maxValue = Math.max(maxValue, 0);
+  }
+
+  let span = maxValue - minValue;
+  if (!Number.isFinite(span) || span < minSpan) {
+    const center = (minValue + maxValue) / 2;
+    minValue = center - (minSpan / 2);
+    maxValue = center + (minSpan / 2);
+    span = minSpan;
+  }
+
+  const padding = span * 0.12;
+  return {
+    min: minValue - padding,
+    max: maxValue + padding,
+  };
+}
+
+function renderFlightTrend() {
+  if (!flightTrendCanvas || !flightTrendCtx) {
+    return;
+  }
+
+  resizeCanvas(flightTrendCanvas, flightTrendCtx);
+  const { width, height } = flightTrendCanvas.getBoundingClientRect();
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+
+  const ctx = flightTrendCtx;
+  const latestSample = state.flightTrendSamples.length > 0
+    ? state.flightTrendSamples[state.flightTrendSamples.length - 1]
+    : null;
+  const latestT = latestSample ? latestSample.tSec : (Date.now() / 1000);
+  const minWindowT = latestT - FLIGHT_TREND_WINDOW_SEC;
+  const visibleSamples = state.flightTrendSamples.filter((sample) => sample.tSec >= minWindowT);
+
+  if (elements.flightTrendWindow) {
+    elements.flightTrendWindow.textContent = `Window ${FLIGHT_TREND_WINDOW_SEC}s`;
+  }
+
+  const bg = ctx.createLinearGradient(0, 0, 0, height);
+  bg.addColorStop(0, "#071019");
+  bg.addColorStop(1, "#122434");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, width, height);
+
+  const plotLeft = 54;
+  const plotRight = width - 54;
+  const plotTop = 22;
+  const plotBottom = height - 30;
+  const plotWidth = plotRight - plotLeft;
+  const plotHeight = plotBottom - plotTop;
+  if (plotWidth <= 4 || plotHeight <= 4) {
+    return;
+  }
+
+  ctx.fillStyle = "rgba(13, 27, 40, 0.8)";
+  ctx.fillRect(plotLeft, plotTop, plotWidth, plotHeight);
+
+  ctx.strokeStyle = "rgba(108, 145, 176, 0.18)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i += 1) {
+    const y = plotTop + ((plotHeight * i) / 4);
+    ctx.beginPath();
+    ctx.moveTo(plotLeft, y);
+    ctx.lineTo(plotRight, y);
+    ctx.stroke();
+  }
+  for (let i = 0; i <= 6; i += 1) {
+    const x = plotLeft + ((plotWidth * i) / 6);
+    ctx.beginPath();
+    ctx.moveTo(x, plotTop);
+    ctx.lineTo(x, plotBottom);
+    ctx.stroke();
+  }
+
+  if (visibleSamples.length < 2) {
+    if (elements.flightTrendOverlay) {
+      elements.flightTrendOverlay.textContent = "Awaiting telemetry...";
+    }
+    return;
+  }
+
+  const altBounds = calculateTrendBounds(
+    visibleSamples.map((sample) => sample.altitudeM),
+    20,
+    false
+  );
+  const vsBounds = calculateTrendBounds(
+    visibleSamples.map((sample) => sample.verticalSpeedMps),
+    6,
+    true
+  );
+
+  if (!altBounds && !vsBounds) {
+    if (elements.flightTrendOverlay) {
+      elements.flightTrendOverlay.textContent = "Awaiting telemetry...";
+    }
+    return;
+  }
+
+  const safeAlt = altBounds || { min: 0, max: 100 };
+  const safeVs = vsBounds || { min: -10, max: 10 };
+  const timeSpan = Math.max(1, latestT - visibleSamples[0].tSec);
+  const mapX = (tSec) => plotLeft + (((tSec - visibleSamples[0].tSec) / timeSpan) * plotWidth);
+  const mapAltY = (altM) => plotBottom - (((altM - safeAlt.min) / (safeAlt.max - safeAlt.min)) * plotHeight);
+  const mapVsY = (vsMps) => plotBottom - (((vsMps - safeVs.min) / (safeVs.max - safeVs.min)) * plotHeight);
+
+  const vsZeroY = mapVsY(0);
+  if (Number.isFinite(vsZeroY) && vsZeroY >= plotTop && vsZeroY <= plotBottom) {
+    ctx.setLineDash([6, 5]);
+    ctx.strokeStyle = "rgba(255, 164, 122, 0.3)";
+    ctx.beginPath();
+    ctx.moveTo(plotLeft, vsZeroY);
+    ctx.lineTo(plotRight, vsZeroY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  ctx.lineWidth = 2.2;
+  ctx.strokeStyle = "#7be2ff";
+  ctx.beginPath();
+  let altStarted = false;
+  for (let i = 0; i < visibleSamples.length; i += 1) {
+    const sample = visibleSamples[i];
+    if (!Number.isFinite(sample.altitudeM)) {
+      altStarted = false;
+      continue;
+    }
+    const x = mapX(sample.tSec);
+    const y = mapAltY(sample.altitudeM);
+    if (!altStarted) {
+      ctx.moveTo(x, y);
+      altStarted = true;
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+  ctx.stroke();
+
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "#ffa17a";
+  ctx.beginPath();
+  let vsStarted = false;
+  for (let i = 0; i < visibleSamples.length; i += 1) {
+    const sample = visibleSamples[i];
+    if (!Number.isFinite(sample.verticalSpeedMps)) {
+      vsStarted = false;
+      continue;
+    }
+    const x = mapX(sample.tSec);
+    const y = mapVsY(sample.verticalSpeedMps);
+    if (!vsStarted) {
+      ctx.moveTo(x, y);
+      vsStarted = true;
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+  ctx.stroke();
+
+  ctx.font = '12px "Space Mono", "Courier New", monospace';
+  ctx.fillStyle = "#8dc5e8";
+  ctx.fillText(`${safeAlt.max.toFixed(0)}m`, 6, plotTop + 4);
+  ctx.fillText(`${safeAlt.min.toFixed(0)}m`, 6, plotBottom - 2);
+  ctx.fillStyle = "#f2b095";
+  const rightTop = `${safeVs.max.toFixed(1)}m/s`;
+  const rightBottom = `${safeVs.min.toFixed(1)}m/s`;
+  ctx.fillText(rightTop, width - ctx.measureText(rightTop).width - 6, plotTop + 4);
+  ctx.fillText(rightBottom, width - ctx.measureText(rightBottom).width - 6, plotBottom - 2);
+  ctx.fillStyle = "#9fc2df";
+  ctx.fillText(`-${Math.round(timeSpan)}s`, plotLeft, height - 10);
+  const nowLabel = "now";
+  ctx.fillText(nowLabel, plotRight - ctx.measureText(nowLabel).width, height - 10);
+
+  if (elements.flightTrendOverlay) {
+    const lastAlt = Number.isFinite(latestSample.altitudeM) ? `${latestSample.altitudeM.toFixed(1)}m` : "--";
+    const lastVs = Number.isFinite(latestSample.verticalSpeedMps) ? `${latestSample.verticalSpeedMps.toFixed(1)}m/s` : "--";
+    elements.flightTrendOverlay.textContent = `ALT ${lastAlt}  VS ${lastVs}`;
+  }
+}
+
 function updateFromTelemetry(snapshot) {
   state.lastUpdateMs = Date.now();
   updateConnection(true);
@@ -1674,6 +1923,8 @@ function updateFromTelemetry(snapshot) {
   elements.recoveryVspeed.textContent = recovery.vertical_speed_mps !== null && recovery.vertical_speed_mps !== undefined
     ? `${formatNumber(recovery.vertical_speed_mps, 1)} m/s`
     : "--";
+  appendFlightTrendSample(snapshot, recovery);
+  renderFlightTrend();
   if (elements.recoveryEventFlags) {
     elements.recoveryEventFlags.textContent = formatRecoveryEventFlags(recovery);
   }
@@ -2258,6 +2509,7 @@ function initEventSource() {
 }
 
 window.addEventListener("resize", () => {
+  renderFlightTrend();
   if (state.map) {
     state.map.invalidateSize();
   }
@@ -2320,5 +2572,6 @@ updatePhaseFlow(null);
 
 setInterval(updateClock, 500);
 
+renderFlightTrend();
 renderRocket();
 initEventSource();

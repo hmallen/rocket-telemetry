@@ -48,6 +48,7 @@ class LvglController {
   static constexpr int kDrawBufferLines = 28;
   static constexpr int kActionPanelWidth = 210;
   static constexpr int kSettingsPanelWidth = 252;
+  static constexpr uint16_t kTrendHistoryPoints = 120;
 
   ApiClient api_;
   UartLink uart_;
@@ -144,6 +145,13 @@ class LvglController {
   bool settingsCollapsed_ = true;
   bool soundSettingsVisible_ = false;
   bool sdFunctionsVisible_ = false;
+  bool trendPageVisible_ = false;
+  bool hasTrendPacketCount_ = false;
+  uint32_t lastTrendPacketCount_ = 0;
+  uint16_t trendHistoryCount_ = 0;
+  uint16_t trendHistoryHead_ = 0;
+  float trendAltHistoryM_[kTrendHistoryPoints] = {};
+  float trendVsHistoryMps_[kTrendHistoryPoints] = {};
 
   bool calibrationActive_ = false;
   bool calibrationTouchLatch_ = false;
@@ -233,6 +241,12 @@ class LvglController {
   lv_obj_t* sdDumpOverlay_ = nullptr;
   lv_obj_t* sdDumpTextLabel_ = nullptr;
   lv_obj_t* sdDumpCloseBtn_ = nullptr;
+  lv_obj_t* trendPage_ = nullptr;
+  lv_obj_t* trendChart_ = nullptr;
+  lv_obj_t* trendSummaryLabel_ = nullptr;
+  lv_obj_t* trendRangeLabel_ = nullptr;
+  lv_chart_series_t* trendAltSeries_ = nullptr;
+  lv_chart_series_t* trendVsSeries_ = nullptr;
 
   void initLvgl();
   void buildUi();
@@ -273,7 +287,11 @@ class LvglController {
   void setSoundEnabled(bool enabled);
   void setSoundSettingsVisible(bool visible);
   void setSdFunctionsVisible(bool visible);
+  void setTrendPageVisible(bool visible);
   void setTouchDebugVisible(bool visible);
+  float preferredVerticalSpeedMps() const;
+  void appendTrendSampleFromState();
+  void refreshTrendChart();
 
   void loadTouchCalibration();
   void saveTouchCalibration();
@@ -319,4 +337,6 @@ class LvglController {
   static void onSdDumpCloseEvent(lv_event_t* e);
   static void onSdToggleEvent(lv_event_t* e);
   static void onTxToggleEvent(lv_event_t* e);
+  static void onTrendPageOpenEvent(lv_event_t* e);
+  static void onTrendPageBackEvent(lv_event_t* e);
 };
