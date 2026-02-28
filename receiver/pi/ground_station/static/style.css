@@ -93,13 +93,13 @@ h1 {
 }
 
 .top-status {
-  width: 520px;
-  min-width: 520px;
-  max-width: 520px;
+  width: min(100%, 640px);
+  min-width: 0;
+  max-width: 640px;
   min-height: 58px;
   padding: 10px 14px;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
 }
 
 .top-controls {
@@ -116,9 +116,11 @@ h1 {
   width: 100%;
   display: flex;
   align-items: center;
+  align-content: flex-start;
   gap: 12px;
-  flex-wrap: nowrap;
-  white-space: nowrap;
+  row-gap: 6px;
+  flex-wrap: wrap;
+  white-space: normal;
 }
 
 .top-status-item {
@@ -126,7 +128,8 @@ h1 {
   align-items: baseline;
   gap: 6px;
   font-size: 0.82rem;
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .top-status-item .label {
@@ -149,6 +152,14 @@ h1 {
 
 .top-status-item #last-update {
   min-width: 10ch;
+}
+
+.top-status-item #datetime-now {
+  display: inline-block;
+  max-width: 20ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ghost-button {
