@@ -225,6 +225,34 @@ static String formatFloat(float value, uint8_t decimals, const char* fallback = 
   return String(value, static_cast<unsigned int>(decimals));
 }
 
+static String formatClockText(uint32_t totalMs) {
+  const uint32_t totalSeconds = totalMs / 1000U;
+  const uint32_t day = totalSeconds / 86400U;
+  const uint32_t hour = (totalSeconds % 86400U) / 3600U;
+  const uint32_t minute = (totalSeconds % 3600U) / 60U;
+  const uint32_t second = totalSeconds % 60U;
+  char buf[32];
+  snprintf(buf, sizeof(buf), "D%lu %02lu:%02lu:%02lu",
+           static_cast<unsigned long>(day),
+           static_cast<unsigned long>(hour),
+           static_cast<unsigned long>(minute),
+           static_cast<unsigned long>(second));
+  return String(buf);
+}
+
+static String formatDurationText(uint32_t durationMs) {
+  const uint32_t totalSeconds = durationMs / 1000U;
+  const uint32_t hours = totalSeconds / 3600U;
+  const uint32_t minutes = (totalSeconds % 3600U) / 60U;
+  const uint32_t seconds = totalSeconds % 60U;
+  char buf[20];
+  snprintf(buf, sizeof(buf), "%02lu:%02lu:%02lu",
+           static_cast<unsigned long>(hours),
+           static_cast<unsigned long>(minutes),
+           static_cast<unsigned long>(seconds));
+  return String(buf);
+}
+
 static bool phaseIndicatesInFlight(const String& phaseText) {
   String phase = phaseText;
   phase.toLowerCase();
@@ -403,6 +431,8 @@ void LvglController::buildUi() {
   lv_obj_align(altitudeLabel_, LV_ALIGN_TOP_LEFT, 0, 112);
 
   batteryLabel_ = lv_label_create(telemetryPanel_);
+  lv_obj_set_width(batteryLabel_, 250);
+  lv_label_set_long_mode(batteryLabel_, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_color(batteryLabel_, lv_color_hex(0xd9e3f8), 0);
   lv_obj_align(batteryLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -20);
 
@@ -1153,6 +1183,8 @@ void LvglController::begin() {
   lastRecoveryLaunchDetected_ = state_.recoveryLaunchDetected;
   lastRecoveryApogee_ = state_.recoveryApogee;
   lastRecoveryLandingDetected_ = state_.recoveryLandingDetected;
+  lastFlightLaunchDetected_ = false;
+  lastFlightLandingDetected_ = false;
   recoveryLaunchArmed_ = state_.recoveryLaunchArmed;
   recoveryGpsFix3d_ = state_.recoveryGpsFix3d;
   lastLvTickMs_ = millis();
@@ -1165,6 +1197,8 @@ void LvglController::begin() {
       loraAgeBaseTickMs_ = lastLvTickMs_;
     }
   }
+
+  updateFlightTimerState(lastLvTickMs_);
 
   refreshUi();
 }
@@ -1950,6 +1984,53 @@ void LvglController::updateStaleness() {
   if (state_.stale) {
     state_.link.connected = false;
   }
+}
+
+void LvglController::updateFlightTimerState(uint32_t now) {
+  bool launchDetected = false;
+  bool landingDetected = false;
+
+  if (state_.hasRecoveryEventState) {
+    launchDetected = state_.recoveryLaunchDetected;
+    landingDetected = state_.recoveryLandingDetected;
+  } else {
+    String phase = state_.flight.phase;
+    phase.toLowerCase();
+    launchDetected = (phase == "boost" || phase == "coast" || phase == "ascent" ||
+                      phase == "descent" || phase == "landed");
+    landingDetected = (phase == "landed");
+  }
+
+  if (phaseEquals(state_.flight.phase, "idle") && !launchDetected && !landingDetected) {
+    flightTimerActive_ = false;
+    flightTimerStartMs_ = 0;
+    flightDurationMs_ = 0;
+  }
+
+  if (launchDetected && !lastFlightLaunchDetected_) {
+    flightTimerActive_ = true;
+    flightTimerStartMs_ = now;
+    flightDurationMs_ = 0;
+  } else if (launchDetected && !landingDetected && !flightTimerActive_ && flightTimerStartMs_ == 0) {
+    // Mid-flight boot/reconnect fallback.
+    flightTimerActive_ = true;
+    flightTimerStartMs_ = now;
+    flightDurationMs_ = 0;
+  }
+
+  if (landingDetected && !lastFlightLandingDetected_) {
+    if (flightTimerActive_ && flightTimerStartMs_ > 0) {
+      flightDurationMs_ = now - flightTimerStartMs_;
+    }
+    flightTimerActive_ = false;
+  }
+
+  if (flightTimerActive_ && flightTimerStartMs_ > 0) {
+    flightDurationMs_ = now - flightTimerStartMs_;
+  }
+
+  lastFlightLaunchDetected_ = launchDetected;
+  lastFlightLandingDetected_ = landingDetected;
 }
 
 bool LvglController::mapTouchToScreen(int rawX, int rawY, int& outX, int& outY) const {
@@ -2970,7 +3051,14 @@ void LvglController::refreshUi() {
 
   const String txVbat = formatFloat(state_.battery.telemetryVbatV, 2, "--.--");
   const String groundVbat = formatFloat(state_.battery.groundVbatV, 2, "--.--");
-  lv_label_set_text_fmt(batteryLabel_, "TX: %sV / GS: %sV", txVbat.c_str(), groundVbat.c_str());
+  const String clockText = formatClockText(now);
+  const String flightText = (flightDurationMs_ > 0) ? formatDurationText(flightDurationMs_) : String("--:--:--");
+  lv_label_set_text_fmt(batteryLabel_,
+                        "TX: %sV / GS: %sV\nDT %s  FLT %s",
+                        txVbat.c_str(),
+                        groundVbat.c_str(),
+                        clockText.c_str(),
+                        flightText.c_str());
 
   String cmdStatus = "";
   if (cmdMsg_.length() > 0 && (now - cmdTs_) <= kCommandStatusShowMs) {
@@ -3108,6 +3196,7 @@ void LvglController::tick() {
   handleCalibrationTouch();
   updatePendingCommandTimeouts(now);
   updateStaleness();
+  updateFlightTimerState(now);
   playNextQueuedSound();
   if (apogeeCalloutPending_ && soundEnabled_ && soundQueueCount_ == 0 &&
       apogeeCalloutReadyAtMs_ != 0 && now >= apogeeCalloutReadyAtMs_) {

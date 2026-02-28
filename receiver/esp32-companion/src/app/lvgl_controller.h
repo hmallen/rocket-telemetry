@@ -127,6 +127,11 @@ class LvglController {
   bool lastConnected_ = false;
   bool lastStale_ = true;
   String lastPrimaryAlert_;
+  bool flightTimerActive_ = false;
+  uint32_t flightTimerStartMs_ = 0;
+  uint32_t flightDurationMs_ = 0;
+  bool lastFlightLaunchDetected_ = false;
+  bool lastFlightLandingDetected_ = false;
 
   uint8_t* drawBufPixels_ = nullptr;
   lv_display_t* display_ = nullptr;
@@ -245,6 +250,7 @@ class LvglController {
   void setSdDumpOverlayText(const String& text);
 
   void updateStaleness();
+  void updateFlightTimerState(uint32_t now);
   void updateCompanionBattery();
   void initSdStorage();
   void initSoundOutput();
