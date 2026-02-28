@@ -225,6 +225,34 @@ static String formatFloat(float value, uint8_t decimals, const char* fallback = 
   return String(value, static_cast<unsigned int>(decimals));
 }
 
+static String formatClockText(uint32_t totalMs) {
+  const uint32_t totalSeconds = totalMs / 1000U;
+  const uint32_t day = totalSeconds / 86400U;
+  const uint32_t hour = (totalSeconds % 86400U) / 3600U;
+  const uint32_t minute = (totalSeconds % 3600U) / 60U;
+  const uint32_t second = totalSeconds % 60U;
+  char buf[32];
+  snprintf(buf, sizeof(buf), "D%lu %02lu:%02lu:%02lu",
+           static_cast<unsigned long>(day),
+           static_cast<unsigned long>(hour),
+           static_cast<unsigned long>(minute),
+           static_cast<unsigned long>(second));
+  return String(buf);
+}
+
+static String formatDurationText(uint32_t durationMs) {
+  const uint32_t totalSeconds = durationMs / 1000U;
+  const uint32_t hours = totalSeconds / 3600U;
+  const uint32_t minutes = (totalSeconds % 3600U) / 60U;
+  const uint32_t seconds = totalSeconds % 60U;
+  char buf[20];
+  snprintf(buf, sizeof(buf), "%02lu:%02lu:%02lu",
+           static_cast<unsigned long>(hours),
+           static_cast<unsigned long>(minutes),
+           static_cast<unsigned long>(seconds));
+  return String(buf);
+}
+
 static bool phaseIndicatesInFlight(const String& phaseText) {
   String phase = phaseText;
   phase.toLowerCase();
@@ -253,6 +281,40 @@ static int8_t phaseProgressStep(const String& phaseText) {
     return 3;
   }
   return -1;
+}
+
+static int8_t phaseChecklistIndex(const String& phaseText) {
+  String phase = phaseText;
+  phase.toLowerCase();
+  if (phase == "idle" || phase == "pad") {
+    return 0;
+  }
+  if (phase == "boost" || phase == "ascent") {
+    return 1;
+  }
+  if (phase == "coast") {
+    return 2;
+  }
+  if (phase == "descent") {
+    return 3;
+  }
+  if (phase == "landed") {
+    return 4;
+  }
+  return -1;
+}
+
+static const char* checklistMarkerForStage(int8_t currentPhaseIndex, int8_t stageIndex) {
+  if (currentPhaseIndex < 0) {
+    return "[ ]";
+  }
+  if (stageIndex < currentPhaseIndex) {
+    return "[x]";
+  }
+  if (stageIndex == currentPhaseIndex) {
+    return "[>]";
+  }
+  return "[ ]";
 }
 
 static lv_obj_t* makeActionButton(lv_obj_t* parent,
@@ -376,6 +438,21 @@ void LvglController::buildUi() {
   lv_obj_set_style_text_color(packetLabel_, lv_color_hex(0xd9e3f8), 0);
   lv_obj_add_flag(packetLabel_, LV_OBJ_FLAG_HIDDEN);
 
+  phaseChecklistLabel_ = lv_label_create(telemetryPanel_);
+  lv_obj_set_width(phaseChecklistLabel_, 166);
+  lv_label_set_long_mode(phaseChecklistLabel_, LV_LABEL_LONG_WRAP);
+#if LV_FONT_MONTSERRAT_12
+  lv_obj_set_style_text_font(phaseChecklistLabel_, &lv_font_montserrat_12, 0);
+#elif LV_FONT_MONTSERRAT_14
+  lv_obj_set_style_text_font(phaseChecklistLabel_, &lv_font_montserrat_14, 0);
+#else
+  lv_obj_set_style_text_font(phaseChecklistLabel_, LV_FONT_DEFAULT, 0);
+#endif
+  lv_obj_set_style_text_color(phaseChecklistLabel_, lv_color_hex(0xb8c9e6), 0);
+  lv_obj_set_style_text_align(phaseChecklistLabel_, LV_TEXT_ALIGN_LEFT, 0);
+  lv_obj_clear_flag(phaseChecklistLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_align(phaseChecklistLabel_, LV_ALIGN_TOP_RIGHT, 0, 82);
+
   callsignLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_width(callsignLabel_, 220);
   lv_label_set_long_mode(callsignLabel_, LV_LABEL_LONG_DOT);
@@ -388,6 +465,8 @@ void LvglController::buildUi() {
   lv_obj_align(altitudeLabel_, LV_ALIGN_TOP_LEFT, 0, 112);
 
   batteryLabel_ = lv_label_create(telemetryPanel_);
+  lv_obj_set_width(batteryLabel_, 250);
+  lv_label_set_long_mode(batteryLabel_, LV_LABEL_LONG_WRAP);
   lv_obj_set_style_text_color(batteryLabel_, lv_color_hex(0xd9e3f8), 0);
   lv_obj_align(batteryLabel_, LV_ALIGN_BOTTOM_LEFT, 0, -20);
 
@@ -1138,6 +1217,8 @@ void LvglController::begin() {
   lastRecoveryLaunchDetected_ = state_.recoveryLaunchDetected;
   lastRecoveryApogee_ = state_.recoveryApogee;
   lastRecoveryLandingDetected_ = state_.recoveryLandingDetected;
+  lastFlightLaunchDetected_ = false;
+  lastFlightLandingDetected_ = false;
   recoveryLaunchArmed_ = state_.recoveryLaunchArmed;
   recoveryGpsFix3d_ = state_.recoveryGpsFix3d;
   lastLvTickMs_ = millis();
@@ -1150,6 +1231,8 @@ void LvglController::begin() {
       loraAgeBaseTickMs_ = lastLvTickMs_;
     }
   }
+
+  updateFlightTimerState(lastLvTickMs_);
 
   refreshUi();
 }
@@ -1935,6 +2018,59 @@ void LvglController::updateStaleness() {
   if (state_.stale) {
     state_.link.connected = false;
   }
+}
+
+void LvglController::updateFlightTimerState(uint32_t now) {
+  bool launchDetected = false;
+  bool landingDetected = false;
+
+  if (state_.hasRecoveryEventState) {
+    launchDetected = state_.recoveryLaunchDetected;
+    landingDetected = state_.recoveryLandingDetected;
+  } else {
+    String phase = state_.flight.phase;
+    phase.toLowerCase();
+    launchDetected = (phase == "boost" || phase == "coast" || phase == "ascent" ||
+                      phase == "descent" || phase == "landed");
+    landingDetected = (phase == "landed");
+  }
+
+  if (phaseEquals(state_.flight.phase, "idle") && !launchDetected && !landingDetected) {
+    flightTimerActive_ = false;
+    flightTimerStartMs_ = 0;
+    flightDurationMs_ = 0;
+  }
+
+  if (lastRxMs_ == 0) {
+    return;
+  }
+
+  if (!flightTimerInitialized_) {
+    lastFlightLaunchDetected_ = launchDetected;
+    lastFlightLandingDetected_ = landingDetected;
+    flightTimerInitialized_ = true;
+    return;
+  }
+
+  if (launchDetected && !lastFlightLaunchDetected_) {
+    flightTimerActive_ = true;
+    flightTimerStartMs_ = now;
+    flightDurationMs_ = 0;
+  }
+
+  if (landingDetected && !lastFlightLandingDetected_) {
+    if (flightTimerActive_ && flightTimerStartMs_ > 0) {
+      flightDurationMs_ = now - flightTimerStartMs_;
+    }
+    flightTimerActive_ = false;
+  }
+
+  if (flightTimerActive_ && flightTimerStartMs_ > 0) {
+    flightDurationMs_ = now - flightTimerStartMs_;
+  }
+
+  lastFlightLaunchDetected_ = launchDetected;
+  lastFlightLandingDetected_ = landingDetected;
 }
 
 bool LvglController::mapTouchToScreen(int rawX, int rawY, int& outX, int& outY) const {
@@ -2925,6 +3061,15 @@ void LvglController::refreshUi() {
 
   lv_label_set_text_fmt(phaseLabel_, "PHASE: %s", state_.flight.phase.length() ? state_.flight.phase.c_str() : "unknown");
 
+  const int8_t checklistIndex = phaseChecklistIndex(state_.flight.phase);
+  lv_label_set_text_fmt(phaseChecklistLabel_,
+                        "%s Idle\n%s Boost\n%s Coast\n%s Descent\n%s Landed",
+                        checklistMarkerForStage(checklistIndex, 0),
+                        checklistMarkerForStage(checklistIndex, 1),
+                        checklistMarkerForStage(checklistIndex, 2),
+                        checklistMarkerForStage(checklistIndex, 3),
+                        checklistMarkerForStage(checklistIndex, 4));
+
   const String baroAltText = formatFloat(state_.alt.altitudeAglM, 1);
   const String gpsAltText = formatFloat(state_.alt.gpsAltitudeM, 1);
   float preferredVerticalSpeedMps = state_.alt.verticalSpeedMps;
@@ -2955,7 +3100,14 @@ void LvglController::refreshUi() {
 
   const String txVbat = formatFloat(state_.battery.telemetryVbatV, 2, "--.--");
   const String groundVbat = formatFloat(state_.battery.groundVbatV, 2, "--.--");
-  lv_label_set_text_fmt(batteryLabel_, "TX: %sV / GS: %sV", txVbat.c_str(), groundVbat.c_str());
+  const String clockText = formatClockText(now);
+  const String flightText = (flightDurationMs_ > 0) ? formatDurationText(flightDurationMs_) : String("--:--:--");
+  lv_label_set_text_fmt(batteryLabel_,
+                        "TX: %sV / GS: %sV\nDT %s  FLT %s",
+                        txVbat.c_str(),
+                        groundVbat.c_str(),
+                        clockText.c_str(),
+                        flightText.c_str());
 
   String cmdStatus = "";
   if (cmdMsg_.length() > 0 && (now - cmdTs_) <= kCommandStatusShowMs) {
@@ -3057,7 +3209,7 @@ void LvglController::tick() {
         }
       } else if (reportedPhaseStep > (previousPhaseStep + 1)) {
         if (previousPhaseStep == 0) {
-          effectivePhase = "ascent";
+          effectivePhase = "boost";
         } else if (previousPhaseStep == 1) {
           effectivePhase = "descent";
         } else if (previousPhaseStep == 2) {
@@ -3093,6 +3245,7 @@ void LvglController::tick() {
   handleCalibrationTouch();
   updatePendingCommandTimeouts(now);
   updateStaleness();
+  updateFlightTimerState(now);
   playNextQueuedSound();
   if (apogeeCalloutPending_ && soundEnabled_ && soundQueueCount_ == 0 &&
       apogeeCalloutReadyAtMs_ != 0 && now >= apogeeCalloutReadyAtMs_) {

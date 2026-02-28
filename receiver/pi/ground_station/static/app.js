@@ -3,7 +3,9 @@ const elements = {
   connStatus: document.getElementById("conn-status"),
   packetCount: document.getElementById("packet-count"),
   lastUpdate: document.getElementById("last-update"),
+  datetimeNow: document.getElementById("datetime-now"),
   callsign: document.getElementById("callsign"),
+  flightDuration: document.getElementById("flight-duration"),
   crcStatus: document.getElementById("crc-status"),
   radioRssi: document.getElementById("radio-rssi"),
   radioSnr: document.getElementById("radio-snr"),
@@ -139,6 +141,12 @@ const state = {
   soundEnabled: true,
   soundVolumePct: 70,
   soundSettingsLoaded: false,
+  flightTimerActive: false,
+  flightTimerStartMs: 0,
+  flightTimerElapsedMs: 0,
+  flightTimerInitialized: false,
+  flightLaunchDetected: false,
+  flightLandingDetected: false,
 };
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -631,6 +639,53 @@ function formatInt(value) {
     return "--";
   }
   return Math.round(value).toString();
+}
+
+function formatDurationMs(durationMs) {
+  if (!Number.isFinite(durationMs) || durationMs < 0) {
+    return "--";
+  }
+  const totalSeconds = Math.floor(durationMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function updateFlightStopwatch(recovery) {
+  const launchDetected = recovery.launch_detected === true;
+  const landingDetected = recovery.landing_detected === true;
+  const phase = typeof recovery.phase === "string" ? recovery.phase.toLowerCase() : "";
+  const nowMs = Date.now();
+
+  if (phase === "idle" && !launchDetected && !landingDetected) {
+    state.flightTimerActive = false;
+    state.flightTimerStartMs = 0;
+    state.flightTimerElapsedMs = 0;
+  }
+
+  if (!state.flightTimerInitialized) {
+    state.flightLaunchDetected = launchDetected;
+    state.flightLandingDetected = landingDetected;
+    state.flightTimerInitialized = true;
+    return;
+  }
+
+  if (launchDetected && !state.flightLaunchDetected) {
+    state.flightTimerActive = true;
+    state.flightTimerStartMs = nowMs;
+    state.flightTimerElapsedMs = 0;
+  }
+
+  if (landingDetected && !state.flightLandingDetected) {
+    if (state.flightTimerActive && state.flightTimerStartMs > 0) {
+      state.flightTimerElapsedMs = Math.max(0, nowMs - state.flightTimerStartMs);
+    }
+    state.flightTimerActive = false;
+  }
+
+  state.flightLaunchDetected = launchDetected;
+  state.flightLandingDetected = landingDetected;
 }
 
 function setDeployIndicator(element, stage) {
@@ -1537,6 +1592,7 @@ function updateFromTelemetry(snapshot) {
   elements.altTempC.textContent = alt.temp_c !== null && alt.temp_c !== undefined ? formatNumber(alt.temp_c, 2) : "--";
 
   const recovery = snapshot.recovery || {};
+  updateFlightStopwatch(recovery);
   const commandLockout = snapshot.command_lockout || {};
   if (commandLockout.active === null || commandLockout.active === undefined) {
     state.commandLockoutActive = phaseIndicatesInFlight(recovery.phase);
@@ -2091,6 +2147,17 @@ function updateMap(gps) {
 }
 
 function updateClock() {
+  const nowMs = Date.now();
+  if (elements.datetimeNow) {
+    elements.datetimeNow.textContent = new Date(nowMs).toLocaleString();
+  }
+  if (elements.flightDuration) {
+    const elapsedMs = state.flightTimerActive && state.flightTimerStartMs > 0
+      ? Math.max(0, nowMs - state.flightTimerStartMs)
+      : state.flightTimerElapsedMs;
+    elements.flightDuration.textContent = elapsedMs > 0 ? formatDurationMs(elapsedMs) : "--";
+  }
+
   if (state.lastUpdateMs === 0) {
     elements.lastUpdate.textContent = "--";
     updateConnection(false);
