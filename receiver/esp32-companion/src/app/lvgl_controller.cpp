@@ -3080,7 +3080,7 @@ void LvglController::refreshUi() {
     lv_obj_set_style_text_color(wifiIndicatorIcon_, lv_color_hex(wifiConnected ? 0xe6f2ff : 0xa7b4c9), 0);
 
     if (wifiApActive) {
-      lv_label_set_text(wifiIndicatorState_, LV_SYMBOL_BARS);
+      lv_label_set_text(wifiIndicatorState_, "AP");
       lv_obj_set_style_text_color(wifiIndicatorState_, lv_color_hex(0x102436), 0);
       lv_obj_set_style_bg_color(wifiIndicatorState_, lv_color_hex(0x7ec8ff), 0);
       lv_obj_set_style_border_color(wifiIndicatorState_, lv_color_hex(0xb5e4ff), 0);
@@ -3101,7 +3101,7 @@ void LvglController::refreshUi() {
     lv_obj_set_style_text_color(wifiIndicatorIcon_, lv_color_hex(0x637287), 0);
 
     if (wifiApActive) {
-      lv_label_set_text(wifiIndicatorState_, LV_SYMBOL_BARS);
+      lv_label_set_text(wifiIndicatorState_, "AP");
       lv_obj_set_style_text_color(wifiIndicatorState_, lv_color_hex(0x102436), 0);
       lv_obj_set_style_bg_color(wifiIndicatorState_, lv_color_hex(0x7ec8ff), 0);
       lv_obj_set_style_border_color(wifiIndicatorState_, lv_color_hex(0xb5e4ff), 0);
