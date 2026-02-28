@@ -95,7 +95,10 @@ const elements = {
   soundTest: document.getElementById("sound-test"),
   soundStatus: document.getElementById("sound-status"),
   telemetryWaiting: document.getElementById("telemetry-waiting"),
+  phaseFlow: document.getElementById("phase-flow"),
 };
+
+elements.phaseNodes = Array.from(document.querySelectorAll("#phase-flow .phase-node"));
 
 const rocketCanvas = document.getElementById("rocket-canvas");
 const mapContainer = document.getElementById("map");
@@ -1009,6 +1012,55 @@ function phaseIndicatesInFlight(phase) {
   return normalized === "ascent" || normalized === "descent" || normalized === "boost" || normalized === "coast";
 }
 
+function phaseChecklistIndex(phase) {
+  const normalized = typeof phase === "string" ? phase.toLowerCase() : "";
+  if (normalized === "idle" || normalized === "pad") {
+    return 0;
+  }
+  if (normalized === "boost" || normalized === "ascent") {
+    return 1;
+  }
+  if (normalized === "coast") {
+    return 2;
+  }
+  if (normalized === "descent") {
+    return 3;
+  }
+  if (normalized === "landed") {
+    return 4;
+  }
+  return -1;
+}
+
+function updatePhaseFlow(phase) {
+  if (!elements.phaseNodes || elements.phaseNodes.length === 0) {
+    return;
+  }
+
+  const activeIndex = phaseChecklistIndex(phase);
+  elements.phaseNodes.forEach((node) => {
+    const nodeIndex = Number(node.dataset.phaseIndex);
+    node.classList.remove("phase-future", "phase-active", "phase-complete");
+
+    if (!Number.isFinite(nodeIndex) || activeIndex < 0) {
+      node.classList.add("phase-future");
+      node.removeAttribute("aria-current");
+      return;
+    }
+
+    if (nodeIndex < activeIndex) {
+      node.classList.add("phase-complete");
+      node.removeAttribute("aria-current");
+    } else if (nodeIndex === activeIndex) {
+      node.classList.add("phase-active");
+      node.setAttribute("aria-current", "step");
+    } else {
+      node.classList.add("phase-future");
+      node.removeAttribute("aria-current");
+    }
+  });
+}
+
 function updateSdControlState() {
   if (state.sdCommandPending) {
     toggleControlButtons(true);
@@ -1609,6 +1661,7 @@ function updateFromTelemetry(snapshot) {
   const launchArmAckEnabled = recovery.launch_arm_ack_enabled === true;
   elements.recoveryMode.textContent = recovery.mode || "--";
   elements.recoveryPhase.textContent = recovery.phase || "--";
+  updatePhaseFlow(recovery.phase);
   if (elements.recoveryArmed) {
     elements.recoveryArmed.textContent = state.recoveryLaunchArmed ? "ARMED" : "NO";
   }
@@ -2263,6 +2316,7 @@ if (elements.telemTxPower) {
 }
 
 loadSoundSettings();
+updatePhaseFlow(null);
 
 setInterval(updateClock, 500);
 

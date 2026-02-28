@@ -66,7 +66,9 @@ private:
   uint8_t ck_b_ = 0;
   uint8_t ck_a_recv_ = 0;
   uint8_t ck_b_recv_ = 0;
-  uint8_t payload_[512];
+  // NAV-SAT payload can exceed 512 bytes on modern multi-GNSS receivers.
+  // Keep this large enough to avoid dropping the whole message when many SVs are visible.
+  uint8_t payload_[2048];
   uint8_t chunk_[240];
   uint16_t chunk_n_ = 0;
 };
