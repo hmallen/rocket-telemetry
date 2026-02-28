@@ -2011,11 +2011,6 @@ void LvglController::updateFlightTimerState(uint32_t now) {
     flightTimerActive_ = true;
     flightTimerStartMs_ = now;
     flightDurationMs_ = 0;
-  } else if (launchDetected && !landingDetected && !flightTimerActive_ && flightTimerStartMs_ == 0) {
-    // Mid-flight boot/reconnect fallback.
-    flightTimerActive_ = true;
-    flightTimerStartMs_ = now;
-    flightDurationMs_ = 0;
   }
 
   if (landingDetected && !lastFlightLandingDetected_) {

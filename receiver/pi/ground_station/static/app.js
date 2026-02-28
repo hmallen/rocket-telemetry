@@ -667,11 +667,6 @@ function updateFlightStopwatch(recovery) {
     state.flightTimerActive = true;
     state.flightTimerStartMs = nowMs;
     state.flightTimerElapsedMs = 0;
-  } else if (launchDetected && !landingDetected && !state.flightTimerActive && state.flightTimerStartMs === 0) {
-    // Mid-flight page reload fallback: start from first observed launched frame.
-    state.flightTimerActive = true;
-    state.flightTimerStartMs = nowMs;
-    state.flightTimerElapsedMs = 0;
   }
 
   if (landingDetected && !state.flightLandingDetected) {
