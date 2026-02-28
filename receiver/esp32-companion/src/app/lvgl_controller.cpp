@@ -389,7 +389,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_text_color(phaseChecklistLabel_, lv_color_hex(0xb8c9e6), 0);
   lv_obj_set_style_text_align(phaseChecklistLabel_, LV_TEXT_ALIGN_LEFT, 0);
   lv_obj_clear_flag(phaseChecklistLabel_, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_align(phaseChecklistLabel_, LV_ALIGN_TOP_LEFT, 0, 54);
+  lv_obj_align(phaseChecklistLabel_, LV_ALIGN_TOP_RIGHT, 0, 82);
 
   callsignLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_width(callsignLabel_, 220);
