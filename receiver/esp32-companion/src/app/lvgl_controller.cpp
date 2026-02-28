@@ -3024,11 +3024,10 @@ void LvglController::refreshTrendChart() {
 
   for (uint16_t i = 0; i < trendHistoryCount_; ++i) {
     const uint16_t idx = static_cast<uint16_t>((trendHistoryHead_ + i) % kTrendHistoryPoints);
-    const uint16_t chartPointId = static_cast<uint16_t>((trendHistoryHead_ + i) % kTrendHistoryPoints);
     const int32_t altValue = normalizeTrendValue(trendAltHistoryM_[idx], altMin, altMax);
     const int32_t vsValue = normalizeTrendValue(trendVsHistoryMps_[idx], vsMin, vsMax);
-    lv_chart_set_series_value_by_id(trendChart_, trendAltSeries_, chartPointId, altValue);
-    lv_chart_set_series_value_by_id(trendChart_, trendVsSeries_, chartPointId, vsValue);
+    lv_chart_set_series_value_by_id(trendChart_, trendAltSeries_, i, altValue);
+    lv_chart_set_series_value_by_id(trendChart_, trendVsSeries_, i, vsValue);
   }
   lv_chart_refresh(trendChart_);
 
