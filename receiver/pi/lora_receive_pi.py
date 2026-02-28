@@ -34,8 +34,9 @@ class VoltageMonitorConfig:
     address: int = 0x49
 
     ch_vin: int = 0b11000001
-    ch_vout: int = 0b11010001
-    ch_vbatt: int = 0b11100001
+    # PiZ-UpTime sample mapping: channel 1 = battery, channel 2 = output.
+    ch_vbatt: int = 0b11010001
+    ch_vout: int = 0b11100001
     ch_tempv: int = 0b11110001
 
     vref: float = 6.144
