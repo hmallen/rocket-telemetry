@@ -151,6 +151,21 @@
     </header>
 
     <main class="dashboard-layout">
+      <section class="panel phase-strip" aria-label="Flight phase progression">
+        <p class="phase-strip-title">Flight Phase Progression</p>
+        <div class="phase-flow" id="phase-flow">
+          <div class="phase-node" data-phase-index="0">Idle</div>
+          <span class="phase-arrow" aria-hidden="true">→</span>
+          <div class="phase-node" data-phase-index="1">Boost</div>
+          <span class="phase-arrow" aria-hidden="true">→</span>
+          <div class="phase-node" data-phase-index="2">Coast</div>
+          <span class="phase-arrow" aria-hidden="true">→</span>
+          <div class="phase-node" data-phase-index="3">Descent</div>
+          <span class="phase-arrow" aria-hidden="true">→</span>
+          <div class="phase-node" data-phase-index="4">Landed</div>
+        </div>
+      </section>
+
       <section class="visuals">
         <article class="panel">
           <div class="panel-header">

@@ -423,6 +423,70 @@ h1 {
   align-items: start;
 }
 
+.phase-strip {
+  padding: 10px 14px;
+  gap: 8px;
+}
+
+.phase-strip-title {
+  margin: 0;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.phase-flow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  overflow-x: auto;
+  padding-bottom: 2px;
+}
+
+.phase-node {
+  flex: 1 0 130px;
+  min-width: 120px;
+  text-align: center;
+  padding: 7px 10px;
+  border-radius: 999px;
+  border: 1px solid #d8d2c8;
+  background: #ece8e1;
+  color: #7d776e;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.2;
+  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.phase-node.phase-future {
+  background: #ece8e1;
+  border-color: #d8d2c8;
+  color: #7d776e;
+}
+
+.phase-node.phase-active {
+  background: rgba(185, 129, 24, 0.15);
+  border-color: rgba(185, 129, 24, 0.55);
+  color: #6b4d13;
+  box-shadow: 0 0 0 1px rgba(185, 129, 24, 0.2);
+}
+
+.phase-node.phase-complete {
+  background: rgba(30, 111, 92, 0.16);
+  border-color: rgba(30, 111, 92, 0.5);
+  color: var(--accent-strong);
+}
+
+.phase-arrow {
+  flex: 0 0 auto;
+  color: #9d978e;
+  font-size: 0.92rem;
+  line-height: 1;
+}
+
 .visuals {
   display: grid;
   gap: 24px;
@@ -763,6 +827,15 @@ h1 {
 }
 
 @media (max-width: 640px) {
+  .phase-strip {
+    padding: 10px 12px;
+  }
+
+  .phase-node {
+    min-width: 110px;
+    font-size: 0.75rem;
+  }
+
   .attitude-readout {
     grid-template-columns: repeat(3, minmax(60px, 1fr));
   }
