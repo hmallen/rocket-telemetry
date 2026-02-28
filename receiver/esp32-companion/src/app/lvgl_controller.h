@@ -207,6 +207,7 @@ class LvglController {
   lv_obj_t* linkLabel_ = nullptr;
   lv_obj_t* linkMetaLabel_ = nullptr;
   lv_obj_t* phaseLabel_ = nullptr;
+  lv_obj_t* phaseChecklistLabel_ = nullptr;
   lv_obj_t* altitudeLabel_ = nullptr;
   lv_obj_t* vsLabel_ = nullptr;
   lv_obj_t* packetLabel_ = nullptr;

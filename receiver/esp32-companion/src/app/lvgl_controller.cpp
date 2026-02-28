@@ -376,6 +376,21 @@ void LvglController::buildUi() {
   lv_obj_set_style_text_color(packetLabel_, lv_color_hex(0xd9e3f8), 0);
   lv_obj_add_flag(packetLabel_, LV_OBJ_FLAG_HIDDEN);
 
+  phaseChecklistLabel_ = lv_label_create(telemetryPanel_);
+  lv_obj_set_width(phaseChecklistLabel_, 166);
+  lv_label_set_long_mode(phaseChecklistLabel_, LV_LABEL_LONG_WRAP);
+#if LV_FONT_MONTSERRAT_12
+  lv_obj_set_style_text_font(phaseChecklistLabel_, &lv_font_montserrat_12, 0);
+#elif LV_FONT_MONTSERRAT_14
+  lv_obj_set_style_text_font(phaseChecklistLabel_, &lv_font_montserrat_14, 0);
+#else
+  lv_obj_set_style_text_font(phaseChecklistLabel_, LV_FONT_DEFAULT, 0);
+#endif
+  lv_obj_set_style_text_color(phaseChecklistLabel_, lv_color_hex(0xb8c9e6), 0);
+  lv_obj_set_style_text_align(phaseChecklistLabel_, LV_TEXT_ALIGN_LEFT, 0);
+  lv_obj_clear_flag(phaseChecklistLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_align(phaseChecklistLabel_, LV_ALIGN_TOP_LEFT, 0, 54);
+
   callsignLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_width(callsignLabel_, 220);
   lv_label_set_long_mode(callsignLabel_, LV_LABEL_LONG_DOT);
