@@ -3209,7 +3209,7 @@ void LvglController::tick() {
         }
       } else if (reportedPhaseStep > (previousPhaseStep + 1)) {
         if (previousPhaseStep == 0) {
-          effectivePhase = "ascent";
+          effectivePhase = "boost";
         } else if (previousPhaseStep == 1) {
           effectivePhase = "descent";
         } else if (previousPhaseStep == 2) {
