@@ -658,6 +658,16 @@ h1 {
   border: 1px solid rgba(135, 160, 188, 0.22);
 }
 
+.trend-panel {
+  min-height: 0;
+}
+
+#flight-trend-shell {
+  height: auto;
+  flex: 1 1 auto;
+  min-height: 320px;
+}
+
 .chart-shell canvas {
   width: 100%;
   height: 100%;
@@ -916,6 +926,11 @@ h1 {
     height: 280px;
   }
 
+  #flight-trend-shell {
+    height: auto;
+    min-height: 280px;
+  }
+
   #map-shell {
     min-height: 300px;
   }
@@ -955,6 +970,11 @@ h1 {
 
   .chart-shell {
     height: 240px;
+  }
+
+  #flight-trend-shell {
+    height: auto;
+    min-height: 240px;
   }
 
   #map-shell {

@@ -340,7 +340,8 @@ static lv_obj_t* makeActionButton(lv_obj_t* parent,
                                   const char* text,
                                   lv_event_cb_t cb,
                                   void* userData,
-                                  lv_coord_t height = 34) {
+                                  lv_coord_t height = 34,
+                                  lv_event_code_t eventCode = LV_EVENT_PRESSED) {
   lv_obj_t* btn = lv_btn_create(parent);
   lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_width(btn, LV_PCT(100));
@@ -350,7 +351,7 @@ static lv_obj_t* makeActionButton(lv_obj_t* parent,
   lv_obj_set_style_bg_color(btn, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
   lv_obj_set_style_border_color(btn, lv_color_hex(0x4b7dd1), 0);
   lv_obj_set_style_border_width(btn, 1, 0);
-  lv_obj_add_event_cb(btn, cb, LV_EVENT_PRESSED, userData);
+  lv_obj_add_event_cb(btn, cb, eventCode, userData);
 
   lv_obj_t* label = lv_label_create(btn);
   lv_label_set_text(label, text);
@@ -758,32 +759,38 @@ void LvglController::buildUi() {
                    "ALTITUDE ZERO",
                    onAltCalibrateEvent,
                    this,
-                   kSettingsButtonHeight);
+                   kSettingsButtonHeight,
+                   LV_EVENT_CLICKED);
   makeActionButton(settingsActions_,
                    "RESET FLIGHT PHASE",
                    onPhaseResetEvent,
                    this,
-                   kSettingsButtonHeight);
+                   kSettingsButtonHeight,
+                   LV_EVENT_CLICKED);
   makeActionButton(settingsActions_,
                    "IMU CALIBRATION",
                    onImuCalibrateEvent,
                    this,
-                   kSettingsButtonHeight);
+                   kSettingsButtonHeight,
+                   LV_EVENT_CLICKED);
   makeActionButton(settingsActions_,
                    "SD CARD FUNCTIONS",
                    onSdFunctionsOpenEvent,
                    this,
-                   kSettingsButtonHeight);
+                   kSettingsButtonHeight,
+                   LV_EVENT_CLICKED);
   makeActionButton(settingsActions_,
                    "SOUND SETTINGS",
                    onSoundSettingsOpenEvent,
                    this,
-                   kSettingsButtonHeight);
+                   kSettingsButtonHeight,
+                   LV_EVENT_CLICKED);
   makeActionButton(settingsActions_,
                    "TREND CHART",
                    onTrendPageOpenEvent,
                    this,
-                   kSettingsButtonHeight);
+                   kSettingsButtonHeight,
+                   LV_EVENT_CLICKED);
 
   lv_obj_t* txPowerTitle = lv_label_create(settingsActions_);
   lv_label_set_text(txPowerTitle, "TELEMETRY TX POWER");
@@ -825,7 +832,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_color(txPowerSendBtn, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
   lv_obj_set_style_border_color(txPowerSendBtn, lv_color_hex(0x4b7dd1), 0);
   lv_obj_set_style_border_width(txPowerSendBtn, 1, 0);
-  lv_obj_add_event_cb(txPowerSendBtn, onTxPowerSendEvent, LV_EVENT_PRESSED, this);
+  lv_obj_add_event_cb(txPowerSendBtn, onTxPowerSendEvent, LV_EVENT_CLICKED, this);
 
   lv_obj_t* txPowerSendLabel = lv_label_create(txPowerSendBtn);
   lv_label_set_text(txPowerSendLabel, "APPLY");
@@ -867,7 +874,8 @@ void LvglController::buildUi() {
                    "SCREEN CALIBRATION",
                    onCalibrateEvent,
                    this,
-                   kSettingsButtonHeight);
+                   kSettingsButtonHeight,
+                   LV_EVENT_CLICKED);
 
   rebootBtn_ = lv_btn_create(settingsActions_);
   lv_obj_add_flag(rebootBtn_, LV_OBJ_FLAG_CLICKABLE);
@@ -932,12 +940,14 @@ void LvglController::buildUi() {
                    "BACK",
                    onSoundSettingsBackEvent,
                    this,
-                   kSettingsButtonHeight);
+                   kSettingsButtonHeight,
+                   LV_EVENT_CLICKED);
   makeActionButton(soundSettingsPanel_,
                    "PLAY TEST SOUND",
                    onSoundTestEvent,
                    this,
-                   kSettingsButtonHeight);
+                   kSettingsButtonHeight,
+                   LV_EVENT_CLICKED);
 
   lv_obj_t* soundVolumeTitle = lv_label_create(soundSettingsPanel_);
   lv_label_set_text(soundVolumeTitle, "SOUND VOLUME");
@@ -986,7 +996,8 @@ void LvglController::buildUi() {
                    "BACK",
                    onSdFunctionsBackEvent,
                    this,
-                   kSettingsButtonHeight);
+                   kSettingsButtonHeight,
+                   LV_EVENT_CLICKED);
 
   sdRotateBtn_ = lv_btn_create(sdFunctionsPanel_);
   lv_obj_add_flag(sdRotateBtn_, LV_OBJ_FLAG_CLICKABLE);
@@ -997,7 +1008,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_color(sdRotateBtn_, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
   lv_obj_set_style_border_color(sdRotateBtn_, lv_color_hex(0x4b7dd1), 0);
   lv_obj_set_style_border_width(sdRotateBtn_, 1, 0);
-  lv_obj_add_event_cb(sdRotateBtn_, onSdRotateEvent, LV_EVENT_PRESSED, this);
+  lv_obj_add_event_cb(sdRotateBtn_, onSdRotateEvent, LV_EVENT_CLICKED, this);
 
   sdRotateLabel_ = lv_label_create(sdRotateBtn_);
   lv_label_set_text(sdRotateLabel_, "ROTATE LOGFILE");
@@ -1014,7 +1025,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_color(sdFormatBtn_, lv_color_hex(0xa02828), LV_STATE_PRESSED);
   lv_obj_set_style_border_color(sdFormatBtn_, lv_color_hex(0xdc7070), 0);
   lv_obj_set_style_border_width(sdFormatBtn_, 1, 0);
-  lv_obj_add_event_cb(sdFormatBtn_, onSdFormatEvent, LV_EVENT_PRESSED, this);
+  lv_obj_add_event_cb(sdFormatBtn_, onSdFormatEvent, LV_EVENT_CLICKED, this);
   lv_obj_add_event_cb(sdFormatBtn_, onSdFormatEvent, LV_EVENT_LONG_PRESSED, this);
 
   sdFormatLabel_ = lv_label_create(sdFormatBtn_);
@@ -1032,7 +1043,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_color(sdDumpBtn_, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
   lv_obj_set_style_border_color(sdDumpBtn_, lv_color_hex(0x4b7dd1), 0);
   lv_obj_set_style_border_width(sdDumpBtn_, 1, 0);
-  lv_obj_add_event_cb(sdDumpBtn_, onSdDumpSampleEvent, LV_EVENT_PRESSED, this);
+  lv_obj_add_event_cb(sdDumpBtn_, onSdDumpSampleEvent, LV_EVENT_CLICKED, this);
 
   sdDumpLabel_ = lv_label_create(sdDumpBtn_);
   lv_label_set_text(sdDumpLabel_, "DUMP SAMPLE");
@@ -4009,12 +4020,13 @@ void LvglController::onSdFormatEvent(lv_event_t* e) {
   if (self == nullptr) {
     return;
   }
-
   const lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_PRESSED) {
+  if (code == LV_EVENT_CLICKED || code == LV_EVENT_PRESSED) {
     if (self->sdLoggingEnabled_) {
       self->setCommandStatus("Stop SD logging before format", false);
-    } else if (self->commandLockoutActive_) {
+      return;
+    }
+    if (self->commandLockoutActive_) {
       self->setCommandStatus("SD format locked until landing", false);
     } else {
       self->sdFormatArmed_ = true;
