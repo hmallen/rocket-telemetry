@@ -1232,7 +1232,7 @@ void LvglController::buildUi() {
   lv_chart_set_type(trendChart_, LV_CHART_TYPE_LINE);
   lv_chart_set_point_count(trendChart_, kTrendHistoryPoints);
   lv_chart_set_div_line_count(trendChart_, 5, 6);
-  lv_chart_set_update_mode(trendChart_, LV_CHART_UPDATE_MODE_SHIFT);
+  lv_chart_set_update_mode(trendChart_, LV_CHART_UPDATE_MODE_CIRCULAR);
 
   trendAltSeries_ = lv_chart_add_series(trendChart_, lv_color_hex(0x7de8ff), LV_CHART_AXIS_PRIMARY_Y);
   trendVsSeries_ = lv_chart_add_series(trendChart_, lv_color_hex(0xffb07a), LV_CHART_AXIS_PRIMARY_Y);
