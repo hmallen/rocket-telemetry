@@ -3026,6 +3026,8 @@ void LvglController::refreshTrendChart() {
     const uint16_t idx = static_cast<uint16_t>((trendHistoryHead_ + i) % kTrendHistoryPoints);
     const int32_t altValue = normalizeTrendValue(trendAltHistoryM_[idx], altMin, altMax);
     const int32_t vsValue = normalizeTrendValue(trendVsHistoryMps_[idx], vsMin, vsMax);
+    // Read from the circular history buffer, but write chart points sequentially so
+    // the plot is always oldest->newest from left to right.
     lv_chart_set_series_value_by_id(trendChart_, trendAltSeries_, i, altValue);
     lv_chart_set_series_value_by_id(trendChart_, trendVsSeries_, i, vsValue);
   }
