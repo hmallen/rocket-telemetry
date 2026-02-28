@@ -16,8 +16,9 @@ constexpr uint32_t kGroundStationOfflineDetectMs = 8000;
 constexpr uint8_t kCalPointCount = 4;
 constexpr uint8_t kTelemetryTxPowerMinDbm = 2;
 constexpr uint8_t kTelemetryTxPowerMaxDbm = 17;
-constexpr lv_coord_t kSettingsPanelTopOffsetPx = 38;
-constexpr lv_coord_t kSettingsPanelBottomMarginPx = 4;
+constexpr lv_coord_t kSettingsPanelTopOffsetPx = 40;
+constexpr lv_coord_t kSettingsPanelRightInsetPx = 4;
+constexpr lv_coord_t kSettingsPanelBottomMarginPx = 8;
 constexpr int kCalMarginPx = 24;
 constexpr int32_t kCalRetouchDistancePx = 120;
 constexpr int32_t kTouchPressThreshold = 140;
@@ -603,7 +604,7 @@ void LvglController::buildUi() {
   lv_obj_set_flex_align(actionPanel_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_clear_flag(actionPanel_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_clear_flag(actionPanel_, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_align(actionPanel_, LV_ALIGN_TOP_RIGHT, 0, 38);
+  lv_obj_align(actionPanel_, LV_ALIGN_TOP_RIGHT, -kSettingsPanelRightInsetPx, kSettingsPanelTopOffsetPx);
 
   lv_obj_t* actionTitle = lv_label_create(actionPanel_);
   lv_label_set_text(actionTitle, "ACTIONS");
@@ -690,8 +691,11 @@ void LvglController::buildUi() {
 
   settingsBody_ = lv_obj_create(telemetryPanel_);
   lv_obj_set_width(settingsBody_, kSettingsPanelWidth);
+  const lv_coord_t telemetryContentHeight =
+      lv_obj_get_height(telemetryPanel_) - lv_obj_get_style_pad_top(telemetryPanel_, 0) -
+      lv_obj_get_style_pad_bottom(telemetryPanel_, 0);
   const lv_coord_t settingsBodyHeight =
-      lv_obj_get_height(telemetryPanel_) - kSettingsPanelTopOffsetPx - kSettingsPanelBottomMarginPx;
+      telemetryContentHeight - kSettingsPanelTopOffsetPx - kSettingsPanelBottomMarginPx;
   lv_obj_set_height(settingsBody_, settingsBodyHeight > 0 ? settingsBodyHeight : 0);
   lv_obj_set_style_bg_color(settingsBody_, lv_color_hex(0x111c2e), 0);
   lv_obj_set_style_border_color(settingsBody_, lv_color_hex(0x2a446a), 0);
@@ -706,7 +710,7 @@ void LvglController::buildUi() {
   lv_obj_set_flex_align(settingsBody_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_align(settingsBody_, LV_ALIGN_TOP_RIGHT, 0, kSettingsPanelTopOffsetPx);
+  lv_obj_align(settingsBody_, LV_ALIGN_TOP_RIGHT, -kSettingsPanelRightInsetPx, kSettingsPanelTopOffsetPx);
 
   lv_obj_t* settingsTitle = lv_label_create(settingsBody_);
   lv_label_set_text(settingsTitle, "SETTINGS");

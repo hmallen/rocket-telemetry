@@ -483,6 +483,7 @@ h1 {
   border-color: rgba(185, 129, 24, 0.55);
   color: #6b4d13;
   box-shadow: 0 0 0 1px rgba(185, 129, 24, 0.2);
+  animation: phase-active-pulse 1.9s ease-in-out infinite;
 }
 
 .phase-node.phase-complete {
@@ -496,6 +497,22 @@ h1 {
   color: #9d978e;
   font-size: 0.92rem;
   line-height: 1;
+}
+
+@keyframes phase-active-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 1px rgba(185, 129, 24, 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 1px rgba(185, 129, 24, 0.28), 0 0 0 6px rgba(185, 129, 24, 0.12);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .phase-node.phase-active {
+    animation: none;
+  }
 }
 
 .visuals {
