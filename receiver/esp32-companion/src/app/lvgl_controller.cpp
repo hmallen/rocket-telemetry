@@ -1180,7 +1180,7 @@ void LvglController::buildUi() {
   lv_obj_t* trendTitle = lv_label_create(trendPage_);
   lv_label_set_text(trendTitle, "Flight Trend");
   lv_obj_set_style_text_color(trendTitle, lv_color_hex(0xe6eeff), 0);
-  lv_obj_set_style_text_font(trendTitle, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_font(trendTitle, &lv_font_montserrat_14, 0);
   lv_obj_align(trendTitle, LV_ALIGN_TOP_LEFT, 0, 0);
   lv_obj_clear_flag(trendTitle, LV_OBJ_FLAG_CLICKABLE);
 
@@ -1213,7 +1213,7 @@ void LvglController::buildUi() {
   lv_obj_set_width(trendRangeLabel_, 240);
   lv_obj_set_style_text_align(trendRangeLabel_, LV_TEXT_ALIGN_RIGHT, 0);
   lv_obj_set_style_text_color(trendRangeLabel_, lv_color_hex(0xaab8cf), 0);
-  lv_obj_set_style_text_font(trendRangeLabel_, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_font(trendRangeLabel_, &lv_font_montserrat_14, 0);
   lv_obj_align(trendRangeLabel_, LV_ALIGN_TOP_RIGHT, 0, 38);
   lv_obj_clear_flag(trendRangeLabel_, LV_OBJ_FLAG_CLICKABLE);
 
