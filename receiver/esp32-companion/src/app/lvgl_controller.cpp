@@ -3063,7 +3063,7 @@ void LvglController::refreshUi() {
 
   const int8_t checklistIndex = phaseChecklistIndex(state_.flight.phase);
   lv_label_set_text_fmt(phaseChecklistLabel_,
-                        "%s Idle\n%s Boost\n%s Coast\n%s Descent\n%s Landed",
+                        "%s Idle\n\n%s Boost\n\n%s Coast\n\n%s Descent\n\n%s Landed",
                         checklistMarkerForStage(checklistIndex, 0),
                         checklistMarkerForStage(checklistIndex, 1),
                         checklistMarkerForStage(checklistIndex, 2),
