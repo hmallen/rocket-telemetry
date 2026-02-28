@@ -289,14 +289,11 @@ static int8_t phaseChecklistIndex(const String& phaseText) {
   if (phase == "idle" || phase == "pad") {
     return 0;
   }
-  if (phase == "boost") {
+  if (phase == "boost" || phase == "ascent") {
     return 1;
   }
   if (phase == "coast") {
     return 2;
-  }
-  if (phase == "ascent") {
-    return 3;
   }
   if (phase == "descent") {
     return 4;
