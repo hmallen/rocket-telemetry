@@ -692,8 +692,9 @@ void LvglController::buildUi() {
   settingsBody_ = lv_obj_create(telemetryPanel_);
   lv_obj_set_width(settingsBody_, kSettingsPanelWidth);
   const lv_coord_t telemetryContentHeight =
-      lv_obj_get_height(telemetryPanel_) - lv_obj_get_style_pad_top(telemetryPanel_, 0) -
-      lv_obj_get_style_pad_bottom(telemetryPanel_, 0);
+      lv_obj_get_height(telemetryPanel_) -
+      lv_obj_get_style_pad_top(telemetryPanel_, LV_PART_MAIN) -
+      lv_obj_get_style_pad_bottom(telemetryPanel_, LV_PART_MAIN);
   const lv_coord_t settingsBodyHeight =
       telemetryContentHeight - kSettingsPanelTopOffsetPx - kSettingsPanelBottomMarginPx;
   lv_obj_set_height(settingsBody_, settingsBodyHeight > 0 ? settingsBodyHeight : 0);
