@@ -296,10 +296,10 @@ static int8_t phaseChecklistIndex(const String& phaseText) {
     return 2;
   }
   if (phase == "descent") {
-    return 4;
+    return 3;
   }
   if (phase == "landed") {
-    return 5;
+    return 4;
   }
   return -1;
 }
@@ -3063,13 +3063,12 @@ void LvglController::refreshUi() {
 
   const int8_t checklistIndex = phaseChecklistIndex(state_.flight.phase);
   lv_label_set_text_fmt(phaseChecklistLabel_,
-                        "%s Idle\n%s Boost\n%s Coast\n%s Ascent\n%s Descent\n%s Landed",
+                        "%s Idle\n%s Boost\n%s Coast\n%s Descent\n%s Landed",
                         checklistMarkerForStage(checklistIndex, 0),
                         checklistMarkerForStage(checklistIndex, 1),
                         checklistMarkerForStage(checklistIndex, 2),
                         checklistMarkerForStage(checklistIndex, 3),
-                        checklistMarkerForStage(checklistIndex, 4),
-                        checklistMarkerForStage(checklistIndex, 5));
+                        checklistMarkerForStage(checklistIndex, 4));
 
   const String baroAltText = formatFloat(state_.alt.altitudeAglM, 1);
   const String gpsAltText = formatFloat(state_.alt.gpsAltitudeM, 1);
