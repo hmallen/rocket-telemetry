@@ -20,6 +20,10 @@ PASSPHRASE="${2:-changeme12345}"
 AP_IP_CIDR="${3:-10.42.0.1/24}"
 CHANNEL="${4:-6}"
 
+# Extract IP address and network from CIDR
+AP_IP="${AP_IP_CIDR%/*}"
+NETWORK_BASE="${AP_IP%.*}"
+
 if [[ "${#PASSPHRASE}" -lt 8 ]]; then
   echo "Passphrase must be at least 8 characters." >&2
   exit 1
