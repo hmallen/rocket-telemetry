@@ -1237,10 +1237,8 @@ void LvglController::buildUi() {
   trendAltSeries_ = lv_chart_add_series(trendChart_, lv_color_hex(0x7de8ff), LV_CHART_AXIS_PRIMARY_Y);
   trendVsSeries_ = lv_chart_add_series(trendChart_, lv_color_hex(0xffb07a), LV_CHART_AXIS_PRIMARY_Y);
 
-  for (uint16_t i = 0; i < kTrendHistoryPoints; ++i) {
-    lv_chart_set_next_value(trendChart_, trendAltSeries_, LV_CHART_POINT_NONE);
-    lv_chart_set_next_value(trendChart_, trendVsSeries_, LV_CHART_POINT_NONE);
-  }
+  lv_chart_set_all_values(trendChart_, trendAltSeries_, LV_CHART_POINT_NONE);
+  lv_chart_set_all_values(trendChart_, trendVsSeries_, LV_CHART_POINT_NONE);
   lv_chart_refresh(trendChart_);
 
   lv_obj_add_flag(trendPage_, LV_OBJ_FLAG_HIDDEN);
@@ -3022,17 +3020,19 @@ void LvglController::refreshTrendChart() {
   const uint16_t leadingEmpty = (trendHistoryCount_ < kTrendHistoryPoints)
       ? static_cast<uint16_t>(kTrendHistoryPoints - trendHistoryCount_)
       : 0;
-  for (uint16_t i = 0; i < leadingEmpty; ++i) {
-    lv_chart_set_next_value(trendChart_, trendAltSeries_, LV_CHART_POINT_NONE);
-    lv_chart_set_next_value(trendChart_, trendVsSeries_, LV_CHART_POINT_NONE);
+
+  for (uint16_t i = 0; i < kTrendHistoryPoints; ++i) {
+    lv_chart_set_series_value_by_id(trendChart_, trendAltSeries_, i, LV_CHART_POINT_NONE);
+    lv_chart_set_series_value_by_id(trendChart_, trendVsSeries_, i, LV_CHART_POINT_NONE);
   }
 
   for (uint16_t i = 0; i < trendHistoryCount_; ++i) {
     const uint16_t idx = static_cast<uint16_t>((trendHistoryHead_ + i) % kTrendHistoryPoints);
+    const uint16_t chartPointId = static_cast<uint16_t>(leadingEmpty + i);
     const int32_t altValue = normalizeTrendValue(trendAltHistoryM_[idx], altMin, altMax);
     const int32_t vsValue = normalizeTrendValue(trendVsHistoryMps_[idx], vsMin, vsMax);
-    lv_chart_set_next_value(trendChart_, trendAltSeries_, altValue);
-    lv_chart_set_next_value(trendChart_, trendVsSeries_, vsValue);
+    lv_chart_set_series_value_by_id(trendChart_, trendAltSeries_, chartPointId, altValue);
+    lv_chart_set_series_value_by_id(trendChart_, trendVsSeries_, chartPointId, vsValue);
   }
   lv_chart_refresh(trendChart_);
 
