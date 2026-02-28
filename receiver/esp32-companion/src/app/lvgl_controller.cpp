@@ -1025,7 +1025,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_color(sdFormatBtn_, lv_color_hex(0xa02828), LV_STATE_PRESSED);
   lv_obj_set_style_border_color(sdFormatBtn_, lv_color_hex(0xdc7070), 0);
   lv_obj_set_style_border_width(sdFormatBtn_, 1, 0);
-  lv_obj_add_event_cb(sdFormatBtn_, onSdFormatEvent, LV_EVENT_CLICKED, this);
+  lv_obj_add_event_cb(sdFormatBtn_, onSdFormatEvent, LV_EVENT_PRESSED, this);
   lv_obj_add_event_cb(sdFormatBtn_, onSdFormatEvent, LV_EVENT_LONG_PRESSED, this);
 
   sdFormatLabel_ = lv_label_create(sdFormatBtn_);
@@ -4021,7 +4021,7 @@ void LvglController::onSdFormatEvent(lv_event_t* e) {
     return;
   }
   const lv_event_code_t code = lv_event_get_code(e);
-  if (code == LV_EVENT_CLICKED || code == LV_EVENT_PRESSED) {
+  if (code == LV_EVENT_PRESSED) {
     if (self->sdLoggingEnabled_) {
       self->setCommandStatus("Stop SD logging before format", false);
       return;
