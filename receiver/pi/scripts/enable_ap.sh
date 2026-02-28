@@ -131,9 +131,9 @@ interface=${WLAN_IF}
 bind-interfaces
 domain-needed
 bogus-priv
-dhcp-range=10.42.0.50,10.42.0.150,255.255.255.0,12h
-dhcp-option=option:router,10.42.0.1
-dhcp-option=option:dns-server,10.42.0.1
+dhcp-range=${NETWORK_BASE}.50,${NETWORK_BASE}.150,255.255.255.0,12h
+dhcp-option=option:router,${AP_IP}
+dhcp-option=option:dns-server,${AP_IP}
 EOF
 
 echo "[7/8] Assigning static IP to ${WLAN_IF} and enabling forwarding..."
