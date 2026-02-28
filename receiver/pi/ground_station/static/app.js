@@ -665,11 +665,6 @@ function updateFlightStopwatch(recovery) {
   }
 
   if (!state.flightTimerInitialized) {
-    if (launchDetected && !landingDetected) {
-      state.flightTimerActive = true;
-      state.flightTimerStartMs = nowMs;
-      state.flightTimerElapsedMs = 0;
-    }
     state.flightLaunchDetected = launchDetected;
     state.flightLandingDetected = landingDetected;
     state.flightTimerInitialized = true;

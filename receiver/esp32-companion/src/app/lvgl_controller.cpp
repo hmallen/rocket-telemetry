@@ -2012,11 +2012,6 @@ void LvglController::updateFlightTimerState(uint32_t now) {
   }
 
   if (!flightTimerInitialized_) {
-    if (launchDetected && !landingDetected) {
-      flightTimerActive_ = true;
-      flightTimerStartMs_ = now;
-      flightDurationMs_ = 0;
-    }
     lastFlightLaunchDetected_ = launchDetected;
     lastFlightLandingDetected_ = landingDetected;
     flightTimerInitialized_ = true;
