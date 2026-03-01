@@ -26,7 +26,7 @@ constexpr int32_t kTouchReleaseThreshold = 90;
 constexpr lv_coord_t kActionPanelGapPx = 10;
 constexpr lv_coord_t kActionItemsGapPx = 16;
 constexpr lv_coord_t kSettingsButtonHeight = 28;
-constexpr lv_coord_t kSettingsStackGapPx = 20;
+constexpr lv_coord_t kSettingsStackGapPx = 24;
 constexpr lv_coord_t kSettingsRowGapPx = 14;
 
 static uint16_t median3(uint16_t a, uint16_t b, uint16_t c) {
