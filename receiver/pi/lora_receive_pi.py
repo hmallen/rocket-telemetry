@@ -619,9 +619,9 @@ class SX1278:
         self.set_frequency(433_000_000)
 
         self.write_reg(REG_LNA, self.read_reg(REG_LNA) | 0x03)
-        self.write_reg(REG_MODEM_CONFIG_1, 0x72)  # BW125 / CR4/5
-        self.write_reg(REG_MODEM_CONFIG_2, 0x74)  # SF7 / CRC on
-        self.write_reg(REG_MODEM_CONFIG_3, 0x04)  # AGC on
+        self.write_reg(REG_MODEM_CONFIG_1, 0x72)  # BW125 (0x70) + CR4/5 (0x02) + explicit header
+        self.write_reg(REG_MODEM_CONFIG_2, 0x74)  # SF7 (0x70) + CRC on (0x04)
+        self.write_reg(REG_MODEM_CONFIG_3, 0x04)  # AGC on; low data rate optimize off for SF7/BW125
         self.write_reg(REG_PREAMBLE_MSB, 0x00)
         self.write_reg(REG_PREAMBLE_LSB, 0x08)
         self.write_reg(REG_SYNC_WORD, SYNCWORD_LORA_PUBLIC)
