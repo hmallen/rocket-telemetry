@@ -76,6 +76,7 @@ void UartLink::applyTelemetry(const TelemetryV1& t,
                               bool hasTxPower,
                               bool hasRecoveryEvents,
                               bool hasGpsQuality,
+                              bool hasCompanionFlags,
                               CompanionState& ioState) {
   ioState.tsMs = millis();
   ioState.seq++;
@@ -107,6 +108,8 @@ void UartLink::applyTelemetry(const TelemetryV1& t,
   ioState.telemetryTxPowerDbm = txPowerValid ? t.telemetry_tx_power_dbm : 0;
   ioState.hasCommandLockoutState = true;
   ioState.commandLockoutActive = (t.flags & 0x20) != 0;
+  ioState.hasWifiApState = hasCompanionFlags;
+  ioState.wifiApActive = hasCompanionFlags ? ((t.companion_flags & 0x01) != 0) : false;
   ioState.hasRecoveryDeploymentState = true;
   if (hasRecoveryEvents) {
     const uint8_t events = t.recovery_event_flags;
@@ -145,6 +148,7 @@ void UartLink::applyTelemetry(const TelemetryV1& t,
 
 bool UartLink::poll(CompanionState& ioState) {
   static constexpr size_t kTelemetryV1NoGpsQualityLen = offsetof(TelemetryV1, gps_svs_used);
+  static constexpr size_t kTelemetryV1NoCompanionFlagsLen = offsetof(TelemetryV1, companion_flags);
   static constexpr size_t kTelemetryV1NoEventFlagsLen = offsetof(TelemetryV1, recovery_event_flags);
   static constexpr size_t kTelemetryV1NoTxPowerOrEventsLen = offsetof(TelemetryV1, telemetry_tx_power_dbm);
   bool updated = false;
@@ -157,15 +161,23 @@ bool UartLink::poll(CompanionState& ioState) {
       if (frame.len >= sizeof(TelemetryV1)) {
         TelemetryV1 t{};
         memcpy(&t, frame.payload, sizeof(TelemetryV1));
-        applyTelemetry(t, true, true, true, ioState);
+        applyTelemetry(t, true, true, true, true, ioState);
         ioState.flight.callsign =
             parseCallsignFromTail(frame.payload, frame.len, sizeof(TelemetryV1));
+        updated = true;
+        rxFrames_++;
+      } else if (frame.len >= kTelemetryV1NoCompanionFlagsLen) {
+        TelemetryV1 t{};
+        memcpy(&t, frame.payload, kTelemetryV1NoCompanionFlagsLen);
+        applyTelemetry(t, true, true, true, false, ioState);
+        ioState.flight.callsign =
+            parseCallsignFromTail(frame.payload, frame.len, kTelemetryV1NoCompanionFlagsLen);
         updated = true;
         rxFrames_++;
       } else if (frame.len >= kTelemetryV1NoGpsQualityLen) {
         TelemetryV1 t{};
         memcpy(&t, frame.payload, kTelemetryV1NoGpsQualityLen);
-        applyTelemetry(t, true, true, false, ioState);
+        applyTelemetry(t, true, true, false, false, ioState);
         ioState.flight.callsign =
             parseCallsignFromTail(frame.payload, frame.len, kTelemetryV1NoGpsQualityLen);
         updated = true;
@@ -173,7 +185,7 @@ bool UartLink::poll(CompanionState& ioState) {
       } else if (frame.len >= kTelemetryV1NoEventFlagsLen) {
         TelemetryV1 t{};
         memcpy(&t, frame.payload, kTelemetryV1NoEventFlagsLen);
-        applyTelemetry(t, true, false, false, ioState);
+        applyTelemetry(t, true, false, false, false, ioState);
         ioState.flight.callsign =
             parseCallsignFromTail(frame.payload, frame.len, kTelemetryV1NoEventFlagsLen);
         updated = true;
@@ -181,7 +193,7 @@ bool UartLink::poll(CompanionState& ioState) {
       } else if (frame.len >= kTelemetryV1NoTxPowerOrEventsLen) {
         TelemetryV1 t{};
         memcpy(&t, frame.payload, kTelemetryV1NoTxPowerOrEventsLen);
-        applyTelemetry(t, false, false, false, ioState);
+        applyTelemetry(t, false, false, false, false, ioState);
         ioState.flight.callsign =
             parseCallsignFromTail(frame.payload, frame.len, kTelemetryV1NoTxPowerOrEventsLen);
         updated = true;
@@ -221,6 +233,8 @@ bool UartLink::poll(CompanionState& ioState) {
         ioState.telemetryTxPowerDbm = 0;
         ioState.hasCommandLockoutState = true;
         ioState.commandLockoutActive = (t.flags & 0x20) != 0;
+        ioState.hasWifiApState = false;
+        ioState.wifiApActive = false;
         ioState.hasRecoveryDeploymentState = true;
         ioState.recoveryDrogueDeployed = (t.flags & 0x02) != 0;
         ioState.recoveryMainDeployed = (t.flags & 0x04) != 0;
@@ -282,6 +296,8 @@ bool UartLink::poll(CompanionState& ioState) {
         cmdText = "TX DISABLE";
       } else if (ack.cmd == CMD_SET_TX_POWER) {
         cmdText = "TX POWER";
+      } else if (ack.cmd == CMD_WIFI_AP_TOGGLE) {
+        cmdText = "WIFI AP";
       }
 
       ioState.tsMs = millis();
@@ -371,6 +387,9 @@ bool UartLink::sendCommand(const String& action, int durationS) {
   } else if (action == "launch_arm") {
     cmd.cmd = CMD_LAUNCH_ARM;
     cmd.arg = (durationS > 0) ? 1 : 0;
+  } else if (action == "wifi_ap_toggle") {
+    cmd.cmd = CMD_WIFI_AP_TOGGLE;
+    cmd.arg = 0;
   } else {
     return false;
   }

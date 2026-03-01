@@ -32,6 +32,7 @@ enum CmdType : uint8_t {
   CMD_SD_ROTATE = 0x0C,
   CMD_SD_FORMAT = 0x0D,
   CMD_SD_DUMP_SAMPLE = 0x0E,
+  CMD_WIFI_AP_TOGGLE = 0x0F,
 };
 
 #pragma pack(push, 1)
@@ -69,6 +70,7 @@ struct TelemetryV1 {
   uint8_t gps_svs_used;
   uint8_t gps_svs_total;
   uint16_t gps_hdop_x100;
+  uint8_t companion_flags;
 };
 
 struct AlertV1 {

@@ -365,6 +365,15 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
     ioState.commandLockoutActive = false;
   }
 
+  JsonObject wifiAp = state["wifi_ap"];
+  if (!wifiAp.isNull() && !wifiAp["active"].isNull()) {
+    ioState.hasWifiApState = true;
+    ioState.wifiApActive = wifiAp["active"].as<bool>();
+  } else {
+    ioState.hasWifiApState = false;
+    ioState.wifiApActive = false;
+  }
+
   ioState.primaryAlert = "";
   JsonArray alerts = state["alerts"].as<JsonArray>();
   if (!alerts.isNull() && alerts.size() > 0) {
