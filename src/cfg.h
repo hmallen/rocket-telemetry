@@ -84,7 +84,7 @@ constexpr uint8_t LORA_CS   = 10;
 constexpr uint8_t LORA_DIO0 = 9;
 constexpr uint8_t LORA_RST  = 8;
 constexpr uint8_t LORA_BUSY = 255; // unused on SX127x
-constexpr float   LORA_FREQ_MHZ = 429.0f; // 70 cm amateur band (420-450 MHz in the US)
+constexpr float   LORA_FREQ_MHZ = 433.0f; // 70 cm amateur band (420-450 MHz in the US)
 
 // Operator identification: embed callsign in clear, human-decodable ASCII in every telemetry frame.
 // Set these before enabling TX.
@@ -92,9 +92,9 @@ constexpr const char LORA_CALLSIGN[] = "KG5CKI";
 #define LORA_CONTROL_OPERATOR_OK 1
 
 // RF parameter discipline: choose minimum BW/SF/power that meets link budget.
-constexpr uint8_t LORA_SF = 12;           // 6..12 (max sensitivity)
-constexpr float   LORA_BW_KHZ = 62.5f;    // narrower BW for improved receiver sensitivity
-constexpr uint8_t LORA_CR = 8;            // 5..8 => 4/5..4/8 (max FEC)
+constexpr uint8_t LORA_SF = 7;           // 6..12 (max sensitivity)
+constexpr float   LORA_BW_KHZ = 125.0f;    // narrower BW for improved receiver sensitivity
+constexpr uint8_t LORA_CR = 5;            // 5..8 => 4/5..4/8 (max FEC)
 constexpr int8_t  LORA_TX_POWER_DBM = 17; // SX127x PA_BOOST max in this firmware
 
 // Deterministic scheduling + duty-cycle restraint.
