@@ -103,7 +103,7 @@ def get_voltage_monitor_snapshot():
 def _decode_adc_voltage_from_raw(raw, cfg, decode_mode):
     raw_i = int(raw) & 0xFFFF
 
-    swapped_word = (((raw_i & 0xFF) << 8) | ((raw_i & 0xFFF0) >> 8))
+    swapped_word = (((raw_i & 0xFF) << 8) | ((raw_i >> 8) & 0xFF))
     swapped_value = (swapped_word >> 4) & 0x0FFF
     swapped_v = (swapped_value / cfg.max_reading) * cfg.vref
 
