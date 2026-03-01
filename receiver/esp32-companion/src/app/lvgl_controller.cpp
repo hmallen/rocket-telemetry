@@ -26,7 +26,7 @@ constexpr int32_t kTouchReleaseThreshold = 90;
 constexpr lv_coord_t kActionPanelGapPx = 10;
 constexpr lv_coord_t kActionItemsGapPx = 16;
 constexpr lv_coord_t kSettingsButtonHeight = 28;
-constexpr lv_coord_t kSettingsStackGapPx = 20;
+constexpr lv_coord_t kSettingsStackGapPx = 24;
 constexpr lv_coord_t kSettingsRowGapPx = 14;
 constexpr int32_t kUiFontSizePx = 14;
 
@@ -327,7 +327,8 @@ static lv_obj_t* makeActionButton(lv_obj_t* parent,
                                   const char* text,
                                   lv_event_cb_t cb,
                                   void* userData,
-                                  lv_coord_t height = 34) {
+                                  lv_coord_t height = 34,
+                                  lv_event_code_t eventCode = LV_EVENT_PRESSED) {
   lv_obj_t* btn = lv_btn_create(parent);
   lv_obj_add_flag(btn, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_width(btn, LV_PCT(100));
@@ -337,7 +338,7 @@ static lv_obj_t* makeActionButton(lv_obj_t* parent,
   lv_obj_set_style_bg_color(btn, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
   lv_obj_set_style_border_color(btn, lv_color_hex(0x4b7dd1), 0);
   lv_obj_set_style_border_width(btn, 1, 0);
-  lv_obj_add_event_cb(btn, cb, LV_EVENT_PRESSED, userData);
+  lv_obj_add_event_cb(btn, cb, eventCode, userData);
 
   lv_obj_t* label = lv_label_create(btn);
   lv_label_set_text(label, text);
@@ -777,10 +778,11 @@ void LvglController::buildUi() {
   lv_obj_center(resetFlightLabel_);
 
   makeActionButton(settingsActions_,
-                   "IMU CALIBRATION",
+                   "HOLD: IMU CALIBRATION",
                    onImuCalibrateEvent,
                    this,
-                   kSettingsButtonHeight);
+                   kSettingsButtonHeight,
+                   LV_EVENT_LONG_PRESSED);
   makeActionButton(settingsActions_,
                    "SD CARD FUNCTIONS",
                    onSdFunctionsOpenEvent,
