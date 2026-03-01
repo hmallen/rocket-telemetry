@@ -71,6 +71,9 @@ class LvglController {
   bool sdFormatArmed_ = false;
   uint32_t sdFormatArmSinceMs_ = 0;
   static constexpr uint32_t kSdFormatArmWindowMs = 4000;
+  bool launchPrepArmed_ = false;
+  uint32_t launchPrepArmSinceMs_ = 0;
+  static constexpr uint32_t kLaunchPrepArmWindowMs = 4000;
   bool resetFlightArmed_ = false;
   uint32_t resetFlightArmSinceMs_ = 0;
   static constexpr uint32_t kResetFlightArmWindowMs = 4000;
@@ -182,6 +185,8 @@ class LvglController {
   lv_obj_t* wifiIndicator_ = nullptr;
   lv_obj_t* wifiIndicatorIcon_ = nullptr;
   lv_obj_t* wifiIndicatorState_ = nullptr;
+  lv_obj_t* launchPrepBtn_ = nullptr;
+  lv_obj_t* launchPrepLabel_ = nullptr;
   lv_obj_t* sdToggleBtn_ = nullptr;
   lv_obj_t* sdToggleLabel_ = nullptr;
   lv_obj_t* txToggleBtn_ = nullptr;
@@ -258,6 +263,7 @@ class LvglController {
   void requestSdFormat();
   void requestSdDumpSample();
   void requestTxToggle(bool enable);
+  bool requestArmLaunch();
   void setSdDumpOverlayVisible(bool visible);
   void setSdDumpOverlayText(const String& text);
 
@@ -328,6 +334,7 @@ class LvglController {
   static void onSdFormatEvent(lv_event_t* e);
   static void onSdDumpSampleEvent(lv_event_t* e);
   static void onSdDumpCloseEvent(lv_event_t* e);
+  static void onLaunchPrepEvent(lv_event_t* e);
   static void onSdToggleEvent(lv_event_t* e);
   static void onTxToggleEvent(lv_event_t* e);
 };

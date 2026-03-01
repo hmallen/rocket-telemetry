@@ -565,27 +565,16 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(wifiIndicatorState_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_align(wifiIndicatorState_, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
 
-  sdToggleBtn_ = lv_btn_create(menuIconRow);
-  lv_obj_add_flag(sdToggleBtn_, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(sdToggleBtn_, 72, 30);
-  lv_obj_set_style_radius(sdToggleBtn_, 8, 0);
-  lv_obj_add_event_cb(sdToggleBtn_, onSdToggleEvent, LV_EVENT_PRESSED, this);
-  lv_obj_add_event_cb(sdToggleBtn_, onSdToggleEvent, LV_EVENT_LONG_PRESSED, this);
-  sdToggleLabel_ = lv_label_create(sdToggleBtn_);
-  lv_obj_set_style_text_color(sdToggleLabel_, lv_color_hex(0xe6eeff), 0);
-  lv_obj_clear_flag(sdToggleLabel_, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_center(sdToggleLabel_);
-
-  txToggleBtn_ = lv_btn_create(menuIconRow);
-  lv_obj_add_flag(txToggleBtn_, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(txToggleBtn_, 72, 30);
-  lv_obj_set_style_radius(txToggleBtn_, 8, 0);
-  lv_obj_add_event_cb(txToggleBtn_, onTxToggleEvent, LV_EVENT_PRESSED, this);
-  lv_obj_add_event_cb(txToggleBtn_, onTxToggleEvent, LV_EVENT_LONG_PRESSED, this);
-  txToggleLabel_ = lv_label_create(txToggleBtn_);
-  lv_obj_set_style_text_color(txToggleLabel_, lv_color_hex(0xe6eeff), 0);
-  lv_obj_clear_flag(txToggleLabel_, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_center(txToggleLabel_);
+  launchPrepBtn_ = lv_btn_create(menuIconRow);
+  lv_obj_add_flag(launchPrepBtn_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(launchPrepBtn_, 146, 30);
+  lv_obj_set_style_radius(launchPrepBtn_, 8, 0);
+  lv_obj_add_event_cb(launchPrepBtn_, onLaunchPrepEvent, LV_EVENT_PRESSED, this);
+  lv_obj_add_event_cb(launchPrepBtn_, onLaunchPrepEvent, LV_EVENT_LONG_PRESSED, this);
+  launchPrepLabel_ = lv_label_create(launchPrepBtn_);
+  lv_obj_set_style_text_color(launchPrepLabel_, lv_color_hex(0xe6eeff), 0);
+  lv_obj_clear_flag(launchPrepLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(launchPrepLabel_);
 
   lv_obj_t* actionMenuBtn = lv_btn_create(menuIconRow);
   lv_obj_add_flag(actionMenuBtn, LV_OBJ_FLAG_CLICKABLE);
@@ -645,22 +634,16 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(actionContent_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_clear_flag(actionContent_, LV_OBJ_FLAG_CLICKABLE);
 
-  armBtn_ = lv_btn_create(actionContent_);
-  lv_obj_add_flag(armBtn_, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_width(armBtn_, LV_PCT(100));
-  lv_obj_set_height(armBtn_, 34);
-  lv_obj_set_style_radius(armBtn_, 8, 0);
-  lv_obj_set_style_bg_color(armBtn_, lv_color_hex(0x1f2a3b), 0);
-  lv_obj_set_style_bg_color(armBtn_, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
-  lv_obj_set_style_border_color(armBtn_, lv_color_hex(0x4b7dd1), 0);
-  lv_obj_set_style_border_width(armBtn_, 1, 0);
-  lv_obj_add_event_cb(armBtn_, onArmEvent, LV_EVENT_PRESSED, this);
+  sdToggleBtn_ = makeActionButton(actionContent_, "SD OFF", onSdToggleEvent, this);
+  lv_obj_add_event_cb(sdToggleBtn_, onSdToggleEvent, LV_EVENT_LONG_PRESSED, this);
+  sdToggleLabel_ = lv_obj_get_child(sdToggleBtn_, 0);
 
-  armLabel_ = lv_label_create(armBtn_);
-  lv_label_set_text(armLabel_, "ARM LAUNCH");
-  lv_obj_set_style_text_color(armLabel_, lv_color_hex(0xeaf1ff), 0);
-  lv_obj_clear_flag(armLabel_, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_center(armLabel_);
+  txToggleBtn_ = makeActionButton(actionContent_, "TX OFF", onTxToggleEvent, this);
+  lv_obj_add_event_cb(txToggleBtn_, onTxToggleEvent, LV_EVENT_LONG_PRESSED, this);
+  txToggleLabel_ = lv_obj_get_child(txToggleBtn_, 0);
+
+  armBtn_ = makeActionButton(actionContent_, "ARM LAUNCH", onArmEvent, this);
+  armLabel_ = lv_obj_get_child(armBtn_, 0);
 
   makeActionButton(actionContent_, "BUZZER", onBuzzerToggleEvent, this);
 
@@ -2201,6 +2184,56 @@ void LvglController::setCommandStatus(const String& msg, bool ok) {
 void LvglController::updateDashboardActionButtons() {
   const uint32_t nowMs = millis();
 
+  if (launchPrepBtn_ != nullptr && launchPrepLabel_ != nullptr) {
+    const bool gpsFix3d = state_.recoveryGpsFix3d;
+    const bool armGpsReady = gpsFix3d || allowArmWithoutGpsFix_;
+    const bool launchArmed = state_.recoveryLaunchArmed;
+    const bool prepBusy = sdCommandPending_ || txCommandPending_;
+    const bool prepArmedWindow = launchPrepArmed_ && ((nowMs - launchPrepArmSinceMs_) <= kLaunchPrepArmWindowMs);
+
+    if (launchArmed) {
+      launchPrepArmed_ = false;
+      lv_obj_add_state(launchPrepBtn_, LV_STATE_DISABLED);
+      lv_label_set_text(launchPrepLabel_, "PREP: ARMED");
+      lv_obj_set_style_bg_color(launchPrepBtn_, lv_color_hex(0x1f6a42), 0);
+      lv_obj_set_style_bg_color(launchPrepBtn_, lv_color_hex(0x1f6a42), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(launchPrepBtn_, lv_color_hex(0x9de3bd), 0);
+    } else if (commandLockoutActive_) {
+      launchPrepArmed_ = false;
+      lv_obj_add_state(launchPrepBtn_, LV_STATE_DISABLED);
+      lv_label_set_text(launchPrepLabel_, "PREP LOCKED");
+      lv_obj_set_style_bg_color(launchPrepBtn_, lv_color_hex(0x4b566d), 0);
+      lv_obj_set_style_bg_color(launchPrepBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(launchPrepBtn_, lv_color_hex(0xffb34f), 0);
+    } else if (!armGpsReady) {
+      launchPrepArmed_ = false;
+      lv_obj_add_state(launchPrepBtn_, LV_STATE_DISABLED);
+      lv_label_set_text(launchPrepLabel_, "PREP: WAIT GPS");
+      lv_obj_set_style_bg_color(launchPrepBtn_, lv_color_hex(0x4b566d), 0);
+      lv_obj_set_style_bg_color(launchPrepBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(launchPrepBtn_, lv_color_hex(0xffb34f), 0);
+    } else if (prepBusy) {
+      lv_obj_add_state(launchPrepBtn_, LV_STATE_DISABLED);
+      lv_label_set_text(launchPrepLabel_, "PREP: WAIT...");
+      lv_obj_set_style_bg_color(launchPrepBtn_, lv_color_hex(0x4b566d), 0);
+      lv_obj_set_style_bg_color(launchPrepBtn_, lv_color_hex(0x4b566d), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(launchPrepBtn_, lv_color_hex(0x6ea4ff), 0);
+    } else {
+      lv_obj_clear_state(launchPrepBtn_, LV_STATE_DISABLED);
+      if (prepArmedWindow) {
+        lv_label_set_text(launchPrepLabel_, "HOLD TO CONFIRM");
+        lv_obj_set_style_bg_color(launchPrepBtn_, lv_color_hex(0x7a4f1d), 0);
+        lv_obj_set_style_bg_color(launchPrepBtn_, lv_color_hex(0x9a6524), LV_STATE_PRESSED);
+      } else {
+        lv_label_set_text(launchPrepLabel_, "HOLD: TX+SD+ARM");
+        lv_obj_set_style_bg_color(launchPrepBtn_, lv_color_hex(0x1f2a3b), 0);
+        lv_obj_set_style_bg_color(launchPrepBtn_, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
+      }
+      lv_obj_set_style_border_color(launchPrepBtn_, gpsFix3d ? lv_color_hex(0x6ea4ff) : lv_color_hex(0xffb34f), 0);
+    }
+    lv_obj_set_style_border_width(launchPrepBtn_, 1, 0);
+  }
+
   if (sdToggleBtn_ != nullptr && sdToggleLabel_ != nullptr) {
     const bool sdDisableLocked = commandLockoutActive_ && sdLoggingEnabled_;
     if (sdCommandPending_ || sdDisableLocked) {
@@ -2593,6 +2626,11 @@ void LvglController::updatePendingCommandTimeouts(uint32_t now) {
     changed = true;
   }
 
+  if (launchPrepArmed_ && (now - launchPrepArmSinceMs_) > kLaunchPrepArmWindowMs) {
+    launchPrepArmed_ = false;
+    changed = true;
+  }
+
   if (changed) {
     updateDashboardActionButtons();
   }
@@ -2662,6 +2700,40 @@ void LvglController::requestTxToggle(bool enable) {
 
   setCommandStatus(String("TX ") + (enable ? "ON" : "OFF") + " requested", true);
   refreshUi();
+}
+
+bool LvglController::requestArmLaunch() {
+  if (!state_.recoveryGpsFix3d && !allowArmWithoutGpsFix_) {
+    setCommandStatus("ARM blocked: waiting for GPS 3D fix", false);
+    return false;
+  }
+  if (state_.recoveryLaunchArmed) {
+    setCommandStatus("Launch detect already armed", true);
+    return false;
+  }
+  if (commandLockoutActive_) {
+    setCommandStatus("Arm command locked in flight", false);
+    return false;
+  }
+  if (!sendAction("launch_arm", allowArmWithoutGpsFix_ ? 1 : 0)) {
+    return false;
+  }
+
+  launchPrepArmed_ = false;
+  panelCollapsed_ = true;
+  settingsCollapsed_ = true;
+  setSoundSettingsVisible(false);
+  setSdFunctionsVisible(false);
+  if (actionPanel_ != nullptr) {
+    lv_obj_add_flag(actionPanel_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (settingsBody_ != nullptr) {
+    lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
+  }
+  if (telemetryPanel_ != nullptr) {
+    lv_obj_update_layout(telemetryPanel_);
+  }
+  return true;
 }
 
 void LvglController::setBuzzerConfigVisible(bool visible) {
@@ -3764,37 +3836,7 @@ void LvglController::onArmEvent(lv_event_t* e) {
   if (self == nullptr) {
     return;
   }
-  if (!self->state_.recoveryGpsFix3d && !self->allowArmWithoutGpsFix_) {
-    self->setCommandStatus("ARM blocked: waiting for GPS 3D fix", false);
-    self->refreshUi();
-    return;
-  }
-  if (self->state_.recoveryLaunchArmed) {
-    self->setCommandStatus("Launch detect already armed", true);
-    self->refreshUi();
-    return;
-  }
-  if (self->commandLockoutActive_) {
-    self->setCommandStatus("Arm command locked in flight", false);
-    self->refreshUi();
-    return;
-  }
-  self->sendAction("launch_arm", self->allowArmWithoutGpsFix_ ? 1 : 0);
-
-  self->panelCollapsed_ = true;
-  self->settingsCollapsed_ = true;
-  self->setSoundSettingsVisible(false);
-  self->setSdFunctionsVisible(false);
-  if (self->actionPanel_ != nullptr) {
-    lv_obj_add_flag(self->actionPanel_, LV_OBJ_FLAG_HIDDEN);
-  }
-  if (self->settingsBody_ != nullptr) {
-    lv_obj_add_flag(self->settingsBody_, LV_OBJ_FLAG_HIDDEN);
-  }
-  if (self->telemetryPanel_ != nullptr) {
-    lv_obj_update_layout(self->telemetryPanel_);
-  }
-
+  self->requestArmLaunch();
   self->refreshUi();
 }
 
@@ -3875,6 +3917,82 @@ void LvglController::onSdDumpCloseEvent(lv_event_t* e) {
     return;
   }
   self->setSdDumpOverlayVisible(false);
+  self->refreshUi();
+}
+
+void LvglController::onLaunchPrepEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+
+  const lv_event_code_t code = lv_event_get_code(e);
+  if (code == LV_EVENT_PRESSED) {
+    if (self->sdCommandPending_ || self->txCommandPending_) {
+      self->setCommandStatus("Wait for pending TX/SD command", false);
+      self->refreshUi();
+      return;
+    }
+    if (!self->state_.recoveryGpsFix3d && !self->allowArmWithoutGpsFix_) {
+      self->setCommandStatus("PREP blocked: waiting for GPS 3D fix", false);
+      self->refreshUi();
+      return;
+    }
+    if (self->state_.recoveryLaunchArmed) {
+      self->setCommandStatus("Launch detect already armed", true);
+      self->refreshUi();
+      return;
+    }
+    if (self->commandLockoutActive_) {
+      self->setCommandStatus("Prep command locked in flight", false);
+      self->refreshUi();
+      return;
+    }
+
+    self->launchPrepArmed_ = true;
+    self->launchPrepArmSinceMs_ = millis();
+    self->setCommandStatus("Hold PREP+ARM to confirm", true);
+    self->updateDashboardActionButtons();
+    self->refreshUi();
+    return;
+  }
+
+  if (code != LV_EVENT_LONG_PRESSED) {
+    return;
+  }
+
+  const uint32_t now = millis();
+  if (!self->launchPrepArmed_ || (now - self->launchPrepArmSinceMs_) > kLaunchPrepArmWindowMs) {
+    self->launchPrepArmed_ = false;
+    self->setCommandStatus("Tap then hold PREP+ARM to confirm", false);
+    self->updateDashboardActionButtons();
+    self->refreshUi();
+    return;
+  }
+
+  self->launchPrepArmed_ = false;
+  bool requestedTxOn = false;
+  bool requestedSdOn = false;
+
+  if (!self->telemetryTxEnabled_) {
+    self->requestTxToggle(true);
+    requestedTxOn = true;
+  }
+  if (!self->sdLoggingEnabled_) {
+    self->requestSdToggle(true);
+    requestedSdOn = true;
+  }
+  const bool armRequested = self->requestArmLaunch();
+
+  if (armRequested && (requestedTxOn || requestedSdOn)) {
+    self->setCommandStatus("PREP requested: TX ON + SD ON + ARM", true);
+  } else if (armRequested) {
+    self->setCommandStatus("ARM requested (TX/SD already ON)", true);
+  } else if (requestedTxOn || requestedSdOn) {
+    self->setCommandStatus("PREP partial: TX/SD requested, ARM failed", false);
+  }
+
+  self->updateDashboardActionButtons();
   self->refreshUi();
 }
 
