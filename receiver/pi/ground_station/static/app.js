@@ -1021,32 +1021,44 @@ function phaseIndicatesInFlight(phase) {
   return normalized === "ascent" || normalized === "descent" || normalized === "boost" || normalized === "coast";
 }
 
-function phaseChecklistIndex(phase) {
-  const normalized = typeof phase === "string" ? phase.toLowerCase() : "";
-  if (normalized === "idle" || normalized === "pad") {
-    return 0;
+function eventChecklistIndex(recovery) {
+  const data = recovery && typeof recovery === "object" ? recovery : {};
+  const phase = typeof data.phase === "string" ? data.phase.toLowerCase() : "";
+
+  const launchArmed = data.launch_armed === true;
+  const launchDetected = data.launch_detected === true || phaseIndicatesInFlight(phase) || phase === "landed";
+  const apogeeDetected = data.apogee === true || phase === "descent" || phase === "landed";
+  const drogueDeployed = Boolean(data.drogue && data.drogue.deployed === true);
+  const mainDeployed = Boolean(data.main && data.main.deployed === true);
+  const landingDetected = data.landing_detected === true || phase === "landed";
+
+  if (landingDetected) {
+    return 5;
   }
-  if (normalized === "boost" || normalized === "ascent") {
-    return 1;
+  if (mainDeployed) {
+    return 4;
   }
-  if (normalized === "coast") {
-    return 2;
-  }
-  if (normalized === "descent") {
+  if (drogueDeployed) {
     return 3;
   }
-  if (normalized === "landed") {
-    return 4;
+  if (apogeeDetected) {
+    return 2;
+  }
+  if (launchDetected) {
+    return 1;
+  }
+  if (launchArmed) {
+    return 0;
   }
   return -1;
 }
 
-function updatePhaseFlow(phase) {
+function updatePhaseFlow(recovery) {
   if (!elements.phaseNodes || elements.phaseNodes.length === 0) {
     return;
   }
 
-  const activeIndex = phaseChecklistIndex(phase);
+  const activeIndex = eventChecklistIndex(recovery);
   elements.phaseNodes.forEach((node) => {
     const nodeIndex = Number(node.dataset.phaseIndex);
     node.classList.remove("phase-future", "phase-active", "phase-complete");
@@ -1910,7 +1922,7 @@ function updateFromTelemetry(snapshot) {
   const launchArmAckEnabled = recovery.launch_arm_ack_enabled === true;
   elements.recoveryMode.textContent = recovery.mode || "--";
   elements.recoveryPhase.textContent = recovery.phase || "--";
-  updatePhaseFlow(recovery.phase);
+  updatePhaseFlow(recovery);
   if (elements.recoveryArmed) {
     elements.recoveryArmed.textContent = state.recoveryLaunchArmed ? "ARMED" : "NO";
   }
@@ -2568,7 +2580,7 @@ if (elements.telemTxPower) {
 }
 
 loadSoundSettings();
-updatePhaseFlow(null);
+updatePhaseFlow({});
 
 setInterval(updateClock, 500);
 
