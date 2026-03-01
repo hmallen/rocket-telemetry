@@ -32,7 +32,7 @@ CMD_LAUNCH_ARM = 0x09
 
 LORA_CALLSIGN = "CALLSIGN"
 
-LORA_FREQ_HZ = 429_000_000
+LORA_FREQ_HZ = 433_000_000
 LORA_MIN_TX_INTERVAL_MS = 200
 LORA_HEARTBEAT_MS = 30_000
 LORA_GPS_INTERVAL_MS = 1000
@@ -279,9 +279,9 @@ class SX1278:
 
         # Match long-range launch profile used by telemetry firmware.
         self.write_reg(REG_LNA, self.read_reg(REG_LNA) | 0x03)
-        self.write_reg(REG_MODEM_CONFIG_1, 0x68)  # BW62.5 / CR4/8
-        self.write_reg(REG_MODEM_CONFIG_2, 0xC4)  # SF12 / CRC on
-        self.write_reg(REG_MODEM_CONFIG_3, 0x0C)  # AGC on + low data rate optimize
+        self.write_reg(REG_MODEM_CONFIG_1, 0x72)  # BW62.5 / CR4/8
+        self.write_reg(REG_MODEM_CONFIG_2, 0x74)  # SF12 / CRC on
+        self.write_reg(REG_MODEM_CONFIG_3, 0x04)  # AGC on + low data rate optimize
         self.write_reg(REG_PREAMBLE_MSB, 0x00)
         self.write_reg(REG_PREAMBLE_LSB, 0x08)
         self.write_reg(REG_SYNC_WORD, SYNCWORD_LORA_PUBLIC)
@@ -293,7 +293,7 @@ class SX1278:
 
         self.clear_irqs()
         self.set_mode(MODE_RX_CONT)
-        print("LoRa RX/TX ready @ 429 MHz")
+        print("LoRa RX/TX ready @ 433 MHz")
 
     def poll_packet(self):
         irq = self.read_reg(REG_IRQ_FLAGS)
