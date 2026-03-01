@@ -746,7 +746,8 @@ void LvglController::buildUi() {
   lv_obj_set_style_border_color(resetFlightBtn_, lv_color_hex(0xdc7070), 0);
   lv_obj_set_style_border_width(resetFlightBtn_, 1, 0);
   lv_obj_add_event_cb(resetFlightBtn_, onPhaseResetEvent, LV_EVENT_PRESSED, this);
-  lv_obj_add_event_cb(resetFlightBtn_, onPhaseResetEvent, LV_EVENT_LONG_PRESSED, this);
+  lv_obj_add_event_cb(resetFlightBtn_, onPhaseResetEvent, LV_EVENT_PRESSING, this);
+  lv_obj_add_event_cb(resetFlightBtn_, onPhaseResetEvent, LV_EVENT_RELEASED, this);
 
   resetFlightLabel_ = lv_label_create(resetFlightBtn_);
   lv_label_set_text(resetFlightLabel_, "HOLD: RESET FLIGHT");
@@ -2318,7 +2319,7 @@ void LvglController::updateDashboardActionButtons() {
 
     if (phaseResetRequested_) {
       lv_label_set_text(resetFlightLabel_, "RESETTING...");
-    } else if (resetFlightArmed_ && (nowMs - resetFlightArmSinceMs_) <= kResetFlightArmWindowMs) {
+    } else if (resetFlightArmed_) {
       lv_label_set_text(resetFlightLabel_, "HOLD TO CONFIRM");
     } else {
       lv_label_set_text(resetFlightLabel_, "HOLD: RESET FLIGHT");
@@ -2566,10 +2567,6 @@ void LvglController::updatePendingCommandTimeouts(uint32_t now) {
   if (sdFormatArmed_ && (now - sdFormatArmSinceMs_) > kSdFormatArmWindowMs) {
     sdFormatArmed_ = false;
     changed = true;
-  }
-
-  if (resetFlightArmed_ && (now - resetFlightArmSinceMs_) > kResetFlightArmWindowMs) {
-    resetFlightArmed_ = false;
   }
 
   if (changed) {
@@ -3555,20 +3552,26 @@ void LvglController::onPhaseResetEvent(lv_event_t* e) {
   if (code == LV_EVENT_PRESSED) {
     self->resetFlightArmed_ = true;
     self->resetFlightArmSinceMs_ = millis();
-    self->setCommandStatus("Hold RESET FLIGHT to confirm", true);
+    self->setCommandStatus("Hold RESET FLIGHT 4s to confirm", true);
     self->refreshUi();
     return;
   }
 
-  if (code != LV_EVENT_LONG_PRESSED) {
+  if (code == LV_EVENT_RELEASED) {
+    if (self->resetFlightArmed_) {
+      self->resetFlightArmed_ = false;
+      self->setCommandStatus("RESET FLIGHT canceled", true);
+      self->refreshUi();
+    }
+    return;
+  }
+
+  if (code != LV_EVENT_PRESSING || !self->resetFlightArmed_) {
     return;
   }
 
   const uint32_t now = millis();
-  if (!self->resetFlightArmed_ || (now - self->resetFlightArmSinceMs_) > kResetFlightArmWindowMs) {
-    self->resetFlightArmed_ = false;
-    self->setCommandStatus("Tap then hold RESET FLIGHT to confirm", false);
-    self->refreshUi();
+  if ((now - self->resetFlightArmSinceMs_) < kResetFlightArmWindowMs) {
     return;
   }
 
