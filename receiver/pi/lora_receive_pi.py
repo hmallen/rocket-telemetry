@@ -635,7 +635,7 @@ class SX1278:
         self.clear_irqs()
         self.set_mode(MODE_RX_CONT)
 
-        print("LoRa RX running on 429 MHz")
+        print("LoRa RX running on 433 MHz")
 
     def poll_packet(self):
         irq = self.read_reg(REG_IRQ_FLAGS)
