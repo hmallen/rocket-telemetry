@@ -28,6 +28,24 @@ constexpr lv_coord_t kActionItemsGapPx = 16;
 constexpr lv_coord_t kSettingsButtonHeight = 28;
 constexpr lv_coord_t kSettingsStackGapPx = 24;
 constexpr lv_coord_t kSettingsRowGapPx = 14;
+constexpr int32_t kTrendChartScaleMax = 100;
+constexpr float kTrendAltMinSpanM = 20.0f;
+constexpr float kTrendVsMinSpanMps = 4.0f;
+
+static int32_t normalizeTrendValue(float value, float minValue, float maxValue) {
+  if (isnan(value) || isnan(minValue) || isnan(maxValue) || maxValue <= minValue) {
+    return LV_CHART_POINT_NONE;
+  }
+
+  float ratio = (value - minValue) / (maxValue - minValue);
+  if (ratio < 0.0f) {
+    ratio = 0.0f;
+  } else if (ratio > 1.0f) {
+    ratio = 1.0f;
+  }
+
+  return static_cast<int32_t>(lroundf(ratio * static_cast<float>(kTrendChartScaleMax)));
+}
 constexpr int32_t kUiFontSizePx = 14;
 
 extern const uint8_t kEmbeddedSlkscrTtfStart[] asm("_binary_resources_slkscr_ttf_start");
@@ -787,12 +805,20 @@ void LvglController::buildUi() {
                    "SD CARD FUNCTIONS",
                    onSdFunctionsOpenEvent,
                    this,
-                   kSettingsButtonHeight);
+                   kSettingsButtonHeight,
+                   LV_EVENT_CLICKED);
   makeActionButton(settingsActions_,
                    "SOUND SETTINGS",
                    onSoundSettingsOpenEvent,
                    this,
-                   kSettingsButtonHeight);
+                   kSettingsButtonHeight,
+                   LV_EVENT_CLICKED);
+  makeActionButton(settingsActions_,
+                   "TREND CHART",
+                   onTrendPageOpenEvent,
+                   this,
+                   kSettingsButtonHeight,
+                   LV_EVENT_CLICKED);
 
   lv_obj_t* txPowerTitle = lv_label_create(settingsActions_);
   lv_label_set_text(txPowerTitle, "TELEMETRY TX POWER");
@@ -834,7 +860,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_color(txPowerSendBtn, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
   lv_obj_set_style_border_color(txPowerSendBtn, lv_color_hex(0x4b7dd1), 0);
   lv_obj_set_style_border_width(txPowerSendBtn, 1, 0);
-  lv_obj_add_event_cb(txPowerSendBtn, onTxPowerSendEvent, LV_EVENT_PRESSED, this);
+  lv_obj_add_event_cb(txPowerSendBtn, onTxPowerSendEvent, LV_EVENT_CLICKED, this);
 
   lv_obj_t* txPowerSendLabel = lv_label_create(txPowerSendBtn);
   lv_label_set_text(txPowerSendLabel, "APPLY");
@@ -893,7 +919,8 @@ void LvglController::buildUi() {
                    "SCREEN CALIBRATION",
                    onCalibrateEvent,
                    this,
-                   kSettingsButtonHeight);
+                   kSettingsButtonHeight,
+                   LV_EVENT_CLICKED);
 
   rebootBtn_ = lv_btn_create(settingsActions_);
   lv_obj_add_flag(rebootBtn_, LV_OBJ_FLAG_CLICKABLE);
@@ -958,12 +985,14 @@ void LvglController::buildUi() {
                    "BACK",
                    onSoundSettingsBackEvent,
                    this,
-                   kSettingsButtonHeight);
+                   kSettingsButtonHeight,
+                   LV_EVENT_CLICKED);
   makeActionButton(soundSettingsPanel_,
                    "PLAY TEST SOUND",
                    onSoundTestEvent,
                    this,
-                   kSettingsButtonHeight);
+                   kSettingsButtonHeight,
+                   LV_EVENT_CLICKED);
 
   lv_obj_t* soundVolumeTitle = lv_label_create(soundSettingsPanel_);
   lv_label_set_text(soundVolumeTitle, "SOUND VOLUME");
@@ -1012,7 +1041,8 @@ void LvglController::buildUi() {
                    "BACK",
                    onSdFunctionsBackEvent,
                    this,
-                   kSettingsButtonHeight);
+                   kSettingsButtonHeight,
+                   LV_EVENT_CLICKED);
 
   sdRotateBtn_ = lv_btn_create(sdFunctionsPanel_);
   lv_obj_add_flag(sdRotateBtn_, LV_OBJ_FLAG_CLICKABLE);
@@ -1023,7 +1053,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_color(sdRotateBtn_, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
   lv_obj_set_style_border_color(sdRotateBtn_, lv_color_hex(0x4b7dd1), 0);
   lv_obj_set_style_border_width(sdRotateBtn_, 1, 0);
-  lv_obj_add_event_cb(sdRotateBtn_, onSdRotateEvent, LV_EVENT_PRESSED, this);
+  lv_obj_add_event_cb(sdRotateBtn_, onSdRotateEvent, LV_EVENT_CLICKED, this);
 
   sdRotateLabel_ = lv_label_create(sdRotateBtn_);
   lv_label_set_text(sdRotateLabel_, "ROTATE LOGFILE");
@@ -1058,7 +1088,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_color(sdDumpBtn_, lv_color_hex(0x2d4f86), LV_STATE_PRESSED);
   lv_obj_set_style_border_color(sdDumpBtn_, lv_color_hex(0x4b7dd1), 0);
   lv_obj_set_style_border_width(sdDumpBtn_, 1, 0);
-  lv_obj_add_event_cb(sdDumpBtn_, onSdDumpSampleEvent, LV_EVENT_PRESSED, this);
+  lv_obj_add_event_cb(sdDumpBtn_, onSdDumpSampleEvent, LV_EVENT_CLICKED, this);
 
   sdDumpLabel_ = lv_label_create(sdDumpBtn_);
   lv_label_set_text(sdDumpLabel_, "DUMP SAMPLE");
@@ -1191,6 +1221,83 @@ void LvglController::buildUi() {
   lv_label_set_text(sdDumpTextLabel_, "No sample yet.");
 
   lv_obj_add_flag(sdDumpOverlay_, LV_OBJ_FLAG_HIDDEN);
+
+  trendPage_ = lv_obj_create(screen);
+  lv_obj_set_size(trendPage_, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_style_bg_color(trendPage_, lv_color_hex(0x050a14), 0);
+  lv_obj_set_style_bg_grad_color(trendPage_, lv_color_hex(0x0d1626), 0);
+  lv_obj_set_style_bg_grad_dir(trendPage_, LV_GRAD_DIR_VER, 0);
+  lv_obj_set_style_border_width(trendPage_, 0, 0);
+  lv_obj_set_style_pad_all(trendPage_, 8, 0);
+  lv_obj_set_style_pad_gap(trendPage_, 8, 0);
+  lv_obj_clear_flag(trendPage_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(trendPage_, LV_OBJ_FLAG_CLICKABLE);
+
+  lv_obj_t* trendTitle = lv_label_create(trendPage_);
+  lv_label_set_text(trendTitle, "Flight Trend");
+  lv_obj_set_style_text_color(trendTitle, lv_color_hex(0xe6eeff), 0);
+  lv_obj_set_style_text_font(trendTitle, &lv_font_montserrat_14, 0);
+  lv_obj_align(trendTitle, LV_ALIGN_TOP_LEFT, 0, 0);
+  lv_obj_clear_flag(trendTitle, LV_OBJ_FLAG_CLICKABLE);
+
+  lv_obj_t* trendBackBtn = lv_btn_create(trendPage_);
+  lv_obj_add_flag(trendBackBtn, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(trendBackBtn, 70, 30);
+  lv_obj_set_style_radius(trendBackBtn, 8, 0);
+  lv_obj_set_style_bg_color(trendBackBtn, lv_color_hex(0x2a4369), 0);
+  lv_obj_set_style_bg_color(trendBackBtn, lv_color_hex(0x3564a3), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(trendBackBtn, lv_color_hex(0x74a8f3), 0);
+  lv_obj_set_style_border_width(trendBackBtn, 1, 0);
+  lv_obj_add_event_cb(trendBackBtn, onTrendPageBackEvent, LV_EVENT_PRESSED, this);
+  lv_obj_align(trendBackBtn, LV_ALIGN_TOP_RIGHT, 0, 0);
+
+  lv_obj_t* trendBackLabel = lv_label_create(trendBackBtn);
+  lv_label_set_text(trendBackLabel, "BACK");
+  lv_obj_set_style_text_color(trendBackLabel, lv_color_hex(0xeaf1ff), 0);
+  lv_obj_clear_flag(trendBackLabel, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(trendBackLabel);
+
+  trendSummaryLabel_ = lv_label_create(trendPage_);
+  lv_label_set_text(trendSummaryLabel_, "BARO --.- m   VS --.- m/s");
+  lv_obj_set_style_text_color(trendSummaryLabel_, lv_color_hex(0xcfe0ff), 0);
+  lv_obj_set_style_text_font(trendSummaryLabel_, &lv_font_montserrat_14, 0);
+  lv_obj_align(trendSummaryLabel_, LV_ALIGN_TOP_LEFT, 0, 36);
+  lv_obj_clear_flag(trendSummaryLabel_, LV_OBJ_FLAG_CLICKABLE);
+
+  trendRangeLabel_ = lv_label_create(trendPage_);
+  lv_label_set_text(trendRangeLabel_, "ALT --..-- m   VS --..-- m/s");
+  lv_obj_set_width(trendRangeLabel_, 240);
+  lv_obj_set_style_text_align(trendRangeLabel_, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_set_style_text_color(trendRangeLabel_, lv_color_hex(0xaab8cf), 0);
+  lv_obj_set_style_text_font(trendRangeLabel_, &lv_font_montserrat_14, 0);
+  lv_obj_align(trendRangeLabel_, LV_ALIGN_TOP_RIGHT, 0, 38);
+  lv_obj_clear_flag(trendRangeLabel_, LV_OBJ_FLAG_CLICKABLE);
+
+  trendChart_ = lv_chart_create(trendPage_);
+  lv_obj_set_size(trendChart_, kScreenWidth - 16, 260);
+  lv_obj_align(trendChart_, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_set_style_bg_color(trendChart_, lv_color_hex(0x0b1220), 0);
+  lv_obj_set_style_bg_grad_color(trendChart_, lv_color_hex(0x13263c), 0);
+  lv_obj_set_style_bg_grad_dir(trendChart_, LV_GRAD_DIR_VER, 0);
+  lv_obj_set_style_border_color(trendChart_, lv_color_hex(0x2a446a), 0);
+  lv_obj_set_style_border_width(trendChart_, 1, 0);
+  lv_obj_set_style_radius(trendChart_, 8, 0);
+  lv_obj_set_style_pad_all(trendChart_, 6, 0);
+  lv_obj_set_style_line_width(trendChart_, 2, LV_PART_ITEMS);
+  lv_obj_clear_flag(trendChart_, LV_OBJ_FLAG_CLICKABLE);
+  lv_chart_set_type(trendChart_, LV_CHART_TYPE_LINE);
+  lv_chart_set_point_count(trendChart_, kTrendHistoryPoints);
+  lv_chart_set_div_line_count(trendChart_, 5, 6);
+  lv_chart_set_update_mode(trendChart_, LV_CHART_UPDATE_MODE_CIRCULAR);
+
+  trendAltSeries_ = lv_chart_add_series(trendChart_, lv_color_hex(0x7de8ff), LV_CHART_AXIS_PRIMARY_Y);
+  trendVsSeries_ = lv_chart_add_series(trendChart_, lv_color_hex(0xffb07a), LV_CHART_AXIS_PRIMARY_Y);
+
+  lv_chart_set_all_values(trendChart_, trendAltSeries_, LV_CHART_POINT_NONE);
+  lv_chart_set_all_values(trendChart_, trendVsSeries_, LV_CHART_POINT_NONE);
+  lv_chart_refresh(trendChart_);
+
+  lv_obj_add_flag(trendPage_, LV_OBJ_FLAG_HIDDEN);
 }
 
 void LvglController::loadTouchCalibration() {
@@ -1285,6 +1392,7 @@ void LvglController::begin() {
       loraAgeBaseMs_ = state_.link.lastPacketAgeMs;
       loraAgeBaseTickMs_ = lastLvTickMs_;
     }
+    appendTrendSampleFromState();
   }
 
   updateFlightTimerState(lastLvTickMs_);
@@ -2716,6 +2824,9 @@ bool LvglController::sendAction(const String& action, int durationS) {
 }
 
 void LvglController::togglePanel() {
+  if (trendPageVisible_) {
+    setTrendPageVisible(false);
+  }
   panelCollapsed_ = !panelCollapsed_;
   if (panelCollapsed_) {
     lv_obj_add_flag(actionPanel_, LV_OBJ_FLAG_HIDDEN);
@@ -2791,6 +2902,9 @@ void LvglController::setTouchDebugVisible(bool visible) {
 }
 
 void LvglController::toggleSettings() {
+  if (trendPageVisible_) {
+    setTrendPageVisible(false);
+  }
   settingsCollapsed_ = !settingsCollapsed_;
   if (settingsCollapsed_) {
     setSoundSettingsVisible(false);
@@ -2880,6 +2994,174 @@ void LvglController::setSoundSettingsVisible(bool visible) {
 
   if (settingsBody_ != nullptr) {
     lv_obj_update_layout(settingsBody_);
+  }
+}
+
+void LvglController::setTrendPageVisible(bool visible) {
+  trendPageVisible_ = visible;
+  if (trendPage_ == nullptr) {
+    return;
+  }
+
+  if (trendPageVisible_) {
+    panelCollapsed_ = true;
+    settingsCollapsed_ = true;
+    setSoundSettingsVisible(false);
+    setSdFunctionsVisible(false);
+    if (root_ != nullptr) {
+      lv_obj_add_flag(root_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (actionPanel_ != nullptr) {
+      lv_obj_add_flag(actionPanel_, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (settingsBody_ != nullptr) {
+      lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
+    }
+    refreshTrendChart();
+    lv_obj_clear_flag(trendPage_, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    if (root_ != nullptr) {
+      lv_obj_clear_flag(root_, LV_OBJ_FLAG_HIDDEN);
+    }
+    lv_obj_add_flag(trendPage_, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+float LvglController::preferredVerticalSpeedMps() const {
+  float preferredVsMps = state_.alt.verticalSpeedMps;
+  if (isnan(preferredVsMps)) {
+    preferredVsMps = state_.alt.baroVerticalSpeedMps;
+  }
+  if (isnan(preferredVsMps)) {
+    preferredVsMps = state_.alt.gpsVerticalSpeedMps;
+  }
+  return preferredVsMps;
+}
+
+void LvglController::appendTrendSampleFromState() {
+  const uint32_t packetCount = state_.flight.packetCount;
+  if (hasTrendPacketCount_ && packetCount == lastTrendPacketCount_) {
+    return;
+  }
+  hasTrendPacketCount_ = true;
+  lastTrendPacketCount_ = packetCount;
+
+  const float altitudeM = state_.alt.altitudeAglM;
+  const float verticalSpeedMps = preferredVerticalSpeedMps();
+  if (isnan(altitudeM) && isnan(verticalSpeedMps)) {
+    return;
+  }
+
+  const uint16_t nextIndex = static_cast<uint16_t>((trendHistoryHead_ + trendHistoryCount_) % kTrendHistoryPoints);
+  trendAltHistoryM_[nextIndex] = altitudeM;
+  trendVsHistoryMps_[nextIndex] = verticalSpeedMps;
+
+  if (trendHistoryCount_ < kTrendHistoryPoints) {
+    trendHistoryCount_++;
+  } else {
+    trendHistoryHead_ = static_cast<uint16_t>((trendHistoryHead_ + 1U) % kTrendHistoryPoints);
+  }
+
+  if (trendPageVisible_) {
+    refreshTrendChart();
+  }
+}
+
+void LvglController::refreshTrendChart() {
+  if (trendChart_ == nullptr || trendAltSeries_ == nullptr || trendVsSeries_ == nullptr) {
+    return;
+  }
+
+  float altMin = NAN;
+  float altMax = NAN;
+  float vsMin = NAN;
+  float vsMax = NAN;
+  for (uint16_t i = 0; i < trendHistoryCount_; ++i) {
+    const uint16_t idx = static_cast<uint16_t>((trendHistoryHead_ + i) % kTrendHistoryPoints);
+    const float altitudeM = trendAltHistoryM_[idx];
+    const float verticalSpeedMps = trendVsHistoryMps_[idx];
+
+    if (!isnan(altitudeM)) {
+      if (isnan(altMin) || altitudeM < altMin) {
+        altMin = altitudeM;
+      }
+      if (isnan(altMax) || altitudeM > altMax) {
+        altMax = altitudeM;
+      }
+    }
+
+    if (!isnan(verticalSpeedMps)) {
+      if (isnan(vsMin) || verticalSpeedMps < vsMin) {
+        vsMin = verticalSpeedMps;
+      }
+      if (isnan(vsMax) || verticalSpeedMps > vsMax) {
+        vsMax = verticalSpeedMps;
+      }
+    }
+  }
+
+  if (isnan(altMin) || isnan(altMax)) {
+    altMin = 0.0f;
+    altMax = 100.0f;
+  }
+  if ((altMax - altMin) < kTrendAltMinSpanM) {
+    const float center = (altMax + altMin) * 0.5f;
+    altMin = center - (kTrendAltMinSpanM * 0.5f);
+    altMax = center + (kTrendAltMinSpanM * 0.5f);
+  }
+
+  if (isnan(vsMin) || isnan(vsMax)) {
+    vsMin = -5.0f;
+    vsMax = 5.0f;
+  }
+  if (vsMin > 0.0f) {
+    vsMin = 0.0f;
+  }
+  if (vsMax < 0.0f) {
+    vsMax = 0.0f;
+  }
+  if ((vsMax - vsMin) < kTrendVsMinSpanMps) {
+    const float center = (vsMax + vsMin) * 0.5f;
+    vsMin = center - (kTrendVsMinSpanMps * 0.5f);
+    vsMax = center + (kTrendVsMinSpanMps * 0.5f);
+  }
+
+  for (uint16_t i = 0; i < kTrendHistoryPoints; ++i) {
+    lv_chart_set_series_value_by_id(trendChart_, trendAltSeries_, i, LV_CHART_POINT_NONE);
+    lv_chart_set_series_value_by_id(trendChart_, trendVsSeries_, i, LV_CHART_POINT_NONE);
+  }
+
+  for (uint16_t i = 0; i < trendHistoryCount_; ++i) {
+    const uint16_t idx = static_cast<uint16_t>((trendHistoryHead_ + i) % kTrendHistoryPoints);
+    const int32_t altValue = normalizeTrendValue(trendAltHistoryM_[idx], altMin, altMax);
+    const int32_t vsValue = normalizeTrendValue(trendVsHistoryMps_[idx], vsMin, vsMax);
+    // Read from the circular history buffer, but write chart points sequentially so
+    // the plot is always oldest->newest from left to right.
+    lv_chart_set_series_value_by_id(trendChart_, trendAltSeries_, i, altValue);
+    lv_chart_set_series_value_by_id(trendChart_, trendVsSeries_, i, vsValue);
+  }
+  lv_chart_refresh(trendChart_);
+
+  if (trendHistoryCount_ > 0 && trendSummaryLabel_ != nullptr) {
+    const uint16_t latestIdx = static_cast<uint16_t>((trendHistoryHead_ + trendHistoryCount_ - 1U) % kTrendHistoryPoints);
+    const String latestAltText = formatFloat(trendAltHistoryM_[latestIdx], 1);
+    const String latestVsText = formatFloat(trendVsHistoryMps_[latestIdx], 1);
+    lv_label_set_text_fmt(trendSummaryLabel_, "BARO %s m   VS %s m/s", latestAltText.c_str(), latestVsText.c_str());
+  } else if (trendSummaryLabel_ != nullptr) {
+    lv_label_set_text(trendSummaryLabel_, "BARO --.- m   VS --.- m/s");
+  }
+
+  if (trendRangeLabel_ != nullptr) {
+    const String altMinText = formatFloat(altMin, 0, "--");
+    const String altMaxText = formatFloat(altMax, 0, "--");
+    const String vsMinText = formatFloat(vsMin, 1, "--");
+    const String vsMaxText = formatFloat(vsMax, 1, "--");
+    lv_label_set_text_fmt(trendRangeLabel_,
+                          "ALT %s..%s m   VS %s..%s m/s",
+                          altMinText.c_str(),
+                          altMaxText.c_str(),
+                          vsMinText.c_str(),
+                          vsMaxText.c_str());
   }
 }
 
@@ -3347,6 +3629,7 @@ void LvglController::tick() {
     }
 
     state_.flight.phase = effectivePhase;
+    appendTrendSampleFromState();
 
     if (phaseChecklistCleared_) {
       const bool previousIdleOrPad = phaseEquals(previousPhase, "idle") || phaseEquals(previousPhase, "pad");
@@ -3829,12 +4112,13 @@ void LvglController::onSdFormatEvent(lv_event_t* e) {
   if (self == nullptr) {
     return;
   }
-
   const lv_event_code_t code = lv_event_get_code(e);
   if (code == LV_EVENT_PRESSED) {
     if (self->sdLoggingEnabled_) {
       self->setCommandStatus("Stop SD logging before format", false);
-    } else if (self->commandLockoutActive_) {
+      return;
+    }
+    if (self->commandLockoutActive_) {
       self->setCommandStatus("SD format locked until landing", false);
     } else {
       self->sdFormatArmed_ = true;
@@ -3964,4 +4248,22 @@ void LvglController::onTxToggleEvent(lv_event_t* e) {
       self->requestTxToggle(false);
     }
   }
+}
+
+void LvglController::onTrendPageOpenEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  self->setTrendPageVisible(true);
+  self->refreshUi();
+}
+
+void LvglController::onTrendPageBackEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  self->setTrendPageVisible(false);
+  self->refreshUi();
 }

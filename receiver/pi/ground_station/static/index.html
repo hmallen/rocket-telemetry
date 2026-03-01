@@ -245,6 +245,26 @@
             </div>
           </div>
         </article>
+
+        <article class="panel trend-panel">
+          <div class="panel-header">
+            <div>
+              <h2>Flight Trend</h2>
+              <p class="muted">Real-time altitude and vertical-speed traces</p>
+            </div>
+            <div class="status-pill compact">
+              <span id="flight-trend-window">Window --</span>
+            </div>
+          </div>
+          <div class="chart-shell" id="flight-trend-shell">
+            <canvas id="flight-trend-canvas"></canvas>
+            <div class="chart-overlay" id="flight-trend-overlay">Awaiting telemetry...</div>
+            <div class="chart-legend">
+              <span class="legend-chip alt">Altitude (m)</span>
+              <span class="legend-chip vs">Vertical Speed (m/s)</span>
+            </div>
+          </div>
+        </article>
       </section>
 
       <section class="panel telemetry-panel">

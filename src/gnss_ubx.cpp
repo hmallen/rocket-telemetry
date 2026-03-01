@@ -99,6 +99,11 @@ void GnssUbx::parse_byte(uint8_t b, uint32_t now_us) {
           time_.fix_type = fixType;
           time_.fix_ok = (flags & 0x01) != 0;
           time_.navsat_num_svs = numSV;
+          // Fallback: if NAV-SAT is not yet flowing on this port, keep total at least
+          // equal to used so downstream displays do not stay pinned at 0.
+          if (time_.navsat_num_svs_total < numSV) {
+            time_.navsat_num_svs_total = numSV;
+          }
           time_.hdop_x100 = hdopX100;
           time_.lon_e7 = lon;
           time_.lat_e7 = lat;
@@ -236,6 +241,7 @@ void GnssUbx::configure() {
     p[0] = 0x01;
     p[1] = 0x07;
     p[3] = 1;
+    p[4] = 1;
     send(0x06, 0x01, p, (uint16_t)sizeof(p));
   }
 
@@ -244,6 +250,7 @@ void GnssUbx::configure() {
     p[0] = 0x01;
     p[1] = 0x35;
     p[3] = 1;
+    p[4] = 1;
     send(0x06, 0x01, p, (uint16_t)sizeof(p));
   }
 
@@ -252,6 +259,7 @@ void GnssUbx::configure() {
     p[0] = 0x01;
     p[1] = 0x20;
     p[3] = 1;
+    p[4] = 1;
     send(0x06, 0x01, p, (uint16_t)sizeof(p));
   }
 
