@@ -139,6 +139,16 @@ LORA_CMD_REPEAT_DELAY_S = 0.1
 COMMAND_LOCKOUT_PHASES = {"ascent", "descent", "boost", "coast"}
 COMMAND_LOCKOUT_ACTIONS = {"sd_stop", "sd_format", "telemetry_disable", "shutdown", "reboot"}
 
+AP_CONNECTION_NAME = os.environ.get("GS_AP_CONNECTION_NAME", "pi-ap-hotspot")
+AP_ENABLE_SCRIPT = PROJECT_ROOT / "scripts" / "ap_enable.sh"
+AP_DISABLE_SCRIPT = PROJECT_ROOT / "scripts" / "ap_disable.sh"
+AP_STATUS_CACHE_TTL_S = float(os.environ.get("GS_AP_STATUS_CACHE_TTL_S", "2.0"))
+AP_STATUS_LOCK = threading.Lock()
+AP_STATUS_CACHE = {
+    "ts": 0.0,
+    "active": False,
+}
+
 
 def _command_lockout_active_from_snapshot(snapshot):
     if not isinstance(snapshot, dict):
@@ -156,6 +166,44 @@ def _command_lockout_active():
 
 def _is_action_locked_during_flight(action):
     return action in COMMAND_LOCKOUT_ACTIONS and _command_lockout_active()
+
+
+def _detect_wifi_ap_active():
+    try:
+        result = subprocess.run(
+            ["nmcli", "-t", "-f", "NAME", "con", "show", "--active"],
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+            check=False,
+        )
+    except Exception:  # pylint: disable=broad-except
+        return False
+
+    if result.returncode != 0:
+        return False
+
+    active_connections = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    return AP_CONNECTION_NAME in active_connections
+
+
+def _set_wifi_ap_active_cache(active):
+    now = time.time()
+    with AP_STATUS_LOCK:
+        AP_STATUS_CACHE["active"] = bool(active)
+        AP_STATUS_CACHE["ts"] = now
+
+
+def _get_wifi_ap_active(force=False):
+    now = time.time()
+    with AP_STATUS_LOCK:
+        cache_age = now - AP_STATUS_CACHE["ts"]
+        if not force and cache_age >= 0 and cache_age <= AP_STATUS_CACHE_TTL_S:
+            return AP_STATUS_CACHE["active"]
+
+    active = _detect_wifi_ap_active()
+    _set_wifi_ap_active_cache(active)
+    return active
 
 
 def _clamp(value, low, high):
@@ -1162,6 +1210,7 @@ def _build_companion_state(snapshot, seq=None):
     connected = age_s is not None and age_s <= 2.0
     phase = recovery.get("phase") or "unknown"
     command_lockout_active = _command_lockout_active_from_snapshot(snapshot)
+    wifi_ap_active = _get_wifi_ap_active()
 
     alerts = []
     if age_s is None or age_s > 5.0:
@@ -1241,6 +1290,10 @@ def _build_companion_state(snapshot, seq=None):
             "active": command_lockout_active,
             "reason": "flight_in_progress" if command_lockout_active else None,
         },
+        "wifi_ap": {
+            "active": wifi_ap_active,
+            "connection": AP_CONNECTION_NAME,
+        },
         "recovery": {
             "enabled": recovery.get("enabled"),
             "phase": recovery.get("phase"),
@@ -1294,6 +1347,7 @@ class CompanionUartBridge:
     CMD_SD_ROTATE = 0x0C
     CMD_SD_FORMAT = 0x0D
     CMD_SD_DUMP_SAMPLE = 0x0E
+    CMD_WIFI_AP_TOGGLE = 0x0F
 
     def __init__(self, port, baud):
         self._port = port
@@ -1372,6 +1426,7 @@ class CompanionUartBridge:
         sd_logging = state.get("sd_logging", {})
         telemetry_tx = state.get("telemetry_tx", {})
         command_lockout = state.get("command_lockout", {})
+        wifi_ap = state.get("wifi_ap", {})
 
         lat_deg = gps.get("lat_deg")
         lon_deg = gps.get("lon_deg")
@@ -1434,9 +1489,12 @@ class CompanionUartBridge:
         svs_used_field = 0xFF if svs_used is None else (int(svs_used) & 0xFF)
         svs_total_field = 0xFF if svs_total is None else (int(svs_total) & 0xFF)
         hdop_x100_field = 0xFFFF if hdop_x100 is None else (int(hdop_x100) & 0xFFFF)
+        companion_flags = 0
+        if wifi_ap.get("active") is True:
+            companion_flags |= 0x01
 
         payload = struct.pack(
-            "<IiiihhbBHHBHiBBBBH",
+            "<IiiihhbBHHBHiBBBBHB",
             int((state.get("ts") or time.time()) * 1000) & 0xFFFFFFFF,
             int((lat_deg or 0.0) * 1e7),
             int((lon_deg or 0.0) * 1e7),
@@ -1455,6 +1513,7 @@ class CompanionUartBridge:
             svs_used_field,
             svs_total_field,
             hdop_x100_field,
+            int(companion_flags),
         )
         callsign = flight.get("callsign")
         if isinstance(callsign, str) and callsign:
@@ -1545,6 +1604,8 @@ class CompanionUartBridge:
             ok, error = request_pi_shutdown()
         elif cmd == self.CMD_REBOOT:
             ok, error = request_pi_reboot()
+        elif cmd == self.CMD_WIFI_AP_TOGGLE:
+            ok, error = request_pi_wifi_ap_toggle()
         else:
             ok, error = False, "Unknown UART command"
 
@@ -1887,6 +1948,28 @@ def request_pi_reboot():
         return False, f"Failed to schedule reboot: {exc}"
 
 
+def request_pi_wifi_ap_toggle():
+    active_now = _get_wifi_ap_active(force=True)
+    script_path = AP_DISABLE_SCRIPT if active_now else AP_ENABLE_SCRIPT
+    action_text = "disable" if active_now else "enable"
+
+    if not script_path.exists():
+        return False, f"AP script not found: {script_path}"
+
+    try:
+        subprocess.Popen(
+            ["/bin/bash", str(script_path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        _set_wifi_ap_active_cache(not active_now)
+        print(f"Pi Wi-Fi AP {action_text} requested via companion command")
+        return True, None
+    except Exception as exc:  # pylint: disable=broad-except
+        return False, f"Failed to launch AP script: {exc}"
+
+
 class GroundStationHandler(BaseHTTPRequestHandler):
     def _check_auth(self):
         """Check authentication for command endpoints. Returns True if authorized."""
@@ -2034,6 +2117,8 @@ class GroundStationHandler(BaseHTTPRequestHandler):
                 ok, error = request_pi_shutdown()
             elif action == "reboot":
                 ok, error = request_pi_reboot()
+            elif action == "wifi_ap_toggle":
+                ok, error = request_pi_wifi_ap_toggle()
             else:
                 ok, error = send_lora_command(action, duration_s, tx_power_dbm)
             if not ok:

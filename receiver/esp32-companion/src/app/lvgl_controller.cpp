@@ -26,7 +26,8 @@ constexpr int32_t kTouchReleaseThreshold = 90;
 constexpr lv_coord_t kActionPanelGapPx = 10;
 constexpr lv_coord_t kActionItemsGapPx = 16;
 constexpr lv_coord_t kSettingsButtonHeight = 28;
-constexpr lv_coord_t kSettingsGapPx = 14;
+constexpr lv_coord_t kSettingsStackGapPx = 20;
+constexpr lv_coord_t kSettingsRowGapPx = 14;
 constexpr int32_t kTrendChartScaleMax = 100;
 constexpr float kTrendAltMinSpanM = 20.0f;
 constexpr float kTrendVsMinSpanMps = 4.0f;
@@ -725,7 +726,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_pad_bottom(settingsBody_, 6, 0);
   lv_obj_set_style_pad_left(settingsBody_, 10, 0);
   lv_obj_set_style_pad_right(settingsBody_, 10, 0);
-  lv_obj_set_style_pad_gap(settingsBody_, kSettingsGapPx, 0);
+  lv_obj_set_style_pad_gap(settingsBody_, kSettingsStackGapPx, 0);
   lv_obj_set_flex_flow(settingsBody_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(settingsBody_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_SCROLLABLE);
@@ -749,24 +750,31 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_opa(settingsActions_, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(settingsActions_, 0, 0);
   lv_obj_set_style_pad_all(settingsActions_, 0, 0);
-  lv_obj_set_style_pad_gap(settingsActions_, kSettingsGapPx, 0);
+  lv_obj_set_style_pad_gap(settingsActions_, kSettingsStackGapPx, 0);
   lv_obj_set_flex_flow(settingsActions_, LV_FLEX_FLOW_COLUMN);
   lv_obj_add_flag(settingsActions_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(settingsActions_, LV_DIR_VER);
   lv_obj_set_scrollbar_mode(settingsActions_, LV_SCROLLBAR_MODE_AUTO);
 
-  makeActionButton(settingsActions_,
-                   "ALTITUDE ZERO",
-                   onAltCalibrateEvent,
-                   this,
-                   kSettingsButtonHeight,
-                   LV_EVENT_CLICKED);
-  makeActionButton(settingsActions_,
-                   "RESET FLIGHT PHASE",
-                   onPhaseResetEvent,
-                   this,
-                   kSettingsButtonHeight,
-                   LV_EVENT_CLICKED);
+  resetFlightBtn_ = lv_btn_create(settingsActions_);
+  lv_obj_add_flag(resetFlightBtn_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(resetFlightBtn_, LV_PCT(100));
+  lv_obj_set_height(resetFlightBtn_, kSettingsButtonHeight);
+  lv_obj_set_style_radius(resetFlightBtn_, 8, 0);
+  lv_obj_set_style_bg_color(resetFlightBtn_, lv_color_hex(0x7a1d1d), 0);
+  lv_obj_set_style_bg_color(resetFlightBtn_, lv_color_hex(0xa02828), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(resetFlightBtn_, lv_color_hex(0xdc7070), 0);
+  lv_obj_set_style_border_width(resetFlightBtn_, 1, 0);
+  lv_obj_add_event_cb(resetFlightBtn_, onPhaseResetEvent, LV_EVENT_PRESSED, this);
+  lv_obj_add_event_cb(resetFlightBtn_, onPhaseResetEvent, LV_EVENT_PRESSING, this);
+  lv_obj_add_event_cb(resetFlightBtn_, onPhaseResetEvent, LV_EVENT_RELEASED, this);
+
+  resetFlightLabel_ = lv_label_create(resetFlightBtn_);
+  lv_label_set_text(resetFlightLabel_, "HOLD: RESET FLIGHT");
+  lv_obj_set_style_text_color(resetFlightLabel_, lv_color_hex(0xfff0f0), 0);
+  lv_obj_clear_flag(resetFlightLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(resetFlightLabel_);
+
   makeActionButton(settingsActions_,
                    "IMU CALIBRATION",
                    onImuCalibrateEvent,
@@ -803,7 +811,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_opa(txPowerConfigRow_, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(txPowerConfigRow_, 0, 0);
   lv_obj_set_style_pad_all(txPowerConfigRow_, 0, 0);
-  lv_obj_set_style_pad_gap(txPowerConfigRow_, kSettingsGapPx, 0);
+  lv_obj_set_style_pad_gap(txPowerConfigRow_, kSettingsRowGapPx, 0);
   lv_obj_set_flex_flow(txPowerConfigRow_, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(txPowerConfigRow_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_clear_flag(txPowerConfigRow_, LV_OBJ_FLAG_SCROLLABLE);
@@ -870,6 +878,23 @@ void LvglController::buildUi() {
   }
   lv_obj_add_event_cb(armNoGpsCheckbox_, onArmNoGpsToggleEvent, LV_EVENT_VALUE_CHANGED, this);
 
+  wifiApToggleBtn_ = lv_btn_create(settingsActions_);
+  lv_obj_add_flag(wifiApToggleBtn_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(wifiApToggleBtn_, LV_PCT(100));
+  lv_obj_set_height(wifiApToggleBtn_, kSettingsButtonHeight);
+  lv_obj_set_style_radius(wifiApToggleBtn_, 8, 0);
+  lv_obj_set_style_bg_color(wifiApToggleBtn_, lv_color_hex(0x244374), 0);
+  lv_obj_set_style_bg_color(wifiApToggleBtn_, lv_color_hex(0x2e5ca0), LV_STATE_PRESSED);
+  lv_obj_set_style_border_color(wifiApToggleBtn_, lv_color_hex(0x6ea4ff), 0);
+  lv_obj_set_style_border_width(wifiApToggleBtn_, 1, 0);
+  lv_obj_add_event_cb(wifiApToggleBtn_, onWifiApToggleEvent, LV_EVENT_LONG_PRESSED, this);
+
+  wifiApToggleLabel_ = lv_label_create(wifiApToggleBtn_);
+  lv_label_set_text(wifiApToggleLabel_, "HOLD: TOGGLE AP");
+  lv_obj_set_style_text_color(wifiApToggleLabel_, lv_color_hex(0xeaf1ff), 0);
+  lv_obj_clear_flag(wifiApToggleLabel_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(wifiApToggleLabel_);
+
   makeActionButton(settingsActions_,
                    "SCREEN CALIBRATION",
                    onCalibrateEvent,
@@ -918,7 +943,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_opa(soundSettingsPanel_, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(soundSettingsPanel_, 0, 0);
   lv_obj_set_style_pad_all(soundSettingsPanel_, 0, 0);
-  lv_obj_set_style_pad_gap(soundSettingsPanel_, kSettingsGapPx, 0);
+  lv_obj_set_style_pad_gap(soundSettingsPanel_, kSettingsStackGapPx, 0);
   lv_obj_set_flex_flow(soundSettingsPanel_, LV_FLEX_FLOW_COLUMN);
   lv_obj_add_flag(soundSettingsPanel_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(soundSettingsPanel_, LV_DIR_VER);
@@ -960,7 +985,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_opa(soundVolumeRow, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(soundVolumeRow, 0, 0);
   lv_obj_set_style_pad_all(soundVolumeRow, 0, 0);
-  lv_obj_set_style_pad_gap(soundVolumeRow, kSettingsGapPx, 0);
+  lv_obj_set_style_pad_gap(soundVolumeRow, kSettingsRowGapPx, 0);
   lv_obj_set_flex_flow(soundVolumeRow, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(soundVolumeRow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_clear_flag(soundVolumeRow, LV_OBJ_FLAG_SCROLLABLE);
@@ -986,7 +1011,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_bg_opa(sdFunctionsPanel_, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(sdFunctionsPanel_, 0, 0);
   lv_obj_set_style_pad_all(sdFunctionsPanel_, 0, 0);
-  lv_obj_set_style_pad_gap(sdFunctionsPanel_, kSettingsGapPx, 0);
+  lv_obj_set_style_pad_gap(sdFunctionsPanel_, kSettingsStackGapPx, 0);
   lv_obj_set_flex_flow(sdFunctionsPanel_, LV_FLEX_FLOW_COLUMN);
   lv_obj_add_flag(sdFunctionsPanel_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_scroll_dir(sdFunctionsPanel_, LV_DIR_VER);
@@ -2152,6 +2177,16 @@ void LvglController::updateFlightTimerState(uint32_t now) {
     landingDetected = (phase == "landed");
   }
 
+  if (phaseChecklistCleared_) {
+    flightTimerActive_ = false;
+    flightTimerStartMs_ = 0;
+    flightDurationMs_ = 0;
+    flightTimerInitialized_ = true;
+    lastFlightLaunchDetected_ = false;
+    lastFlightLandingDetected_ = false;
+    return;
+  }
+
   if (phaseEquals(state_.flight.phase, "idle") && !launchDetected && !landingDetected) {
     flightTimerActive_ = false;
     flightTimerStartMs_ = 0;
@@ -2360,6 +2395,46 @@ void LvglController::updateDashboardActionButtons() {
       lv_obj_set_style_border_color(shutdownBtn_, lv_color_hex(0xdc7070), 0);
     }
     lv_obj_set_style_border_width(shutdownBtn_, 1, 0);
+  }
+
+  if (wifiApToggleBtn_ != nullptr && wifiApToggleLabel_ != nullptr) {
+    const bool apKnown = state_.hasWifiApState;
+    const bool apActive = apKnown && state_.wifiApActive;
+
+    lv_obj_clear_state(wifiApToggleBtn_, LV_STATE_DISABLED);
+    if (apActive) {
+      lv_label_set_text(wifiApToggleLabel_, "HOLD: DISABLE AP");
+      lv_obj_set_style_bg_color(wifiApToggleBtn_, lv_color_hex(0x6a2a1f), 0);
+      lv_obj_set_style_bg_color(wifiApToggleBtn_, lv_color_hex(0x8e3a2a), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(wifiApToggleBtn_, lv_color_hex(0xffb199), 0);
+    } else if (apKnown) {
+      lv_label_set_text(wifiApToggleLabel_, "HOLD: ENABLE AP");
+      lv_obj_set_style_bg_color(wifiApToggleBtn_, lv_color_hex(0x1f5a45), 0);
+      lv_obj_set_style_bg_color(wifiApToggleBtn_, lv_color_hex(0x26755b), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(wifiApToggleBtn_, lv_color_hex(0xa3f2cf), 0);
+    } else {
+      lv_label_set_text(wifiApToggleLabel_, "HOLD: TOGGLE AP");
+      lv_obj_set_style_bg_color(wifiApToggleBtn_, lv_color_hex(0x244374), 0);
+      lv_obj_set_style_bg_color(wifiApToggleBtn_, lv_color_hex(0x2e5ca0), LV_STATE_PRESSED);
+      lv_obj_set_style_border_color(wifiApToggleBtn_, lv_color_hex(0x6ea4ff), 0);
+    }
+    lv_obj_set_style_border_width(wifiApToggleBtn_, 1, 0);
+  }
+
+  if (resetFlightBtn_ != nullptr && resetFlightLabel_ != nullptr) {
+    lv_obj_clear_state(resetFlightBtn_, LV_STATE_DISABLED);
+    lv_obj_set_style_bg_color(resetFlightBtn_, lv_color_hex(0x7a1d1d), 0);
+    lv_obj_set_style_bg_color(resetFlightBtn_, lv_color_hex(0xa02828), LV_STATE_PRESSED);
+    lv_obj_set_style_border_color(resetFlightBtn_, lv_color_hex(0xdc7070), 0);
+    lv_obj_set_style_border_width(resetFlightBtn_, 1, 0);
+
+    if (phaseResetRequested_) {
+      lv_label_set_text(resetFlightLabel_, "RESETTING...");
+    } else if (resetFlightArmed_) {
+      lv_label_set_text(resetFlightLabel_, "HOLD TO CONFIRM");
+    } else {
+      lv_label_set_text(resetFlightLabel_, "HOLD: RESET FLIGHT");
+    }
   }
 
   const bool sdAnyPending = sdCommandPending_ || sdUtilityCommandPending_;
@@ -2709,7 +2784,7 @@ bool LvglController::sendAction(const String& action, int durationS) {
   } else if (action == "telemetry_tx_power") {
     pretty = "TELEM TX POWER " + String(durationS) + "dBm";
   } else if (action == "phase_reset") {
-    pretty = "RESET FLIGHT PHASE";
+    pretty = "RESET FLIGHT";
   } else if (action == "launch_arm" && durationS != 0) {
     pretty = "LAUNCH ARM (NO GPS)";
   } else if (action == "sd_rotate") {
@@ -2718,6 +2793,8 @@ bool LvglController::sendAction(const String& action, int durationS) {
     pretty = "SD FORMAT";
   } else if (action == "sd_dump_sample") {
     pretty = "SD DUMP SAMPLE";
+  } else if (action == "wifi_ap_toggle") {
+    pretty = "WIFI AP TOGGLE";
   }
 
   updateDashboardActionButtons();
@@ -3316,29 +3393,44 @@ void LvglController::refreshUi() {
       0);
 
   if (wifiIndicator_ != nullptr && wifiIndicatorIcon_ != nullptr && wifiIndicatorState_ != nullptr) {
+    const bool wifiApActive = state_.hasWifiApState && state_.wifiApActive;
 #if (!COMPANION_LINK_UART) || OTA_ENABLE
     const bool wifiConnected = (WiFi.status() == WL_CONNECTED);
     lv_label_set_text(wifiIndicatorIcon_, LV_SYMBOL_WIFI);
     lv_obj_set_style_text_color(wifiIndicatorIcon_, lv_color_hex(wifiConnected ? 0xe6f2ff : 0xa7b4c9), 0);
 
-    lv_label_set_text(wifiIndicatorState_, wifiConnected ? LV_SYMBOL_OK : LV_SYMBOL_CLOSE);
-    lv_obj_set_style_text_color(wifiIndicatorState_,
-                                lv_color_hex(wifiConnected ? 0x10351f : 0x3a1111),
-                                0);
-    lv_obj_set_style_bg_color(wifiIndicatorState_,
-                              lv_color_hex(wifiConnected ? 0x6cff95 : 0xff8e8e),
-                              0);
-    lv_obj_set_style_border_color(wifiIndicatorState_,
-                                  lv_color_hex(wifiConnected ? 0xb4ffd0 : 0xffc3c3),
+    if (wifiApActive) {
+      lv_label_set_text(wifiIndicatorState_, "AP");
+      lv_obj_set_style_text_color(wifiIndicatorState_, lv_color_hex(0x102436), 0);
+      lv_obj_set_style_bg_color(wifiIndicatorState_, lv_color_hex(0x7ec8ff), 0);
+      lv_obj_set_style_border_color(wifiIndicatorState_, lv_color_hex(0xb5e4ff), 0);
+    } else {
+      lv_label_set_text(wifiIndicatorState_, wifiConnected ? LV_SYMBOL_OK : LV_SYMBOL_CLOSE);
+      lv_obj_set_style_text_color(wifiIndicatorState_,
+                                  lv_color_hex(wifiConnected ? 0x10351f : 0x3a1111),
                                   0);
+      lv_obj_set_style_bg_color(wifiIndicatorState_,
+                                lv_color_hex(wifiConnected ? 0x6cff95 : 0xff8e8e),
+                                0);
+      lv_obj_set_style_border_color(wifiIndicatorState_,
+                                    lv_color_hex(wifiConnected ? 0xb4ffd0 : 0xffc3c3),
+                                    0);
+    }
 #else
     lv_label_set_text(wifiIndicatorIcon_, LV_SYMBOL_WIFI);
     lv_obj_set_style_text_color(wifiIndicatorIcon_, lv_color_hex(0x637287), 0);
 
-    lv_label_set_text(wifiIndicatorState_, "-");
-    lv_obj_set_style_text_color(wifiIndicatorState_, lv_color_hex(0x93a3bc), 0);
-    lv_obj_set_style_bg_color(wifiIndicatorState_, lv_color_hex(0x2d394d), 0);
-    lv_obj_set_style_border_color(wifiIndicatorState_, lv_color_hex(0x4d5f79), 0);
+    if (wifiApActive) {
+      lv_label_set_text(wifiIndicatorState_, "AP");
+      lv_obj_set_style_text_color(wifiIndicatorState_, lv_color_hex(0x102436), 0);
+      lv_obj_set_style_bg_color(wifiIndicatorState_, lv_color_hex(0x7ec8ff), 0);
+      lv_obj_set_style_border_color(wifiIndicatorState_, lv_color_hex(0xb5e4ff), 0);
+    } else {
+      lv_label_set_text(wifiIndicatorState_, "-");
+      lv_obj_set_style_text_color(wifiIndicatorState_, lv_color_hex(0x93a3bc), 0);
+      lv_obj_set_style_bg_color(wifiIndicatorState_, lv_color_hex(0x2d394d), 0);
+      lv_obj_set_style_border_color(wifiIndicatorState_, lv_color_hex(0x4d5f79), 0);
+    }
 #endif
   }
 
@@ -3352,7 +3444,7 @@ void LvglController::refreshUi() {
 
   lv_label_set_text_fmt(phaseLabel_, "PHASE: %s", state_.flight.phase.length() ? state_.flight.phase.c_str() : "unknown");
 
-  const int8_t checklistIndex = phaseChecklistIndex(state_.flight.phase);
+  const int8_t checklistIndex = phaseChecklistCleared_ ? -1 : phaseChecklistIndex(state_.flight.phase);
   lv_label_set_text_fmt(phaseChecklistLabel_,
                         "%s Idle\n\n%s Boost\n\n%s Coast\n\n%s Descent\n\n%s Landed",
                         checklistMarkerForStage(checklistIndex, 0),
@@ -3517,6 +3609,14 @@ void LvglController::tick() {
 
     state_.flight.phase = effectivePhase;
     appendTrendSampleFromState();
+
+    if (phaseChecklistCleared_) {
+      const bool previousIdleOrPad = phaseEquals(previousPhase, "idle") || phaseEquals(previousPhase, "pad");
+      const int8_t effectiveStep = phaseProgressStep(state_.flight.phase);
+      if (previousIdleOrPad && effectiveStep > 0) {
+        phaseChecklistCleared_ = false;
+      }
+    }
 
     syncCommandStateFromTelemetry();
 
@@ -3685,6 +3785,15 @@ void LvglController::onArmNoGpsToggleEvent(lv_event_t* e) {
   self->refreshUi();
 }
 
+void LvglController::onWifiApToggleEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+  self->sendAction("wifi_ap_toggle", 0);
+  self->refreshUi();
+}
+
 void LvglController::onSdFunctionsOpenEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
   if (self == nullptr) {
@@ -3719,85 +3828,40 @@ void LvglController::onCalibrationCancelEvent(lv_event_t* e) {
   self->refreshUi();
 }
 
-void LvglController::onAltCalibrateEvent(lv_event_t* e) {
-  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
-  if (self == nullptr) {
-    return;
-  }
-  if (self->sendAction("alt_calibrate", 0)) {
-    self->soundQueueHead_ = 0;
-    self->soundQueueTail_ = 0;
-    self->soundQueueCount_ = 0;
-    self->apogeeCalloutPending_ = false;
-
-    const int8_t phaseStep = phaseProgressStep(self->state_.flight.phase);
-    const bool phaseLaterThanLaunchDetected = (phaseStep > 1);
-    const bool hasPostLaunchEvent =
-        self->state_.recoveryApogee || self->state_.recoveryDrogueDeployed ||
-        self->state_.recoveryMainDeployed || self->state_.recoveryLandingDetected;
-    const bool replayLatestOnly = phaseLaterThanLaunchDetected || hasPostLaunchEvent;
-
-    SoundCue latestCue = SoundCue::kLaunchDetected;
-    bool hasLatestCue = false;
-    if (self->state_.recoveryLandingDetected || phaseEquals(self->state_.flight.phase, "landed")) {
-      latestCue = SoundCue::kLandingDetected;
-      hasLatestCue = true;
-    } else if (self->state_.recoveryMainDeployed) {
-      latestCue = SoundCue::kMainDeploy;
-      hasLatestCue = true;
-    } else if (self->state_.recoveryDrogueDeployed) {
-      latestCue = SoundCue::kDrogueDeploy;
-      hasLatestCue = true;
-    } else if (self->state_.recoveryApogee || phaseEquals(self->state_.flight.phase, "descent")) {
-      latestCue = SoundCue::kApogee;
-      hasLatestCue = true;
-    } else if (self->state_.recoveryLaunchDetected || phaseStep == 1) {
-      latestCue = SoundCue::kLaunchDetected;
-      hasLatestCue = true;
-    }
-
-    if (replayLatestOnly && hasLatestCue) {
-      self->phaseResetRequested_ = false;
-      self->queueSoundCue(latestCue);
-      self->setCommandStatus("Flight in progress: latest event replay only", false);
-    } else {
-      self->phaseResetRequested_ = true;
-      self->queueSoundCue(SoundCue::kPowerOn);
-      self->queueSoundCue(SoundCue::kCalibrating);
-      self->queueSoundCue(SoundCue::kSensorsReady);
-    }
-
-    self->hasRecoveryDeployHistory_ = true;
-    self->lastRecoveryDrogueDeployed_ = self->state_.recoveryDrogueDeployed;
-    self->lastRecoveryMainDeployed_ = self->state_.recoveryMainDeployed;
-    self->hasRecoveryEventHistory_ = true;
-    self->lastRecoveryLaunchDetected_ = self->state_.recoveryLaunchDetected;
-    self->lastRecoveryApogee_ = self->state_.recoveryApogee;
-    self->lastRecoveryLandingDetected_ = self->state_.recoveryLandingDetected;
-  }
-
-  self->panelCollapsed_ = true;
-  self->settingsCollapsed_ = true;
-  self->setSoundSettingsVisible(false);
-  self->setSdFunctionsVisible(false);
-  if (self->actionPanel_ != nullptr) {
-    lv_obj_add_flag(self->actionPanel_, LV_OBJ_FLAG_HIDDEN);
-  }
-  if (self->settingsBody_ != nullptr) {
-    lv_obj_add_flag(self->settingsBody_, LV_OBJ_FLAG_HIDDEN);
-  }
-  if (self->telemetryPanel_ != nullptr) {
-    lv_obj_update_layout(self->telemetryPanel_);
-  }
-
-  self->refreshUi();
-}
-
 void LvglController::onPhaseResetEvent(lv_event_t* e) {
   LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
   if (self == nullptr) {
     return;
   }
+
+  const lv_event_code_t code = lv_event_get_code(e);
+  if (code == LV_EVENT_PRESSED) {
+    self->resetFlightArmed_ = true;
+    self->resetFlightArmSinceMs_ = millis();
+    self->setCommandStatus("Hold RESET FLIGHT 4s to confirm", true);
+    self->refreshUi();
+    return;
+  }
+
+  if (code == LV_EVENT_RELEASED) {
+    if (self->resetFlightArmed_) {
+      self->resetFlightArmed_ = false;
+      self->setCommandStatus("RESET FLIGHT canceled", true);
+      self->refreshUi();
+    }
+    return;
+  }
+
+  if (code != LV_EVENT_PRESSING || !self->resetFlightArmed_) {
+    return;
+  }
+
+  const uint32_t now = millis();
+  if ((now - self->resetFlightArmSinceMs_) < kResetFlightArmWindowMs) {
+    return;
+  }
+
+  self->resetFlightArmed_ = false;
 
   if (self->sendAction("phase_reset", 0)) {
     self->soundQueueHead_ = 0;
@@ -3805,6 +3869,13 @@ void LvglController::onPhaseResetEvent(lv_event_t* e) {
     self->soundQueueCount_ = 0;
     self->apogeeCalloutPending_ = false;
     self->phaseResetRequested_ = true;
+    self->phaseChecklistCleared_ = true;
+    self->flightTimerActive_ = false;
+    self->flightTimerStartMs_ = 0;
+    self->flightDurationMs_ = 0;
+    self->flightTimerInitialized_ = true;
+    self->lastFlightLaunchDetected_ = false;
+    self->lastFlightLandingDetected_ = false;
     self->queueSoundCue(SoundCue::kPowerOn);
     self->queueSoundCue(SoundCue::kCalibrating);
     self->queueSoundCue(SoundCue::kSensorsReady);

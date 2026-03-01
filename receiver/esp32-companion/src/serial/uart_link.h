@@ -35,6 +35,7 @@ class UartLink {
                       bool hasTxPower,
                       bool hasRecoveryEvents,
                       bool hasGpsQuality,
+                      bool hasCompanionFlags,
                       CompanionState& ioState);
   void updateDerivedVerticalSpeeds(uint32_t sampleTms, uint16_t packetCount, CompanionState& ioState);
   void debugTick();
