@@ -39,6 +39,11 @@ class VoltageMonitorConfig:
     ch_vout: int = 0b11100001
     ch_tempv: int = 0b11110001
 
+    # ADS word decode mode: "swapped" (legacy SMBus byte-swapped),
+    # "native" (no byte swap), or "auto" (heuristic selection).
+    adc_decode_mode: str = "auto"
+    ground_batt_adc_decode_mode: str = "auto"
+
     vref: float = 6.144
     max_reading: float = 2047.0
 
@@ -80,6 +85,8 @@ _VOLTAGE_STATE = {
     "warning": None,
     "shutdown_triggered": False,
     "last_error": None,
+    "adc_decode_mode": VOLTAGE_MONITOR_CFG.adc_decode_mode,
+    "ground_batt_adc_decode_mode": VOLTAGE_MONITOR_CFG.ground_batt_adc_decode_mode,
 }
 
 
@@ -93,7 +100,32 @@ def get_voltage_monitor_snapshot():
         return dict(_VOLTAGE_STATE)
 
 
-def _read_adc_voltage(bus, address, channel_cfg, cfg):
+def _decode_adc_voltage_from_raw(raw, cfg, decode_mode):
+    raw_i = int(raw) & 0xFFFF
+
+    swapped_word = (((raw_i & 0xFF) << 8) | ((raw_i & 0xFFF0) >> 8))
+    swapped_value = (swapped_word >> 4) & 0x0FFF
+    swapped_v = (swapped_value / cfg.max_reading) * cfg.vref
+
+    native_value = (raw_i >> 4) & 0x0FFF
+    native_v = (native_value / cfg.max_reading) * cfg.vref
+
+    mode = str(decode_mode or "swapped").strip().lower()
+    if mode in ("native", "no_swap", "noswap", "direct"):
+        return native_v
+    if mode in ("swapped", "swap"):
+        return swapped_v
+
+    # Auto mode: pick whichever decode path avoids implausibly tiny values
+    # while preserving backward compatibility when both look plausible.
+    if native_v >= 2.0 and swapped_v < 1.0:
+        return native_v
+    if swapped_v >= 2.0 and native_v < 1.0:
+        return swapped_v
+    return swapped_v
+
+
+def _read_adc_voltage(bus, address, channel_cfg, cfg, decode_mode="swapped"):
     bus.write_i2c_block_data(address, 0x01, [0x85, 0x83])
     bus.write_i2c_block_data(address, 0x00, [0x00, 0x00])
     time.sleep(cfg.channel_sleep_s)
@@ -102,9 +134,7 @@ def _read_adc_voltage(bus, address, channel_cfg, cfg):
     time.sleep(cfg.channel_sleep_s)
 
     raw = bus.read_word_data(address, 0x00)
-    value = (((raw & 0xFF) << 8) | ((int(raw) & 0xFFF0) >> 8))
-    value >>= 4
-    return (value / cfg.max_reading) * cfg.vref
+    return _decode_adc_voltage_from_raw(raw, cfg, decode_mode)
 
 
 def _temp_c_from_tempv(temp_v, profile):
@@ -190,10 +220,10 @@ class VoltageMonitor:
         try:
             with SMBus(cfg.i2c_bus) as bus:
                 while not self._stop_event.is_set():
-                    vin = _read_adc_voltage(bus, cfg.address, cfg.ch_vin, cfg)
-                    vbatt = _read_adc_voltage(bus, cfg.address, cfg.ch_vbatt, cfg)
-                    vout = _read_adc_voltage(bus, cfg.address, cfg.ch_vout, cfg)
-                    temp_v = _read_adc_voltage(bus, cfg.address, cfg.ch_tempv, cfg)
+                    vin = _read_adc_voltage(bus, cfg.address, cfg.ch_vin, cfg, cfg.adc_decode_mode)
+                    vbatt = _read_adc_voltage(bus, cfg.address, cfg.ch_vbatt, cfg, cfg.adc_decode_mode)
+                    vout = _read_adc_voltage(bus, cfg.address, cfg.ch_vout, cfg, cfg.adc_decode_mode)
+                    temp_v = _read_adc_voltage(bus, cfg.address, cfg.ch_tempv, cfg, cfg.adc_decode_mode)
 
                     ground_vbat_v = None
                     try:
@@ -202,6 +232,7 @@ class VoltageMonitor:
                             cfg.ground_batt_address,
                             cfg.ground_batt_channel,
                             cfg,
+                            cfg.ground_batt_adc_decode_mode,
                         )
                         scaled_ground_v = (
                             ground_adc_v
@@ -236,6 +267,8 @@ class VoltageMonitor:
                         temp_f=temp_f,
                         warning=warning,
                         last_error=None,
+                        adc_decode_mode=cfg.adc_decode_mode,
+                        ground_batt_adc_decode_mode=cfg.ground_batt_adc_decode_mode,
                     )
                     self._emit_update()
 
