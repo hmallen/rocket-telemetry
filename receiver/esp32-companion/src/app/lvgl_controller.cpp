@@ -571,6 +571,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_radius(launchPrepBtn_, 8, 0);
   lv_obj_add_event_cb(launchPrepBtn_, onLaunchPrepEvent, LV_EVENT_PRESSED, this);
   lv_obj_add_event_cb(launchPrepBtn_, onLaunchPrepEvent, LV_EVENT_LONG_PRESSED, this);
+  lv_obj_add_event_cb(launchPrepBtn_, onLaunchPrepEvent, LV_EVENT_RELEASED, this);
   launchPrepLabel_ = lv_label_create(launchPrepBtn_);
   lv_obj_set_style_text_color(launchPrepLabel_, lv_color_hex(0xe6eeff), 0);
   lv_obj_clear_flag(launchPrepLabel_, LV_OBJ_FLAG_CLICKABLE);
@@ -3954,6 +3955,15 @@ void LvglController::onLaunchPrepEvent(lv_event_t* e) {
     self->setCommandStatus("Hold PREP+ARM to confirm", true);
     self->updateDashboardActionButtons();
     self->refreshUi();
+    return;
+  }
+
+  if (code == LV_EVENT_RELEASED) {
+    if (self->launchPrepArmed_) {
+      self->launchPrepArmed_ = false;
+      self->updateDashboardActionButtons();
+      self->refreshUi();
+    }
     return;
   }
 
