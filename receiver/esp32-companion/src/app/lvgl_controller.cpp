@@ -26,7 +26,7 @@ constexpr int32_t kTouchReleaseThreshold = 90;
 constexpr lv_coord_t kActionPanelGapPx = 10;
 constexpr lv_coord_t kActionItemsGapPx = 16;
 constexpr lv_coord_t kSettingsButtonHeight = 28;
-constexpr lv_coord_t kSettingsStackGapPx = 20;
+constexpr lv_coord_t kSettingsStackGapPx = 24;
 constexpr lv_coord_t kSettingsRowGapPx = 14;
 constexpr int32_t kTrendChartScaleMax = 100;
 constexpr float kTrendAltMinSpanM = 20.0f;
@@ -46,6 +46,10 @@ static int32_t normalizeTrendValue(float value, float minValue, float maxValue) 
 
   return static_cast<int32_t>(lroundf(ratio * static_cast<float>(kTrendChartScaleMax)));
 }
+constexpr int32_t kUiFontSizePx = 14;
+
+extern const uint8_t kEmbeddedSlkscrTtfStart[] asm("_binary_resources_slkscr_ttf_start");
+extern const uint8_t kEmbeddedSlkscrTtfEnd[] asm("_binary_resources_slkscr_ttf_end");
 
 static uint16_t median3(uint16_t a, uint16_t b, uint16_t c) {
   if (a > b) {
@@ -406,11 +410,33 @@ void LvglController::initLvgl() {
   (void)touchIndev_;
 }
 
+void LvglController::initUiFont() {
+#if LV_USE_TINY_TTF
+  const size_t fontDataLen = static_cast<size_t>(kEmbeddedSlkscrTtfEnd - kEmbeddedSlkscrTtfStart);
+  if (fontDataLen == 0) {
+    uiFont_ = nullptr;
+    return;
+  }
+
+  uiFont_ = lv_tiny_ttf_create_data(kEmbeddedSlkscrTtfStart, fontDataLen, kUiFontSizePx);
+  if (uiFont_ != nullptr) {
+    uiFont_->fallback = LV_FONT_DEFAULT;
+  }
+#else
+  uiFont_ = nullptr;
+#endif
+}
+
+const lv_font_t* LvglController::uiTextFont() const {
+  return (uiFont_ != nullptr) ? uiFont_ : LV_FONT_DEFAULT;
+}
+
 void LvglController::buildUi() {
   lv_obj_t* screen = lv_scr_act();
   lv_obj_set_style_bg_color(screen, lv_color_hex(0x050a14), 0);
   lv_obj_set_style_bg_grad_color(screen, lv_color_hex(0x0d1626), 0);
   lv_obj_set_style_bg_grad_dir(screen, LV_GRAD_DIR_VER, 0);
+  lv_obj_set_style_text_font(screen, uiTextFont(), 0);
 
   root_ = lv_obj_create(screen);
   lv_obj_set_size(root_, LV_PCT(100), LV_PCT(100));
@@ -462,13 +488,7 @@ void LvglController::buildUi() {
   phaseChecklistLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_width(phaseChecklistLabel_, 166);
   lv_label_set_long_mode(phaseChecklistLabel_, LV_LABEL_LONG_WRAP);
-#if LV_FONT_MONTSERRAT_12
-  lv_obj_set_style_text_font(phaseChecklistLabel_, &lv_font_montserrat_12, 0);
-#elif LV_FONT_MONTSERRAT_14
-  lv_obj_set_style_text_font(phaseChecklistLabel_, &lv_font_montserrat_14, 0);
-#else
-  lv_obj_set_style_text_font(phaseChecklistLabel_, LV_FONT_DEFAULT, 0);
-#endif
+  lv_obj_set_style_text_font(phaseChecklistLabel_, uiTextFont(), 0);
   lv_obj_set_style_text_color(phaseChecklistLabel_, lv_color_hex(0xb8c9e6), 0);
   lv_obj_set_style_text_align(phaseChecklistLabel_, LV_TEXT_ALIGN_LEFT, 0);
   lv_obj_clear_flag(phaseChecklistLabel_, LV_OBJ_FLAG_CLICKABLE);
@@ -478,7 +498,7 @@ void LvglController::buildUi() {
   lv_obj_set_width(callsignLabel_, 220);
   lv_label_set_long_mode(callsignLabel_, LV_LABEL_LONG_DOT);
   lv_obj_set_style_text_color(callsignLabel_, lv_color_hex(0xeaf1ff), 0);
-  lv_obj_set_style_text_font(callsignLabel_, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_font(callsignLabel_, uiTextFont(), 0);
   lv_obj_align(callsignLabel_, LV_ALIGN_TOP_LEFT, 0, 24);
 
   lv_obj_align(linkMetaLabel_, LV_ALIGN_TOP_LEFT, 0, 54);
@@ -776,11 +796,11 @@ void LvglController::buildUi() {
   lv_obj_center(resetFlightLabel_);
 
   makeActionButton(settingsActions_,
-                   "IMU CALIBRATION",
+                   "HOLD: IMU CALIBRATION",
                    onImuCalibrateEvent,
                    this,
                    kSettingsButtonHeight,
-                   LV_EVENT_CLICKED);
+                   LV_EVENT_LONG_PRESSED);
   makeActionButton(settingsActions_,
                    "SD CARD FUNCTIONS",
                    onSdFunctionsOpenEvent,
@@ -1335,6 +1355,7 @@ void LvglController::begin() {
 #endif
 
   initLvgl();
+  initUiFont();
   buildUi();
 
 #if AUTO_TOUCH_CALIBRATION_AT_BOOT

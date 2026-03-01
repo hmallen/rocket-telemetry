@@ -140,6 +140,7 @@ class LvglController {
   bool lastFlightLandingDetected_ = false;
 
   uint8_t* drawBufPixels_ = nullptr;
+  lv_font_t* uiFont_ = nullptr;
   lv_display_t* display_ = nullptr;
   lv_indev_t* touchIndev_ = nullptr;
 
@@ -257,6 +258,8 @@ class LvglController {
   lv_chart_series_t* trendVsSeries_ = nullptr;
 
   void initLvgl();
+  void initUiFont();
+  const lv_font_t* uiTextFont() const;
   void buildUi();
   void refreshUi();
   void setCommandStatus(const String& msg, bool ok);
