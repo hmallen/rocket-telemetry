@@ -307,24 +307,36 @@ static int8_t phaseProgressStep(const String& phaseText) {
   return -1;
 }
 
-static int8_t phaseChecklistIndex(const String& phaseText) {
-  String phase = phaseText;
+static int8_t eventChecklistIndex(const CompanionState& state) {
+  String phase = state.flight.phase;
   phase.toLowerCase();
-  if (phase == "idle" || phase == "pad") {
-    return 0;
+
+  const bool launchArmed = state.recoveryLaunchArmed;
+  const bool launchDetected = state.recoveryLaunchDetected || phaseIndicatesInFlight(phase) || phase == "landed";
+  const bool apogeeDetected = state.recoveryApogee || phase == "descent" || phase == "landed";
+  const bool drogueDeployed = state.recoveryDrogueDeployed;
+  const bool mainDeployed = state.recoveryMainDeployed;
+  const bool landingDetected = state.recoveryLandingDetected || phase == "landed";
+
+  if (landingDetected) {
+    return 5;
   }
-  if (phase == "boost" || phase == "ascent") {
-    return 1;
-  }
-  if (phase == "coast") {
-    return 2;
-  }
-  if (phase == "descent") {
-    return 3;
-  }
-  if (phase == "landed") {
+  if (mainDeployed) {
     return 4;
   }
+  if (drogueDeployed) {
+    return 3;
+  }
+  if (apogeeDetected) {
+    return 2;
+  }
+  if (launchDetected) {
+    return 1;
+  }
+  if (launchArmed) {
+    return 0;
+  }
+
   return -1;
 }
 
@@ -3465,14 +3477,15 @@ void LvglController::refreshUi() {
 
   lv_label_set_text_fmt(phaseLabel_, "PHASE: %s", state_.flight.phase.length() ? state_.flight.phase.c_str() : "unknown");
 
-  const int8_t checklistIndex = phaseChecklistCleared_ ? -1 : phaseChecklistIndex(state_.flight.phase);
+  const int8_t checklistIndex = phaseChecklistCleared_ ? -1 : eventChecklistIndex(state_);
   lv_label_set_text_fmt(phaseChecklistLabel_,
-                        "%s Idle\n\n%s Boost\n\n%s Coast\n\n%s Descent\n\n%s Landed",
+                        "%s Armed\n\n%s Launch\n\n%s Apogee\n\n%s Drogue\n\n%s Main\n\n%s Landing",
                         checklistMarkerForStage(checklistIndex, 0),
                         checklistMarkerForStage(checklistIndex, 1),
                         checklistMarkerForStage(checklistIndex, 2),
                         checklistMarkerForStage(checklistIndex, 3),
-                        checklistMarkerForStage(checklistIndex, 4));
+                        checklistMarkerForStage(checklistIndex, 4),
+                        checklistMarkerForStage(checklistIndex, 5));
 
   const String baroAltText = formatFloat(state_.alt.altitudeAglM, 1);
   const String gpsAltText = formatFloat(state_.alt.gpsAltitudeM, 1);
