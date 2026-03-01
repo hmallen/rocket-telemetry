@@ -337,27 +337,6 @@ static int8_t eventChecklistIndex(const CompanionState& state) {
     return 0;
   }
 
-  return phaseChecklistIndex(state.flight.phase);
-}
-
-static int8_t phaseChecklistIndex(const String& phaseText) {
-  String phase = phaseText;
-  phase.toLowerCase();
-  if (phase == "idle" || phase == "pad") {
-    return 0;
-  }
-  if (phase == "boost" || phase == "ascent") {
-    return 1;
-  }
-  if (phase == "coast") {
-    return 2;
-  }
-  if (phase == "descent") {
-    return 3;
-  }
-  if (phase == "landed") {
-    return 4;
-  }
   return -1;
 }
 
