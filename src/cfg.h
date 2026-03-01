@@ -92,10 +92,10 @@ constexpr const char LORA_CALLSIGN[] = "KG5CKI";
 #define LORA_CONTROL_OPERATOR_OK 1
 
 // RF parameter discipline: choose minimum BW/SF/power that meets link budget.
-constexpr uint8_t LORA_SF = 7;            // 6..12
-constexpr float   LORA_BW_KHZ = 125.0f;   // one of standard LoRa BWs; validated at startup
-constexpr uint8_t LORA_CR = 5;            // 5..8 => 4/5..4/8
-constexpr int8_t  LORA_TX_POWER_DBM = 10; // conservative default; avoid max/PA_BOOST unless required
+constexpr uint8_t LORA_SF = 7;           // 6..12 (max sensitivity)
+constexpr float   LORA_BW_KHZ = 125.0f;    // narrower BW for improved receiver sensitivity
+constexpr uint8_t LORA_CR = 5;            // 5..8 => 4/5..4/8 (max FEC)
+constexpr int8_t  LORA_TX_POWER_DBM = 17; // SX127x PA_BOOST max in this firmware
 
 // Deterministic scheduling + duty-cycle restraint.
 constexpr uint32_t LORA_MIN_TX_INTERVAL_MS = (1000UL / LORA_HZ);

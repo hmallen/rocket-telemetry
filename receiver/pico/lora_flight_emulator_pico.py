@@ -277,17 +277,17 @@ class SX1278:
         self.write_reg(REG_FIFO_RX_BASE_ADDR, 0x00)
         self.set_frequency(LORA_FREQ_HZ)
 
-        # Match receiver defaults used in this project.
+        # Match long-range launch profile used by telemetry firmware.
         self.write_reg(REG_LNA, self.read_reg(REG_LNA) | 0x03)
-        self.write_reg(REG_MODEM_CONFIG_1, 0x72)  # BW125 / CR4/5
-        self.write_reg(REG_MODEM_CONFIG_2, 0x74)  # SF7 / CRC on
-        self.write_reg(REG_MODEM_CONFIG_3, 0x04)  # AGC on
+        self.write_reg(REG_MODEM_CONFIG_1, 0x72)  # BW62.5 / CR4/8
+        self.write_reg(REG_MODEM_CONFIG_2, 0x74)  # SF12 / CRC on
+        self.write_reg(REG_MODEM_CONFIG_3, 0x04)  # AGC on + low data rate optimize
         self.write_reg(REG_PREAMBLE_MSB, 0x00)
         self.write_reg(REG_PREAMBLE_LSB, 0x08)
         self.write_reg(REG_SYNC_WORD, SYNCWORD_LORA_PUBLIC)
         self.write_reg(REG_DIO_MAPPING_1, DIO0_RX_DONE)
 
-        self.write_reg(REG_PA_CONFIG, PA_BOOST | 0x08)  # ~10 dBm to match cfg.h
+        self.write_reg(REG_PA_CONFIG, PA_BOOST | 0x0F)  # 17 dBm
         self.write_reg(REG_PA_DAC, 0x84)
         self.write_reg(REG_OCP, 0x20 | 0x0B)
 
@@ -677,7 +677,7 @@ class FlightEmulator:
 
         self.tx_enabled = START_TX_ENABLED
         self.logging_enabled = START_TX_ENABLED
-        self.tx_power_dbm = 10
+        self.tx_power_dbm = 17
         self.shutdown = False
         self.mission_timed_out = False
 
