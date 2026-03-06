@@ -406,8 +406,8 @@ static void sd_logging_start() {
 }
 
 #if ENABLE_GNSS
-static GnssUbx gnss_primary(GNSS_SERIAL_PRIMARY);
-static GnssUbx gnss_backup(GNSS_SERIAL_BACKUP);
+static GnssUbx gnss_primary(GNSS_SERIAL_PRIMARY, GNSS_PRIMARY_UBX_PORT_ID);
+static GnssUbx gnss_backup(GNSS_SERIAL_BACKUP, GNSS_BACKUP_UBX_PORT_ID, true);
 static bool gnss_use_backup_as_primary = false;
 #endif
 static Sensors sensors;
@@ -860,12 +860,15 @@ void loop() {
 #if ENABLE_GNSS
     const bool primary_fresh_dbg = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
     const bool backup_fresh_dbg  = gnss_backup.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const bool primary_parsed_dbg = gnss_primary.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const bool backup_parsed_dbg  = gnss_backup.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
     const GnssTime& pt = gnss_primary.time();
     const GnssTime& bt = gnss_backup.time();
 
     DBG_PRINTF(" gnss_sel=%c", gnss_use_backup_as_primary ? 'B' : 'P');
-    DBG_PRINTF(" gnss_p_fresh=%u fix_ok=%u fix=%u lat=%.7f lon=%.7f alt_m=%.3f tow_ms=%lu week=%u bytes=%lu",
+    DBG_PRINTF(" gnss_p_fresh=%u parsed=%u fix_ok=%u fix=%u lat=%.7f lon=%.7f alt_m=%.3f tow_ms=%lu week=%u bytes=%lu",
                (unsigned)primary_fresh_dbg,
+               (unsigned)primary_parsed_dbg,
                (unsigned)pt.fix_ok, (unsigned)pt.fix_type,
                (double)pt.lat_e7 / 1e7,
                (double)pt.lon_e7 / 1e7,
@@ -873,8 +876,9 @@ void loop() {
                (unsigned long)pt.tow_ms, (unsigned)pt.week,
                (unsigned long)gnss_primary.bytes_rx());
 
-    DBG_PRINTF(" gnss_b_fresh=%u fix_ok=%u fix=%u lat=%.7f lon=%.7f alt_m=%.3f tow_ms=%lu week=%u bytes=%lu",
+    DBG_PRINTF(" gnss_b_fresh=%u parsed=%u fix_ok=%u fix=%u lat=%.7f lon=%.7f alt_m=%.3f tow_ms=%lu week=%u bytes=%lu",
                (unsigned)backup_fresh_dbg,
+               (unsigned)backup_parsed_dbg,
                (unsigned)bt.fix_ok, (unsigned)bt.fix_type,
                (double)bt.lat_e7 / 1e7,
                (double)bt.lon_e7 / 1e7,
@@ -883,7 +887,7 @@ void loop() {
                (unsigned long)gnss_backup.bytes_rx());
 
     const GnssTime& gt = gnss_use_backup_as_primary ? bt : pt;
-    if (gt.last_sat_ms != 0) {
+    if (gt.last_sat_ms != 0 || gt.navsat_num_svs_total != 0 || gt.navsat_num_svs != 0) {
       DBG_PRINTF(" sat=%u/%u used=%u",
                  (unsigned)gt.navsat_n,
                  (unsigned)gt.navsat_num_svs_total,
@@ -906,9 +910,15 @@ void loop() {
   uint32_t t_pps;
   if (time_pop_pps(t_pps)) {
 #if ENABLE_GNSS
-    const GnssUbx& anchor = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US)
+    const bool primary_anchor_fresh = gnss_primary.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const bool backup_anchor_fresh = gnss_backup.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const GnssUbx& anchor = primary_anchor_fresh
                               ? gnss_primary
-                              : gnss_backup;
+                              : (backup_anchor_fresh
+                                   ? gnss_backup
+                                   : (gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US)
+                                        ? gnss_primary
+                                        : gnss_backup));
     ring_write_time_anchor(t_pps, anchor.time());
 #else
     GnssTime dummy{};
@@ -919,21 +929,21 @@ void loop() {
 #if ENABLE_GNSS
   if (!primary_3d_beeped) {
     const GnssTime& pt = gnss_primary.time();
-    const bool primary_fresh = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
-    const bool primary_3d = primary_fresh && pt.fix_ok && pt.fix_type >= 3;
+    const bool primary_solution_fresh = gnss_primary.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const bool primary_3d = primary_solution_fresh && pt.fix_ok && pt.fix_type >= 3;
     if (primary_3d && !buzzer_busy()) {
       buzzer_start_seq(150, 150, 2, now_ms);
       primary_3d_beeped = true;
     }
   }
 
-  const bool primary_fresh = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
-  const bool backup_fresh  = gnss_backup.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+  const bool primary_solution_fresh = gnss_primary.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+  const bool backup_solution_fresh  = gnss_backup.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
 
   if (!gnss_use_backup_as_primary) {
-    if (!primary_fresh && backup_fresh) gnss_use_backup_as_primary = true;
+    if (!primary_solution_fresh && backup_solution_fresh) gnss_use_backup_as_primary = true;
   } else {
-    if (primary_fresh) gnss_use_backup_as_primary = false;
+    if (primary_solution_fresh) gnss_use_backup_as_primary = false;
   }
 
   ByteRing* ring_out_primary = gnss_use_backup_as_primary ? nullptr : &ring;
@@ -1029,12 +1039,12 @@ void loop() {
   const GnssTime* lora_gps = nullptr;
 #if ENABLE_GNSS
   {
-    const bool primary_fresh = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
-    const bool backup_fresh  = gnss_backup.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const bool primary_solution_fresh = gnss_primary.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const bool backup_solution_fresh  = gnss_backup.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
     if (!gnss_use_backup_as_primary) {
-      lora_gps = primary_fresh ? &gnss_primary.time() : (backup_fresh ? &gnss_backup.time() : nullptr);
+      lora_gps = primary_solution_fresh ? &gnss_primary.time() : (backup_solution_fresh ? &gnss_backup.time() : nullptr);
     } else {
-      lora_gps = backup_fresh ? &gnss_backup.time() : (primary_fresh ? &gnss_primary.time() : nullptr);
+      lora_gps = backup_solution_fresh ? &gnss_backup.time() : (primary_solution_fresh ? &gnss_primary.time() : nullptr);
     }
   }
 #endif
