@@ -610,6 +610,14 @@ class TelemetryStore:
                 "temp_f": None,
                 "warning": None,
                 "shutdown_triggered": False,
+                "shutdown_reason": None,
+                "ups_vin_min_v": None,
+                "ups_vbatt_min_v": None,
+                "ground_batt_warn_v": None,
+                "ground_batt_shutdown_v": None,
+                "ground_batt_shutdown_samples": None,
+                "ground_batt_auto_shutdown": None,
+                "ground_batt_low_samples": 0,
                 "last_error": None,
             },
             "attitude": {
@@ -1211,12 +1219,40 @@ def _build_companion_state(snapshot, seq=None):
     phase = recovery.get("phase") or "unknown"
     command_lockout_active = _command_lockout_active_from_snapshot(snapshot)
     wifi_ap_active = _get_wifi_ap_active()
+    ground_vbat_v = battery.get("ground_vbat_v", voltage_monitor.get("ground_vbat_v"))
+    ground_batt_warn_v = voltage_monitor.get("ground_batt_warn_v")
+    ground_batt_shutdown_v = voltage_monitor.get("ground_batt_shutdown_v")
+    ground_batt_low = (
+        ground_vbat_v is not None
+        and ground_batt_warn_v is not None
+        and float(ground_batt_warn_v) > 0.0
+        and float(ground_vbat_v) <= float(ground_batt_warn_v)
+    )
+    ground_batt_critical = (
+        ground_vbat_v is not None
+        and ground_batt_shutdown_v is not None
+        and float(ground_batt_shutdown_v) > 0.0
+        and float(ground_vbat_v) <= float(ground_batt_shutdown_v)
+    )
 
     alerts = []
     if age_s is None or age_s > 5.0:
         alerts.append({"level": "critical", "code": "LINK_LOST", "message": "Telemetry link lost"})
     elif age_s > 2.0:
         alerts.append({"level": "warning", "code": "LINK_STALE", "message": "Telemetry stale"})
+
+    if ground_batt_critical:
+        alerts.append({
+            "level": "critical",
+            "code": "GS_BATTERY_CRITICAL",
+            "message": "Ground battery critical",
+        })
+    elif ground_batt_low:
+        alerts.append({
+            "level": "warning",
+            "code": "GS_BATTERY_LOW",
+            "message": "Ground battery low",
+        })
 
     if battery.get("vbat_v") is not None and battery.get("vbat_v") < 3.5:
         alerts.append({"level": "warning", "code": "LOW_BATTERY", "message": "Rocket battery low"})
@@ -1266,7 +1302,9 @@ def _build_companion_state(snapshot, seq=None):
         },
         "battery": {
             "vbat_v": battery.get("vbat_v"),
-            "ground_vbat_v": battery.get("ground_vbat_v", voltage_monitor.get("ground_vbat_v")),
+            "ground_vbat_v": ground_vbat_v,
+            "ground_low": ground_batt_low,
+            "ground_critical": ground_batt_critical,
             "bat_state_label": battery.get("bat_state_label"),
         },
         "sd_logging": {
@@ -1492,6 +1530,10 @@ class CompanionUartBridge:
         companion_flags = 0
         if wifi_ap.get("active") is True:
             companion_flags |= 0x01
+        if battery.get("ground_low") is True:
+            companion_flags |= 0x02
+        if battery.get("ground_critical") is True:
+            companion_flags |= 0x04
 
         payload = struct.pack(
             "<IiiihhbBHHBHiBBBBHB",

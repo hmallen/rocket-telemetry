@@ -3590,12 +3590,21 @@ void LvglController::refreshUi() {
 
   const String txVbat = formatFloat(state_.battery.telemetryVbatV, 2, "--.--");
   const String groundVbat = formatFloat(state_.battery.groundVbatV, 2, "--.--");
+  const char* groundBatteryStateText = state_.battery.groundCritical
+                                           ? " CRIT"
+                                           : (state_.battery.groundLow ? " LOW" : "");
   const String clockText = formatClockText(now);
   const String flightText = (flightDurationMs_ > 0) ? formatDurationText(flightDurationMs_) : String("--:--:--");
+  const lv_color_t batteryColor = state_.battery.groundCritical
+                                      ? lv_color_hex(0xff8e8e)
+                                      : (state_.battery.groundLow ? lv_color_hex(0xffd166)
+                                                                  : lv_color_hex(0xd9e3f8));
+  lv_obj_set_style_text_color(batteryLabel_, batteryColor, 0);
   lv_label_set_text_fmt(batteryLabel_,
-                        "TX: %sV / GS: %sV\nDT %s  FLT %s",
+                        "TX: %sV / GS: %sV%s\nDT %s  FLT %s",
                         txVbat.c_str(),
                         groundVbat.c_str(),
+                        groundBatteryStateText,
                         clockText.c_str(),
                         flightText.c_str());
 
@@ -3607,15 +3616,29 @@ void LvglController::refreshUi() {
   lv_label_set_text(cmdStatusLabel_, cmdStatus.c_str());
 
   String alert;
+  lv_color_t alertColor = lv_color_hex(0xff8181);
   if (groundStationAppOffline) {
     alert = "Start ground_station_server.py on Pi";
   } else if (state_.primaryAlert.length() > 0) {
     alert = state_.primaryAlert;
+    if (state_.battery.groundCritical) {
+      alertColor = lv_color_hex(0xff8e8e);
+    } else if (state_.battery.groundLow) {
+      alertColor = lv_color_hex(0xffd166);
+    }
   } else if (state_.stale) {
     alert = "Telemetry stale";
+  } else if (state_.battery.groundCritical) {
+    alert = "Ground battery critical";
+    alertColor = lv_color_hex(0xff8e8e);
+  } else if (state_.battery.groundLow) {
+    alert = "Ground battery low";
+    alertColor = lv_color_hex(0xffd166);
   } else {
     alert = "Nominal";
+    alertColor = lv_color_hex(0x87f0ae);
   }
+  lv_obj_set_style_text_color(alertLabel_, alertColor, 0);
   lv_label_set_text(alertLabel_, alert.c_str());
 
   const int touchAgeMs = (touchDebugTs_ == 0) ? -1 : static_cast<int>(now - touchDebugTs_);
