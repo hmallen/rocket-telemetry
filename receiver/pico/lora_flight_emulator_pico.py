@@ -23,6 +23,12 @@ CMD_ACK = 0x10
 CMD_SD_START = 0x01
 CMD_SD_STOP = 0x02
 CMD_BUZZER = 0x03
+CMD_TELEM_ENABLE = 0x04
+CMD_TELEM_DISABLE = 0x05
+CMD_ALT_CALIBRATE = 0x06
+CMD_IMU_CALIBRATE = 0x07
+CMD_SET_TX_POWER = 0x08
+CMD_LAUNCH_ARM = 0x09
 
 LORA_CALLSIGN = "CALLSIGN"
 
@@ -36,6 +42,7 @@ LORA_BAT_INTERVAL_MS = 1000
 LORA_NAVSAT_INTERVAL_MS = 2000
 LORA_RECOVERY_INTERVAL_MS = 500
 LORA_MAX_MISSION_TX_MS = 20 * 60 * 1000
+SIM_LANDING_RESET_DELAY_MS = 30_000
 
 LORA_ACK_REPEAT_COUNT = 3
 LORA_ACK_REPEAT_MS = 400
@@ -270,17 +277,17 @@ class SX1278:
         self.write_reg(REG_FIFO_RX_BASE_ADDR, 0x00)
         self.set_frequency(LORA_FREQ_HZ)
 
-        # Match receiver defaults used in this project.
+        # Match long-range launch profile used by telemetry firmware.
         self.write_reg(REG_LNA, self.read_reg(REG_LNA) | 0x03)
-        self.write_reg(REG_MODEM_CONFIG_1, 0x72)  # BW125 / CR4/5
-        self.write_reg(REG_MODEM_CONFIG_2, 0x74)  # SF7 / CRC on
-        self.write_reg(REG_MODEM_CONFIG_3, 0x04)  # AGC on
+        self.write_reg(REG_MODEM_CONFIG_1, 0x72)  # BW62.5 / CR4/8
+        self.write_reg(REG_MODEM_CONFIG_2, 0x74)  # SF12 / CRC on
+        self.write_reg(REG_MODEM_CONFIG_3, 0x04)  # AGC on + low data rate optimize
         self.write_reg(REG_PREAMBLE_MSB, 0x00)
         self.write_reg(REG_PREAMBLE_LSB, 0x08)
         self.write_reg(REG_SYNC_WORD, SYNCWORD_LORA_PUBLIC)
         self.write_reg(REG_DIO_MAPPING_1, DIO0_RX_DONE)
 
-        self.write_reg(REG_PA_CONFIG, PA_BOOST | 0x08)  # ~10 dBm to match cfg.h
+        self.write_reg(REG_PA_CONFIG, PA_BOOST | 0x0F)  # 17 dBm
         self.write_reg(REG_PA_DAC, 0x84)
         self.write_reg(REG_OCP, 0x20 | 0x0B)
 
@@ -343,8 +350,14 @@ class RecoveryState:
         self.max_agl_mm = 0
         self.vspeed_cms = 0
         self.phase = RECOVERY_PHASE_IDLE
+        self.gps_fix_3d = False
+        self.gps_fix_3d_latched = False
+        self.sensors_calibrated = False
         self.launch_armed = False
         self.liftoff_detected = False
+        self.launch_detected = False
+        self.apogee_detected = False
+        self.landing_detected = False
         self.have_min_press = False
         self.min_press_pa_x10 = 0
         self.drogue_deployed = False
@@ -354,13 +367,29 @@ class RecoveryState:
         self.drogue_deploy_agl_mm = -1
         self.main_deploy_agl_mm = -1
 
+    def arm_launch_detect_mode(self, allow_without_gps_fix=False):
+        if not self.initialized:
+            return False
+        if (not allow_without_gps_fix) and (not self.gps_fix_3d):
+            return False
+        if self.phase != RECOVERY_PHASE_IDLE:
+            return False
+        if self.liftoff_detected:
+            return False
+        self.launch_armed = True
+        return True
+
     def update(self, now_ms, alt_mm, press_pa_x10):
         if not self.initialized:
             self.initialized = True
+            self.sensors_calibrated = True
             self.launch_alt_mm = alt_mm
-            self.last_alt_mm = alt_mm
+            self.last_alt_mm = 0
             self.last_t_ms = now_ms
             return
+
+        if self.gps_fix_3d:
+            self.gps_fix_3d_latched = True
 
         agl_raw = alt_mm - self.launch_alt_mm
         self.agl_mm = agl_raw if agl_raw > 0 else 0
@@ -369,16 +398,15 @@ class RecoveryState:
 
         self.vspeed_cms = 0
         dt_ms = now_ms - self.last_t_ms
-        if dt_ms > 0 and dt_ms <= 10_000:
-            self.vspeed_cms = clamp_i((alt_mm - self.last_alt_mm) * 100 / dt_ms, -32768, 32767)
+        if self.liftoff_detected and dt_ms > 0 and dt_ms <= 10_000:
+            # Mirror rocket firmware behavior: derive vertical speed from AGL, not raw GPS altitude.
+            self.vspeed_cms = clamp_i((self.agl_mm - self.last_alt_mm) * 100 / dt_ms, -32768, 32767)
 
-        if (not self.launch_armed) and self.max_agl_mm >= RECOVERY_MIN_ASCENT_AGL_MM:
-            self.launch_armed = True
-        if (not self.liftoff_detected) and (
-            self.agl_mm >= RECOVERY_LIFTOFF_CONFIRM_AGL_MM
-            or self.vspeed_cms >= RECOVERY_LAUNCH_VSPEED_CMS
-        ):
+        # Require explicit altitude gain to declare liftoff; this prevents pad jitter
+        # from tripping drogue/main/landing logic before launch.
+        if self.launch_armed and (not self.liftoff_detected) and self.agl_mm >= RECOVERY_LIFTOFF_CONFIRM_AGL_MM:
             self.liftoff_detected = True
+            self.launch_detected = True
 
         if press_pa_x10 > 0:
             if not self.have_min_press:
@@ -412,6 +440,7 @@ class RecoveryState:
             if pressure_rise:
                 votes += 1
             if votes >= RECOVERY_APOGEE_VOTE_MIN:
+                self.apogee_detected = True
                 self.drogue_deployed = True
                 self.drogue_reason = RECOVERY_DROGUE_REASON_APOGEE_VOTE
                 self.drogue_deploy_agl_mm = self.agl_mm
@@ -419,7 +448,8 @@ class RecoveryState:
         if not self.main_deployed:
             fast_descent = self.vspeed_cms <= RECOVERY_MAIN_FAST_DESCENT_CMS
             low_enough_for_fast = self.agl_mm <= RECOVERY_MAIN_FAST_DESCENT_MAX_AGL_MM
-            backup_alt_trigger = self.agl_mm <= RECOVERY_MAIN_BACKUP_AGL_MM
+            crossed_backup_altitude = self.max_agl_mm > RECOVERY_MAIN_BACKUP_AGL_MM
+            backup_alt_trigger = crossed_backup_altitude and self.agl_mm <= RECOVERY_MAIN_BACKUP_AGL_MM
 
             if self.drogue_deployed:
                 enough_drop = (
@@ -447,9 +477,12 @@ class RecoveryState:
                 self.main_deploy_agl_mm = self.agl_mm
 
         if self.main_deployed and self.agl_mm <= RECOVERY_LANDED_AGL_MM:
+            self.landing_detected = True
+
+        if self.landing_detected:
             self.phase = RECOVERY_PHASE_LANDED
 
-        self.last_alt_mm = alt_mm
+        self.last_alt_mm = self.agl_mm
         self.last_t_ms = now_ms
 
 
@@ -460,12 +493,19 @@ class FlightProfile:
         self.base_lon = -106.4976
         self.site_alt_m = 2400.0
         self.launch_delay_s = 5.0
+        self.launch_arm_ms = None
         self.east_m = 0.0
         self.north_m = 0.0
         self.last_ms = None
 
-    def _launch_t(self, t_s):
-        return t_s - self.launch_delay_s
+    def arm_launch(self, now_ms):
+        if self.launch_arm_ms is None:
+            self.launch_arm_ms = now_ms
+
+    def _launch_t(self, now_ms):
+        if self.launch_arm_ms is None:
+            return -self.launch_delay_s
+        return ((now_ms - self.launch_arm_ms) / 1000.0) - self.launch_delay_s
 
     def _phase(self, lt):
         if lt < 0:
@@ -523,7 +563,7 @@ class FlightProfile:
         self.last_ms = now_ms
 
         t_s = now_ms / 1000.0
-        lt = self._launch_t(t_s)
+        lt = self._launch_t(now_ms)
         phase = self._phase(lt)
         agl_m, vs_mps = self._agl_vspeed(lt)
 
@@ -532,7 +572,7 @@ class FlightProfile:
         self.north_m += north_v * dt + self.rng.centered(0.08)
 
         abs_alt_m = self.site_alt_m + agl_m
-        press_pa = pressure_pa_from_alt_m(abs_alt_m) + self.rng.centered(7.0)
+        press_pa = pressure_pa_from_alt_m(abs_alt_m) + self.rng.centered(4.0)
         temp_c = 19.0 - 0.0060 * agl_m + self.rng.centered(0.12)
 
         gps_valid = now_ms >= GPS_LOCK_DELAY_MS
@@ -609,7 +649,7 @@ class FlightProfile:
             "temp_c_x100": clamp_i(round(temp_c * 100.0), -32768, 32767),
             "lat_e7": clamp_i(round(lat_deg * 1e7), -2147483648, 2147483647),
             "lon_e7": clamp_i(round(lon_deg * 1e7), -2147483648, 2147483647),
-            "height_mm": clamp_i(round((abs_alt_m + self.rng.centered(1.5)) * 1000.0), -2147483648, 2147483647),
+            "height_mm": clamp_i(round((abs_alt_m + self.rng.centered(0.6)) * 1000.0), -2147483648, 2147483647),
             "gx": clamp_i(round(gx_dps * 10.0), -32768, 32767),
             "gy": clamp_i(round(gy_dps * 10.0), -32768, 32767),
             "gz": clamp_i(round(gz_dps * 10.0), -32768, 32767),
@@ -637,7 +677,9 @@ class FlightEmulator:
 
         self.tx_enabled = START_TX_ENABLED
         self.logging_enabled = START_TX_ENABLED
+        self.tx_power_dbm = 17
         self.shutdown = False
+        self.mission_timed_out = False
 
         self.last_tx_ms = -LORA_MIN_TX_INTERVAL_MS
         self.next_tx_ms = 0
@@ -655,6 +697,7 @@ class FlightEmulator:
         self.ack_retries_left = 0
         self.ack_buf = bytearray()
         self.next_status_ms = 0
+        self.landed_since_ms = None
 
     def _can_tx(self, now_ms):
         if now_ms < self.next_tx_ms:
@@ -665,8 +708,27 @@ class FlightEmulator:
         self.last_tx_ms = now_ms
         self.next_tx_ms = now_ms + LORA_MIN_TX_INTERVAL_MS
 
-    def _queue_ack(self, cmd, now_ms):
-        self.ack_buf = bytearray([CMD_MAGIC, CMD_ACK, cmd & 0xFF, 1 if self.logging_enabled else 0])
+    def _reset_launch_cycle(self, now_ms):
+        self.profile = FlightProfile(self.rng)
+        self.recovery = RecoveryState()
+        self.landed_since_ms = None
+
+        # Nudge schedulers to promptly emit the reset/idle state after cycling.
+        self.next_tx_ms = now_ms
+        self.last_id_tx_ms = 0
+        self.last_gps_tx_ms = 0
+        self.last_alt_tx_ms = 0
+        self.last_imu_tx_ms = 0
+        self.last_bat_tx_ms = 0
+        self.last_navsat_tx_ms = 0
+        self.last_recovery_tx_ms = 0
+
+        print("Simulation reset; waiting for CMD launch_arm")
+
+    def _queue_ack(self, cmd, enabled_state, now_ms, tx_power_dbm=None):
+        self.ack_buf = bytearray([CMD_MAGIC, CMD_ACK, cmd & 0xFF, 1 if enabled_state else 0])
+        if tx_power_dbm is not None:
+            self.ack_buf.append(clamp_i(tx_power_dbm, 0, 255))
         self.ack_pending = True
         self.ack_retries_left = LORA_ACK_REPEAT_COUNT
         self.ack_retry_after_ms = now_ms + LORA_ACK_REPEAT_MS
@@ -712,19 +774,53 @@ class FlightEmulator:
 
         if cmd == CMD_SD_START:
             self.logging_enabled = True
-            if not self.shutdown:
-                self.tx_enabled = True
-            self._queue_ack(CMD_SD_START, now_ms)
+            self._queue_ack(CMD_SD_START, self.logging_enabled, now_ms)
             print("CMD sd_start")
         elif cmd == CMD_SD_STOP:
             self.logging_enabled = False
-            self.tx_enabled = False
-            self._queue_ack(CMD_SD_STOP, now_ms)
+            self._queue_ack(CMD_SD_STOP, self.logging_enabled, now_ms)
             print("CMD sd_stop")
+        elif cmd == CMD_TELEM_ENABLE:
+            if not self.shutdown:
+                self.tx_enabled = True
+            self._queue_ack(CMD_TELEM_ENABLE, self.tx_enabled, now_ms)
+            print("CMD telemetry_enable")
+        elif cmd == CMD_TELEM_DISABLE:
+            self.tx_enabled = False
+            self._queue_ack(CMD_TELEM_DISABLE, self.tx_enabled, now_ms)
+            print("CMD telemetry_disable")
+        elif cmd == CMD_ALT_CALIBRATE:
+            self.recovery = RecoveryState()
+            self._queue_ack(CMD_ALT_CALIBRATE, True, now_ms)
+            print("CMD alt_calibrate")
+        elif cmd == CMD_IMU_CALIBRATE:
+            self._queue_ack(CMD_IMU_CALIBRATE, True, now_ms)
+            print("CMD imu_calibrate")
+        elif cmd == CMD_SET_TX_POWER:
+            if len(payload) < 3:
+                return
+            requested_power = int(payload[2])
+            if 2 <= requested_power <= 17:
+                self.tx_power_dbm = requested_power
+                ok = True
+            else:
+                ok = False
+            self._queue_ack(CMD_SET_TX_POWER, ok, now_ms, tx_power_dbm=self.tx_power_dbm)
+            print("CMD set_tx_power %ddBm (%s)" % (requested_power, "accepted" if ok else "rejected"))
+        elif cmd == CMD_LAUNCH_ARM:
+            allow_without_gps_fix = bool(payload[2]) if len(payload) >= 3 else False
+            armed = self.recovery.arm_launch_detect_mode(allow_without_gps_fix)
+            self._queue_ack(CMD_LAUNCH_ARM, armed, now_ms)
+            if armed:
+                self.profile.arm_launch(now_ms)
+            print("CMD launch_arm %s" % ("accepted" if armed else "rejected"))
 
-    def _build_id(self):
+    def _build_id(self, vbat_mv):
         c = LORA_CALLSIGN.encode("ascii")
-        return bytearray([PROTO_MAGIC, 1, len(c)]) + c
+        b = bytearray([PROTO_MAGIC, 1, len(c)]) + c
+        append_u16_le(b, vbat_mv)
+        b.append(clamp_i(self.tx_power_dbm, 0, 255))
+        return b
 
     def _build_alt(self, now_ms, s):
         b = bytearray([PROTO_MAGIC, 0])
@@ -770,7 +866,16 @@ class FlightEmulator:
 
     def _build_recovery(self, now_ms):
         r = self.recovery
-        flags = (1 if r.drogue_deployed else 0) | (2 if r.main_deployed else 0)
+        flags = (
+            (1 if r.sensors_calibrated else 0)
+            | (2 if r.gps_fix_3d_latched else 0)
+            | (4 if r.launch_armed else 0)
+            | (8 if r.launch_detected else 0)
+            | (16 if r.apogee_detected else 0)
+            | (32 if r.drogue_deployed else 0)
+            | (64 if r.main_deployed else 0)
+            | (128 if r.landing_detected else 0)
+        )
         b = bytearray([PROTO_MAGIC, 6])
         append_u32_le(b, now_ms)
         b.append(r.phase & 0xFF)
@@ -832,31 +937,43 @@ class FlightEmulator:
                 self._handle_command(payload, now_ms)
 
         sample = self.profile.sample(now_ms)
+        if sample["phase"] == "landed":
+            if self.landed_since_ms is None:
+                self.landed_since_ms = now_ms
+                print("Landing detected; reset in %ds" % (SIM_LANDING_RESET_DELAY_MS // 1000))
+            elif (now_ms - self.landed_since_ms) >= SIM_LANDING_RESET_DELAY_MS:
+                self._reset_launch_cycle(now_ms)
+                sample = self.profile.sample(now_ms)
+        else:
+            self.landed_since_ms = None
+
+        self.recovery.gps_fix_3d = bool(sample["gps_valid"])
+        if self.recovery.gps_fix_3d:
+            self.recovery.gps_fix_3d_latched = True
         if sample["gps_valid"]:
             self.recovery.update(now_ms, sample["height_mm"], sample["press_pa_x10"])
 
         if self.shutdown:
             return
 
-        if now_ms >= LORA_MAX_MISSION_TX_MS:
-            self.shutdown = True
+        if (not self.mission_timed_out) and now_ms >= LORA_MAX_MISSION_TX_MS:
+            self.mission_timed_out = True
             self.tx_enabled = False
             self.ack_pending = False
-            print("Mission timeout reached; LoRa TX shut down")
-            return
+            print("Mission timeout reached; telemetry TX disabled (heartbeat ID only)")
 
         if self._maybe_send_ack(now_ms):
+            return
+
+        if self.last_id_tx_ms == 0 or (now_ms - self.last_id_tx_ms) >= LORA_HEARTBEAT_MS:
+            if self.radio.send_packet(self._build_id(sample["vbat_mv"])):
+                self.last_id_tx_ms = now_ms
+                self._record_tx(now_ms)
             return
 
         if not self.tx_enabled:
             return
         if not self._can_tx(now_ms):
-            return
-
-        if self.last_id_tx_ms == 0 or (now_ms - self.last_id_tx_ms) >= LORA_HEARTBEAT_MS:
-            if self.radio.send_packet(self._build_id()):
-                self.last_id_tx_ms = now_ms
-                self._record_tx(now_ms)
             return
 
         ptype = self._pick_type(now_ms, sample)
@@ -895,8 +1012,15 @@ class FlightEmulator:
         if now_ms >= self.next_status_ms:
             self.next_status_ms = now_ms + 2000
             print(
-                "t=%5.1fs tx=%s phase=%s agl=%6.1fm vb=%.2fV"
-                % (now_ms / 1000.0, "on" if self.tx_enabled else "off", sample["phase"], sample["agl_m"], sample["vbat_v"])
+                "t=%5.1fs tx=%s arm=%s phase=%s agl=%6.1fm vb=%.2fV"
+                % (
+                    now_ms / 1000.0,
+                    "on" if self.tx_enabled else "off",
+                    "yes" if self.recovery.launch_armed else "no",
+                    sample["phase"],
+                    sample["agl_m"],
+                    sample["vbat_v"],
+                )
             )
 
 

@@ -9,6 +9,7 @@ ground-station telemetry display.
 - UART-first companion transport to Pi ground station
 - Optional Wi-Fi API/SSE transport fallback
 - Optional Arduino OTA updates over Wi-Fi
+- Optional SD-backed WAV playback for key flight events (armed-waiting, liftoff, apogee, drogue, main, landing)
 - Telemetry dashboard:
   - Link status, RSSI, SNR, packet age
   - Flight phase, altitude AGL, vertical speed
@@ -53,10 +54,42 @@ cp include/config.h.example include/config.h
 - UART pins/baud for your board revision
 - Wi-Fi + host settings if using API/SSE mode
 - auth token if `/api/companion/cmd` is protected
+- optional SD bootstrap (`COMPANION_SD_ENABLE`, `COMPANION_SD_CS_PIN`, `COMPANION_SD_SPI_FREQ`, `COMPANION_SD_SCK_PIN`, `COMPANION_SD_MISO_PIN`, `COMPANION_SD_MOSI_PIN`, `COMPANION_SD_SOUND_DIR`) for future sound assets
+- optional event audio output (`COMPANION_AUDIO_ENABLE`, `COMPANION_AUDIO_SPK_PIN`, `COMPANION_AUDIO_PWM_*`) and per-event WAV file paths (`COMPANION_SOUND_FILE_*`)
 - OTA settings (`OTA_ENABLE`, `OTA_HOSTNAME`, `OTA_PORT`, `OTA_PASSWORD`) if using OTA updates
 
 When `OTA_ENABLE=1`, firmware keeps Wi-Fi active even in UART transport mode so OTA
 updates remain available.
+
+## Sound asset checklist (SD card)
+
+Place WAV files under the SD sound directory (default: `/sounds`, configured by
+`COMPANION_SD_SOUND_DIR`).
+
+Primary event cues (via `COMPANION_SOUND_FILE_*` macros):
+
+- `power_on.wav`
+- `armed.wav`
+- `calibrating.wav`
+- `sensors_ready.wav`
+- `waiting_for_location_fix.wav`
+- `location_fix_acquired.wav`
+- `launch_detect_mode.wav`
+- `launch_detected.wav`
+- `apogee.wav`
+- `drogue_deployed.wav`
+- `main_deployed.wav`
+- `landing_detected.wav`
+- `audio_test.wav` (used by **Play Test Sound**)
+
+Spoken apogee altitude callout after landing requires numeric/unit clips:
+
+- Number clips as `/sounds/<N>.wav` for:
+  - 1..20
+  - multiples of 10 below 100
+  - multiples of 100 below 1000
+  - multiples of 1000 up to 10000
+- Unit clip: `meters.wav`
 
 ## CrowPanel pin notes
 

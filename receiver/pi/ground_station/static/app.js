@@ -3,7 +3,9 @@ const elements = {
   connStatus: document.getElementById("conn-status"),
   packetCount: document.getElementById("packet-count"),
   lastUpdate: document.getElementById("last-update"),
+  datetimeNow: document.getElementById("datetime-now"),
   callsign: document.getElementById("callsign"),
+  flightDuration: document.getElementById("flight-duration"),
   crcStatus: document.getElementById("crc-status"),
   radioRssi: document.getElementById("radio-rssi"),
   radioSnr: document.getElementById("radio-snr"),
@@ -19,6 +21,8 @@ const elements = {
   navsatTime: document.getElementById("navsat-time"),
   navsatSvsUsed: document.getElementById("navsat-svs-used"),
   navsatSvsTotal: document.getElementById("navsat-svs-total"),
+  navsatHdop: document.getElementById("navsat-hdop"),
+  navsatFix3d: document.getElementById("navsat-fix-3d"),
   navsatCnoMax: document.getElementById("navsat-cno-max"),
   navsatCnoAvg: document.getElementById("navsat-cno-avg"),
   altTime: document.getElementById("alt-time"),
@@ -27,8 +31,11 @@ const elements = {
   altTempC: document.getElementById("alt-temp-c"),
   recoveryMode: document.getElementById("recovery-mode"),
   recoveryPhase: document.getElementById("recovery-phase"),
+  recoveryArmed: document.getElementById("recovery-armed"),
+  recoveryGpsFix: document.getElementById("recovery-gps-fix"),
   recoveryAgl: document.getElementById("recovery-agl"),
   recoveryVspeed: document.getElementById("recovery-vspeed"),
+  recoveryEventFlags: document.getElementById("recovery-event-flags"),
   recoveryDrogue: document.getElementById("recovery-drogue"),
   recoveryMain: document.getElementById("recovery-main"),
   imuTime: document.getElementById("imu-time"),
@@ -55,9 +62,19 @@ const elements = {
   mapOverlay: document.getElementById("map-overlay"),
   mapJump: document.getElementById("map-jump"),
   mapSetHome: document.getElementById("map-set-home"),
+  flightTrendCanvas: document.getElementById("flight-trend-canvas"),
+  flightTrendOverlay: document.getElementById("flight-trend-overlay"),
+  flightTrendWindow: document.getElementById("flight-trend-window"),
   sdStart: document.getElementById("sd-start"),
   sdStop: document.getElementById("sd-stop"),
   sdStatus: document.getElementById("sd-status"),
+  sdRotate: document.getElementById("sd-rotate"),
+  sdFormat: document.getElementById("sd-format"),
+  sdDumpSample: document.getElementById("sd-dump-sample"),
+  sdUtilStatus: document.getElementById("sd-util-status"),
+  sdDumpModal: document.getElementById("sd-dump-modal"),
+  sdDumpClose: document.getElementById("sd-dump-close"),
+  sdDumpContent: document.getElementById("sd-dump-content"),
   telemEnable: document.getElementById("telem-enable"),
   telemDisable: document.getElementById("telem-disable"),
   telemStatus: document.getElementById("telem-status"),
@@ -73,12 +90,24 @@ const elements = {
   altCalStatus: document.getElementById("alt-cal-status"),
   imuCalibrate: document.getElementById("imu-calibrate"),
   imuCalStatus: document.getElementById("imu-cal-status"),
+  launchArm: document.getElementById("launch-arm"),
+  launchArmStatus: document.getElementById("launch-arm-status"),
+  soundEnabled: document.getElementById("sound-enabled"),
+  soundVolume: document.getElementById("sound-volume"),
+  soundVolumeValue: document.getElementById("sound-volume-value"),
+  soundTest: document.getElementById("sound-test"),
+  soundStatus: document.getElementById("sound-status"),
   telemetryWaiting: document.getElementById("telemetry-waiting"),
+  phaseFlow: document.getElementById("phase-flow"),
 };
+
+elements.phaseNodes = Array.from(document.querySelectorAll("#phase-flow .phase-node"));
 
 const rocketCanvas = document.getElementById("rocket-canvas");
 const mapContainer = document.getElementById("map");
 const rocketCtx = rocketCanvas.getContext("2d");
+const flightTrendCanvas = elements.flightTrendCanvas;
+const flightTrendCtx = flightTrendCanvas ? flightTrendCanvas.getContext("2d") : null;
 
 const state = {
   lastUpdateMs: 0,
@@ -96,9 +125,14 @@ const state = {
   mapHomePending: false,
   mapHome: null,
   mapLastFix: null,
+  flightTrendSamples: [],
+  lastTrendPacketCount: null,
   sdLoggingAckTs: null,
   sdLoggingEnabled: null,
   sdCommandPending: false,
+  sdUtilityAckTs: null,
+  sdUtilityCommandPending: false,
+  sdUtilityPendingAction: "",
   telemetryTxAckTs: null,
   telemetryEnabled: null,
   telemetryCommandPending: false,
@@ -108,6 +142,21 @@ const state = {
   buzzerCommandPending: false,
   altCalCommandPending: false,
   imuCalCommandPending: false,
+  launchArmPending: false,
+  launchArmAwaitingAck: false,
+  launchArmAwaitingSinceMs: 0,
+  launchArmAckTs: null,
+  recoveryLaunchArmed: false,
+  recoveryGpsFix3d: false,
+  soundEnabled: true,
+  soundVolumePct: 70,
+  soundSettingsLoaded: false,
+  flightTimerActive: false,
+  flightTimerStartMs: 0,
+  flightTimerElapsedMs: 0,
+  flightTimerInitialized: false,
+  flightLaunchDetected: false,
+  flightLandingDetected: false,
 };
 
 const DEG_TO_RAD = Math.PI / 180;
@@ -119,6 +168,11 @@ const FILTER_LABELS = {
   "accel-threshold": "Accel Threshold",
 };
 const MAP_PATH_LIMIT = 200;
+const FLIGHT_TREND_MAX_POINTS = 720;
+const FLIGHT_TREND_WINDOW_SEC = 180;
+const SOUND_ENABLED_STORAGE_KEY = "gs_sound_enabled";
+const SOUND_VOLUME_STORAGE_KEY = "gs_sound_volume";
+const SD_FORMAT_HOLD_MS = 1200;
 const ROCKET_COLORS = {
   body: [198, 222, 235],
   nose: [244, 252, 255],
@@ -126,6 +180,10 @@ const ROCKET_COLORS = {
   nozzle: [46, 62, 78],
   wire: [120, 236, 204],
 };
+
+let soundAudioContext = null;
+let sdFormatHoldTimer = null;
+let sdFormatHoldStartedMs = 0;
 
 const rocketScene = {
   stars: [],
@@ -318,6 +376,167 @@ function setTelemetryTxPowerStatus(message, statusClass) {
   }
 }
 
+function setSoundVolumeInlineValue(volumePct) {
+  if (!elements.soundVolumeValue) {
+    return;
+  }
+  if (!Number.isFinite(volumePct)) {
+    elements.soundVolumeValue.textContent = "--%";
+    return;
+  }
+  elements.soundVolumeValue.textContent = `${Math.round(volumePct)}%`;
+}
+
+function setSoundStatus(message, statusClass) {
+  if (!elements.soundStatus) {
+    return;
+  }
+  elements.soundStatus.textContent = message;
+  elements.soundStatus.classList.remove("ok", "pending", "error");
+  if (statusClass) {
+    elements.soundStatus.classList.add(statusClass);
+  }
+}
+
+function updateSoundControlState() {
+  const enabled = state.soundEnabled;
+  if (elements.soundVolume) {
+    elements.soundVolume.disabled = !enabled;
+  }
+  if (elements.soundTest) {
+    elements.soundTest.disabled = !enabled;
+  }
+}
+
+function persistSoundSettings() {
+  if (!state.soundSettingsLoaded) {
+    return;
+  }
+  try {
+    localStorage.setItem(SOUND_ENABLED_STORAGE_KEY, state.soundEnabled ? "1" : "0");
+    localStorage.setItem(SOUND_VOLUME_STORAGE_KEY, String(Math.round(state.soundVolumePct)));
+  } catch (_err) {
+    // Ignore storage failures (private mode / restricted browser policies).
+  }
+}
+
+function loadSoundSettings() {
+  let enabled = true;
+  let volumePct = 70;
+
+  try {
+    const enabledRaw = localStorage.getItem(SOUND_ENABLED_STORAGE_KEY);
+    if (enabledRaw === "0" || enabledRaw === "false") {
+      enabled = false;
+    }
+
+    const volumeRaw = localStorage.getItem(SOUND_VOLUME_STORAGE_KEY);
+    const parsedVolume = Number(volumeRaw);
+    if (Number.isFinite(parsedVolume)) {
+      volumePct = clamp(Math.round(parsedVolume), 0, 100);
+    }
+  } catch (_err) {
+    // Keep defaults if local storage is unavailable.
+  }
+
+  state.soundEnabled = enabled;
+  state.soundVolumePct = volumePct;
+  state.soundSettingsLoaded = true;
+
+  if (elements.soundEnabled) {
+    elements.soundEnabled.checked = enabled;
+  }
+  if (elements.soundVolume) {
+    elements.soundVolume.value = String(volumePct);
+  }
+  setSoundVolumeInlineValue(volumePct);
+  setSoundStatus(enabled ? "Sound cues enabled" : "Sound cues muted", enabled ? "ok" : "pending");
+  updateSoundControlState();
+}
+
+function ensureSoundAudioContext() {
+  const AudioCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtor) {
+    return null;
+  }
+  if (!soundAudioContext) {
+    soundAudioContext = new AudioCtor();
+  }
+  if (soundAudioContext.state === "suspended") {
+    soundAudioContext.resume().catch(() => {});
+  }
+  return soundAudioContext;
+}
+
+function playSoundPattern(pattern) {
+  if (!state.soundEnabled) {
+    return false;
+  }
+  const ctx = ensureSoundAudioContext();
+  if (!ctx) {
+    setSoundStatus("Browser audio unavailable", "error");
+    return false;
+  }
+
+  const gain = ctx.createGain();
+  gain.gain.value = clamp((state.soundVolumePct / 100) * 0.16, 0, 0.25);
+  gain.connect(ctx.destination);
+
+  let t = ctx.currentTime + 0.01;
+  pattern.forEach((step) => {
+    const freqHz = step[0];
+    const durationS = step[1] / 1000;
+    if (freqHz > 0) {
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freqHz, t);
+      osc.connect(gain);
+      osc.start(t);
+      osc.stop(t + durationS);
+    }
+    t += durationS;
+  });
+
+  return true;
+}
+
+function playSoundTestTone() {
+  const played = playSoundPattern([
+    [784, 110],
+    [0, 40],
+    [1047, 130],
+  ]);
+  if (played) {
+    setSoundStatus(`Test tone played (${Math.round(state.soundVolumePct)}%)`, "ok");
+  }
+}
+
+function playLaunchArmCue(accepted) {
+  if (accepted) {
+    playSoundPattern([
+      [740, 100],
+      [988, 120],
+      [1319, 140],
+    ]);
+  } else {
+    playSoundPattern([
+      [392, 150],
+      [262, 190],
+    ]);
+  }
+}
+
+function playHomePointSetCue() {
+  const played = playSoundPattern([
+    [523, 90],
+    [659, 100],
+    [784, 120],
+  ]);
+  if (played) {
+    setSoundStatus("Home point set cue played", "ok");
+  }
+}
+
 function toggleTelemetryTxPowerControls(disabled) {
   if (elements.telemTxPowerApply) {
     elements.telemTxPowerApply.disabled = disabled;
@@ -396,6 +615,26 @@ function formatNumber(value, digits = 2) {
   return Number(value).toFixed(digits);
 }
 
+function formatRecoveryEventFlags(recovery) {
+  if (!recovery || typeof recovery !== "object") {
+    return "--";
+  }
+
+  const drogueDeployed = recovery.drogue && recovery.drogue.deployed === true;
+  const mainDeployed = recovery.main && recovery.main.deployed === true;
+
+  return [
+    `S:${recovery.sensors_calibrated === true ? 1 : 0}`,
+    `G:${recovery.gps_fix_3d === true ? 1 : 0}`,
+    `A:${recovery.launch_armed === true ? 1 : 0}`,
+    `L:${recovery.launch_detected === true ? 1 : 0}`,
+    `P:${recovery.apogee === true ? 1 : 0}`,
+    `D:${drogueDeployed ? 1 : 0}`,
+    `M:${mainDeployed ? 1 : 0}`,
+    `N:${recovery.landing_detected === true ? 1 : 0}`,
+  ].join(" ");
+}
+
 function formatTimestamp(timestampSec) {
   if (timestampSec === null || timestampSec === undefined || Number.isNaN(timestampSec)) {
     return "--";
@@ -412,6 +651,53 @@ function formatInt(value) {
     return "--";
   }
   return Math.round(value).toString();
+}
+
+function formatDurationMs(durationMs) {
+  if (!Number.isFinite(durationMs) || durationMs < 0) {
+    return "--";
+  }
+  const totalSeconds = Math.floor(durationMs / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+}
+
+function updateFlightStopwatch(recovery) {
+  const launchDetected = recovery.launch_detected === true;
+  const landingDetected = recovery.landing_detected === true;
+  const phase = typeof recovery.phase === "string" ? recovery.phase.toLowerCase() : "";
+  const nowMs = Date.now();
+
+  if (phase === "idle" && !launchDetected && !landingDetected) {
+    state.flightTimerActive = false;
+    state.flightTimerStartMs = 0;
+    state.flightTimerElapsedMs = 0;
+  }
+
+  if (!state.flightTimerInitialized) {
+    state.flightLaunchDetected = launchDetected;
+    state.flightLandingDetected = landingDetected;
+    state.flightTimerInitialized = true;
+    return;
+  }
+
+  if (launchDetected && !state.flightLaunchDetected) {
+    state.flightTimerActive = true;
+    state.flightTimerStartMs = nowMs;
+    state.flightTimerElapsedMs = 0;
+  }
+
+  if (landingDetected && !state.flightLandingDetected) {
+    if (state.flightTimerActive && state.flightTimerStartMs > 0) {
+      state.flightTimerElapsedMs = Math.max(0, nowMs - state.flightTimerStartMs);
+    }
+    state.flightTimerActive = false;
+  }
+
+  state.flightLaunchDetected = launchDetected;
+  state.flightLandingDetected = landingDetected;
 }
 
 function setDeployIndicator(element, stage) {
@@ -546,6 +832,81 @@ if (elements.sdStop) {
   });
 }
 
+if (elements.sdRotate) {
+  elements.sdRotate.addEventListener("click", () => {
+    postSdUtilityCommand("sd_rotate", "rotate logfile");
+  });
+}
+
+if (elements.sdDumpSample) {
+  elements.sdDumpSample.addEventListener("click", () => {
+    postSdUtilityCommand("sd_dump_sample", "dump sample");
+  });
+}
+
+if (elements.sdFormat) {
+  const clearFormatHold = () => {
+    if (sdFormatHoldTimer !== null) {
+      clearTimeout(sdFormatHoldTimer);
+      sdFormatHoldTimer = null;
+    }
+    sdFormatHoldStartedMs = 0;
+  };
+
+  elements.sdFormat.addEventListener("pointerdown", () => {
+    if (elements.sdFormat.disabled) {
+      return;
+    }
+    clearFormatHold();
+    sdFormatHoldStartedMs = Date.now();
+    setSdUtilityStatus("Hold FORMAT to arm...", "pending");
+    sdFormatHoldTimer = window.setTimeout(() => {
+      sdFormatHoldTimer = null;
+      sdFormatHoldStartedMs = 0;
+      const confirmed = window.confirm(
+        "Format SD card? This erases all logs. Press OK to continue."
+      );
+      if (!confirmed) {
+        setSdUtilityStatus("SD format cancelled", "error");
+        return;
+      }
+      postSdUtilityCommand("sd_format", "format SD card");
+    }, SD_FORMAT_HOLD_MS);
+  });
+
+  const cancelHoldIfNeeded = () => {
+    if (sdFormatHoldTimer === null) {
+      return;
+    }
+    clearFormatHold();
+    setSdUtilityStatus("Hold cancelled", "error");
+  };
+
+  elements.sdFormat.addEventListener("pointerup", cancelHoldIfNeeded);
+  elements.sdFormat.addEventListener("pointerleave", cancelHoldIfNeeded);
+  elements.sdFormat.addEventListener("pointercancel", cancelHoldIfNeeded);
+}
+
+if (elements.sdDumpClose) {
+  elements.sdDumpClose.addEventListener("click", () => {
+    hideSdDumpModal();
+  });
+}
+
+if (elements.sdDumpModal) {
+  elements.sdDumpModal.addEventListener("click", (event) => {
+    if (event.target === elements.sdDumpModal) {
+      hideSdDumpModal();
+    }
+  });
+}
+
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    hideSdDumpModal();
+  }
+});
+
 if (elements.telemEnable) {
   elements.telemEnable.addEventListener("click", () => {
     postTelemetryCommand("telemetry_enable", "enable telemetry");
@@ -594,6 +955,47 @@ if (elements.imuCalibrate) {
   });
 }
 
+if (elements.launchArm) {
+  elements.launchArm.addEventListener("click", () => {
+    postLaunchArmCommand();
+  });
+}
+
+if (elements.soundEnabled) {
+  elements.soundEnabled.addEventListener("change", () => {
+    state.soundEnabled = Boolean(elements.soundEnabled.checked);
+    persistSoundSettings();
+    updateSoundControlState();
+    if (state.soundEnabled) {
+      setSoundStatus("Sound cues enabled", "ok");
+      playSoundPattern([[988, 90]]);
+    } else {
+      setSoundStatus("Sound cues muted", "pending");
+    }
+  });
+}
+
+if (elements.soundVolume) {
+  elements.soundVolume.addEventListener("input", () => {
+    const value = Number(elements.soundVolume.value);
+    if (!Number.isFinite(value)) {
+      return;
+    }
+    state.soundVolumePct = clamp(Math.round(value), 0, 100);
+    setSoundVolumeInlineValue(state.soundVolumePct);
+    persistSoundSettings();
+    if (state.soundEnabled) {
+      setSoundStatus(`Volume ${state.soundVolumePct}%`, "ok");
+    }
+  });
+}
+
+if (elements.soundTest) {
+  elements.soundTest.addEventListener("click", () => {
+    playSoundTestTone();
+  });
+}
+
 function setControlStatus(message, statusClass) {
   if (!elements.sdStatus) {
     return;
@@ -617,6 +1019,67 @@ function toggleControlButtons(disabled) {
 function phaseIndicatesInFlight(phase) {
   const normalized = typeof phase === "string" ? phase.toLowerCase() : "";
   return normalized === "ascent" || normalized === "descent" || normalized === "boost" || normalized === "coast";
+}
+
+function eventChecklistIndex(recovery) {
+  const data = recovery && typeof recovery === "object" ? recovery : {};
+  const phase = typeof data.phase === "string" ? data.phase.toLowerCase() : "";
+
+  const launchArmed = data.launch_armed === true;
+  const launchDetected = data.launch_detected === true || phaseIndicatesInFlight(phase) || phase === "landed";
+  const apogeeDetected = data.apogee === true || phase === "descent" || phase === "landed";
+  const drogueDeployed = Boolean(data.drogue && data.drogue.deployed === true);
+  const mainDeployed = Boolean(data.main && data.main.deployed === true);
+  const landingDetected = data.landing_detected === true || phase === "landed";
+
+  if (landingDetected) {
+    return 5;
+  }
+  if (mainDeployed) {
+    return 4;
+  }
+  if (drogueDeployed) {
+    return 3;
+  }
+  if (apogeeDetected) {
+    return 2;
+  }
+  if (launchDetected) {
+    return 1;
+  }
+  if (launchArmed) {
+    return 0;
+  }
+  return -1;
+}
+
+function updatePhaseFlow(recovery) {
+  if (!elements.phaseNodes || elements.phaseNodes.length === 0) {
+    return;
+  }
+
+  const activeIndex = eventChecklistIndex(recovery);
+  elements.phaseNodes.forEach((node) => {
+    const nodeIndex = Number(node.dataset.phaseIndex);
+    node.classList.remove("phase-future", "phase-active", "phase-complete");
+
+    if (!Number.isFinite(nodeIndex) || activeIndex < 0) {
+      node.classList.add("phase-future");
+      node.removeAttribute("aria-current");
+      return;
+    }
+
+    if (nodeIndex < activeIndex) {
+      node.classList.add("phase-complete");
+      node.removeAttribute("aria-current");
+    } else if (nodeIndex === activeIndex) {
+      node.classList.add("phase-active");
+      node.setAttribute("aria-current", "step");
+    } else {
+      node.classList.add("phase-future");
+      node.removeAttribute("aria-current");
+    }
+  });
 }
 
 function updateSdControlState() {
@@ -676,6 +1139,87 @@ function postSdCommand(action, label) {
     .finally(() => {
       state.sdCommandPending = false;
       updateSdControlState();
+    });
+}
+
+function setSdUtilityStatus(message, statusClass) {
+  if (!elements.sdUtilStatus) {
+    return;
+  }
+  elements.sdUtilStatus.textContent = message;
+  elements.sdUtilStatus.classList.remove("ok", "pending", "error");
+  if (statusClass) {
+    elements.sdUtilStatus.classList.add(statusClass);
+  }
+}
+
+function toggleSdUtilityButtons(disabled) {
+  if (elements.sdRotate) {
+    elements.sdRotate.disabled = disabled;
+  }
+  if (elements.sdFormat) {
+    elements.sdFormat.disabled = disabled;
+  }
+  if (elements.sdDumpSample) {
+    elements.sdDumpSample.disabled = disabled;
+  }
+}
+
+function updateSdUtilityControlState() {
+  if (state.sdUtilityCommandPending || state.sdCommandPending) {
+    toggleSdUtilityButtons(true);
+    return;
+  }
+
+  if (elements.sdRotate) {
+    elements.sdRotate.disabled = state.sdLoggingEnabled !== true;
+  }
+  if (elements.sdFormat) {
+    elements.sdFormat.disabled = state.sdLoggingEnabled === true || state.commandLockoutActive;
+  }
+  if (elements.sdDumpSample) {
+    elements.sdDumpSample.disabled = state.sdLoggingEnabled === true;
+  }
+}
+
+function showSdDumpModal(text) {
+  if (!elements.sdDumpModal || !elements.sdDumpContent) {
+    return;
+  }
+  elements.sdDumpContent.textContent = text || "No sample text returned.";
+  elements.sdDumpModal.classList.remove("hidden");
+}
+
+function hideSdDumpModal() {
+  if (!elements.sdDumpModal) {
+    return;
+  }
+  elements.sdDumpModal.classList.add("hidden");
+}
+
+function postSdUtilityCommand(action, label) {
+  state.sdUtilityCommandPending = true;
+  state.sdUtilityPendingAction = action;
+  setSdUtilityStatus(`Sending ${label}...`, "pending");
+  updateSdUtilityControlState();
+
+  fetch("/api/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+  })
+    .then((res) => res.json())
+    .then((payload) => {
+      if (!payload.ok) {
+        throw new Error(payload.error || "Command failed");
+      }
+      setSdUtilityStatus(`Command sent: ${label}. Awaiting ack...`, "pending");
+    })
+    .catch((err) => {
+      state.sdUtilityCommandPending = false;
+      state.sdUtilityPendingAction = "";
+      setSdUtilityStatus(err.message || "Command failed", "error");
+      updateSdUtilityControlState();
     });
 }
 
@@ -860,7 +1404,7 @@ function toggleAltCalControls(disabled) {
 }
 
 function postAltCalibrateCommand() {
-  setAltCalStatus("Sending altitude calibration...", "pending");
+  setAltCalStatus("Sending altitude zero + launch reset...", "pending");
   state.altCalCommandPending = true;
   toggleAltCalControls(true);
   fetch("/api/command", {
@@ -873,7 +1417,7 @@ function postAltCalibrateCommand() {
       if (!payload.ok) {
         throw new Error(payload.error || "Command failed");
       }
-      setAltCalStatus("Altitude calibration command sent.", "ok");
+      setAltCalStatus("Altitude zero + launch reset command sent.", "ok");
     })
     .catch((err) => {
       setAltCalStatus(err.message || "Command failed", "error");
@@ -926,6 +1470,115 @@ function postImuCalibrateCommand() {
     });
 }
 
+function setLaunchArmStatus(message, statusClass) {
+  if (!elements.launchArmStatus) {
+    return;
+  }
+  elements.launchArmStatus.textContent = message;
+  elements.launchArmStatus.classList.remove("ok", "pending", "error");
+  if (statusClass) {
+    elements.launchArmStatus.classList.add(statusClass);
+  }
+}
+
+function updateLaunchArmControlState() {
+  if (!elements.launchArm) {
+    return;
+  }
+
+  let preserveStatus = false;
+
+  if (state.launchArmPending) {
+    elements.launchArm.disabled = true;
+    return;
+  }
+
+  if (state.launchArmAwaitingAck) {
+    const waitingAgeMs = Date.now() - state.launchArmAwaitingSinceMs;
+    if (waitingAgeMs <= 10000) {
+      elements.launchArm.disabled = true;
+      setLaunchArmStatus("Launch-arm command sent. Awaiting ack...", "pending");
+      return;
+    }
+    state.launchArmAwaitingAck = false;
+    state.launchArmAwaitingSinceMs = 0;
+    setLaunchArmStatus("Launch-arm ack timeout; you can retry", "error");
+    preserveStatus = true;
+  }
+
+  if (state.commandLockoutActive) {
+    elements.launchArm.disabled = true;
+    if (!preserveStatus) {
+      setLaunchArmStatus("Arm locked: flight in progress", "error");
+    }
+    return;
+  }
+
+  if (state.recoveryLaunchArmed) {
+    elements.launchArm.disabled = true;
+    if (!preserveStatus) {
+      setLaunchArmStatus("Launch detect armed", "ok");
+    }
+    return;
+  }
+
+  if (!state.recoveryGpsFix3d) {
+    elements.launchArm.disabled = true;
+    if (!preserveStatus) {
+      setLaunchArmStatus("Waiting for GPS 3D fix", "pending");
+    }
+    return;
+  }
+
+  elements.launchArm.disabled = false;
+  if (!preserveStatus) {
+    setLaunchArmStatus("Ready to arm launch detect", "ok");
+  }
+}
+
+function postLaunchArmCommand() {
+  if (state.commandLockoutActive) {
+    setLaunchArmStatus("Arm locked: flight in progress", "error");
+    return;
+  }
+  if (state.recoveryLaunchArmed) {
+    setLaunchArmStatus("Launch detect already armed", "ok");
+    return;
+  }
+  if (!state.recoveryGpsFix3d) {
+    setLaunchArmStatus("Arm blocked: waiting for GPS 3D fix", "error");
+    return;
+  }
+
+  state.launchArmPending = true;
+  updateLaunchArmControlState();
+  setLaunchArmStatus("Sending launch-arm command...", "pending");
+
+  fetch("/api/command", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: "launch_arm" }),
+  })
+    .then((res) => res.json())
+    .then((payload) => {
+      if (!payload.ok) {
+        throw new Error(payload.error || "Command failed");
+      }
+      state.launchArmAwaitingAck = true;
+      state.launchArmAwaitingSinceMs = Date.now();
+      setLaunchArmStatus("Launch-arm command sent. Awaiting ack...", "pending");
+    })
+    .catch((err) => {
+      state.launchArmAwaitingAck = false;
+      state.launchArmAwaitingSinceMs = 0;
+      setLaunchArmStatus(err.message || "Command failed", "error");
+    })
+    .finally(() => {
+      state.launchArmPending = false;
+      updateLaunchArmControlState();
+    });
+}
+
 function postThresholdUpdate(value) {
   const previous = state.attitudeThreshold;
   fetch("/api/attitude/threshold", {
@@ -952,6 +1605,246 @@ function updateConnection(connected) {
   elements.connDot.classList.toggle("connected", connected);
   elements.connDot.classList.toggle("disconnected", !connected);
   elements.connStatus.textContent = connected ? "Live" : "Waiting";
+}
+
+function appendFlightTrendSample(snapshot, recovery) {
+  const packetCount = Number(snapshot.packet_count);
+  if (Number.isFinite(packetCount)) {
+    if (state.lastTrendPacketCount === packetCount) {
+      return;
+    }
+    state.lastTrendPacketCount = packetCount;
+  } else {
+    state.lastTrendPacketCount = null;
+  }
+
+  const altitudeM = Number(recovery.altitude_agl_m);
+  const verticalSpeedMps = Number(recovery.vertical_speed_mps);
+  const hasAltitude = Number.isFinite(altitudeM);
+  const hasVerticalSpeed = Number.isFinite(verticalSpeedMps);
+  if (!hasAltitude && !hasVerticalSpeed) {
+    return;
+  }
+
+  const timestampSec = Number(snapshot.timestamp);
+  const sampleTimeSec = Number.isFinite(timestampSec) && timestampSec > 0
+    ? timestampSec
+    : (Date.now() / 1000);
+
+  state.flightTrendSamples.push({
+    tSec: sampleTimeSec,
+    altitudeM: hasAltitude ? altitudeM : null,
+    verticalSpeedMps: hasVerticalSpeed ? verticalSpeedMps : null,
+  });
+
+  if (state.flightTrendSamples.length > FLIGHT_TREND_MAX_POINTS) {
+    state.flightTrendSamples.splice(0, state.flightTrendSamples.length - FLIGHT_TREND_MAX_POINTS);
+  }
+}
+
+function calculateTrendBounds(values, minSpan, includeZero) {
+  let minValue = Number.POSITIVE_INFINITY;
+  let maxValue = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < values.length; i += 1) {
+    const value = values[i];
+    if (!Number.isFinite(value)) {
+      continue;
+    }
+    if (value < minValue) {
+      minValue = value;
+    }
+    if (value > maxValue) {
+      maxValue = value;
+    }
+  }
+
+  if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) {
+    return null;
+  }
+
+  if (includeZero) {
+    minValue = Math.min(minValue, 0);
+    maxValue = Math.max(maxValue, 0);
+  }
+
+  let span = maxValue - minValue;
+  if (!Number.isFinite(span) || span < minSpan) {
+    const center = (minValue + maxValue) / 2;
+    minValue = center - (minSpan / 2);
+    maxValue = center + (minSpan / 2);
+    span = minSpan;
+  }
+
+  const padding = span * 0.12;
+  return {
+    min: minValue - padding,
+    max: maxValue + padding,
+  };
+}
+
+function renderFlightTrend() {
+  if (!flightTrendCanvas || !flightTrendCtx) {
+    return;
+  }
+
+  resizeCanvas(flightTrendCanvas, flightTrendCtx);
+  const { width, height } = flightTrendCanvas.getBoundingClientRect();
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+
+  const ctx = flightTrendCtx;
+  const latestSample = state.flightTrendSamples.length > 0
+    ? state.flightTrendSamples[state.flightTrendSamples.length - 1]
+    : null;
+  const latestT = latestSample ? latestSample.tSec : (Date.now() / 1000);
+  const minWindowT = latestT - FLIGHT_TREND_WINDOW_SEC;
+  const visibleSamples = state.flightTrendSamples.filter((sample) => sample.tSec >= minWindowT);
+
+  if (elements.flightTrendWindow) {
+    elements.flightTrendWindow.textContent = `Window ${FLIGHT_TREND_WINDOW_SEC}s`;
+  }
+
+  const bg = ctx.createLinearGradient(0, 0, 0, height);
+  bg.addColorStop(0, "#071019");
+  bg.addColorStop(1, "#122434");
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, width, height);
+
+  const plotLeft = 54;
+  const plotRight = width - 54;
+  const plotTop = 22;
+  const plotBottom = height - 30;
+  const plotWidth = plotRight - plotLeft;
+  const plotHeight = plotBottom - plotTop;
+  if (plotWidth <= 4 || plotHeight <= 4) {
+    return;
+  }
+
+  ctx.fillStyle = "rgba(13, 27, 40, 0.8)";
+  ctx.fillRect(plotLeft, plotTop, plotWidth, plotHeight);
+
+  ctx.strokeStyle = "rgba(108, 145, 176, 0.18)";
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i += 1) {
+    const y = plotTop + ((plotHeight * i) / 4);
+    ctx.beginPath();
+    ctx.moveTo(plotLeft, y);
+    ctx.lineTo(plotRight, y);
+    ctx.stroke();
+  }
+  for (let i = 0; i <= 6; i += 1) {
+    const x = plotLeft + ((plotWidth * i) / 6);
+    ctx.beginPath();
+    ctx.moveTo(x, plotTop);
+    ctx.lineTo(x, plotBottom);
+    ctx.stroke();
+  }
+
+  if (visibleSamples.length < 2) {
+    if (elements.flightTrendOverlay) {
+      elements.flightTrendOverlay.textContent = "Awaiting telemetry...";
+    }
+    return;
+  }
+
+  const altBounds = calculateTrendBounds(
+    visibleSamples.map((sample) => sample.altitudeM),
+    20,
+    false
+  );
+  const vsBounds = calculateTrendBounds(
+    visibleSamples.map((sample) => sample.verticalSpeedMps),
+    6,
+    true
+  );
+
+  if (!altBounds && !vsBounds) {
+    if (elements.flightTrendOverlay) {
+      elements.flightTrendOverlay.textContent = "Awaiting telemetry...";
+    }
+    return;
+  }
+
+  const safeAlt = altBounds || { min: 0, max: 100 };
+  const safeVs = vsBounds || { min: -10, max: 10 };
+  const timeSpan = Math.max(1, latestT - visibleSamples[0].tSec);
+  const mapX = (tSec) => plotLeft + (((tSec - visibleSamples[0].tSec) / timeSpan) * plotWidth);
+  const mapAltY = (altM) => plotBottom - (((altM - safeAlt.min) / (safeAlt.max - safeAlt.min)) * plotHeight);
+  const mapVsY = (vsMps) => plotBottom - (((vsMps - safeVs.min) / (safeVs.max - safeVs.min)) * plotHeight);
+
+  const vsZeroY = mapVsY(0);
+  if (Number.isFinite(vsZeroY) && vsZeroY >= plotTop && vsZeroY <= plotBottom) {
+    ctx.setLineDash([6, 5]);
+    ctx.strokeStyle = "rgba(255, 164, 122, 0.3)";
+    ctx.beginPath();
+    ctx.moveTo(plotLeft, vsZeroY);
+    ctx.lineTo(plotRight, vsZeroY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  ctx.lineWidth = 2.2;
+  ctx.strokeStyle = "#7be2ff";
+  ctx.beginPath();
+  let altStarted = false;
+  for (let i = 0; i < visibleSamples.length; i += 1) {
+    const sample = visibleSamples[i];
+    if (!Number.isFinite(sample.altitudeM)) {
+      altStarted = false;
+      continue;
+    }
+    const x = mapX(sample.tSec);
+    const y = mapAltY(sample.altitudeM);
+    if (!altStarted) {
+      ctx.moveTo(x, y);
+      altStarted = true;
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+  ctx.stroke();
+
+  ctx.lineWidth = 2;
+  ctx.strokeStyle = "#ffa17a";
+  ctx.beginPath();
+  let vsStarted = false;
+  for (let i = 0; i < visibleSamples.length; i += 1) {
+    const sample = visibleSamples[i];
+    if (!Number.isFinite(sample.verticalSpeedMps)) {
+      vsStarted = false;
+      continue;
+    }
+    const x = mapX(sample.tSec);
+    const y = mapVsY(sample.verticalSpeedMps);
+    if (!vsStarted) {
+      ctx.moveTo(x, y);
+      vsStarted = true;
+    } else {
+      ctx.lineTo(x, y);
+    }
+  }
+  ctx.stroke();
+
+  ctx.font = '12px "Space Mono", "Courier New", monospace';
+  ctx.fillStyle = "#8dc5e8";
+  ctx.fillText(`${safeAlt.max.toFixed(0)}m`, 6, plotTop + 4);
+  ctx.fillText(`${safeAlt.min.toFixed(0)}m`, 6, plotBottom - 2);
+  ctx.fillStyle = "#f2b095";
+  const rightTop = `${safeVs.max.toFixed(1)}m/s`;
+  const rightBottom = `${safeVs.min.toFixed(1)}m/s`;
+  ctx.fillText(rightTop, width - ctx.measureText(rightTop).width - 6, plotTop + 4);
+  ctx.fillText(rightBottom, width - ctx.measureText(rightBottom).width - 6, plotBottom - 2);
+  ctx.fillStyle = "#9fc2df";
+  ctx.fillText(`-${Math.round(timeSpan)}s`, plotLeft, height - 10);
+  const nowLabel = "now";
+  ctx.fillText(nowLabel, plotRight - ctx.measureText(nowLabel).width, height - 10);
+
+  if (elements.flightTrendOverlay) {
+    const lastAlt = Number.isFinite(latestSample.altitudeM) ? `${latestSample.altitudeM.toFixed(1)}m` : "--";
+    const lastVs = Number.isFinite(latestSample.verticalSpeedMps) ? `${latestSample.verticalSpeedMps.toFixed(1)}m/s` : "--";
+    elements.flightTrendOverlay.textContent = `ALT ${lastAlt}  VS ${lastVs}`;
+  }
 }
 
 function updateFromTelemetry(snapshot) {
@@ -993,6 +1886,11 @@ function updateFromTelemetry(snapshot) {
   elements.navsatSvsTotal.textContent = navsat.svs_total !== null && navsat.svs_total !== undefined
     ? navsat.svs_total
     : "--";
+  elements.navsatHdop.textContent = navsat.hdop !== null && navsat.hdop !== undefined
+    ? formatNumber(navsat.hdop, 2)
+    : "--";
+  const navsatRecovery = snapshot.recovery || {};
+  elements.navsatFix3d.textContent = navsatRecovery.gps_fix_3d === true ? "3D FIX" : "NO FIX";
   elements.navsatCnoMax.textContent = navsat.cno_max !== null && navsat.cno_max !== undefined
     ? `${navsat.cno_max} dB-Hz`
     : "--";
@@ -1007,15 +1905,41 @@ function updateFromTelemetry(snapshot) {
   elements.altTempC.textContent = alt.temp_c !== null && alt.temp_c !== undefined ? formatNumber(alt.temp_c, 2) : "--";
 
   const recovery = snapshot.recovery || {};
-  state.commandLockoutActive = phaseIndicatesInFlight(recovery.phase);
+  updateFlightStopwatch(recovery);
+  const commandLockout = snapshot.command_lockout || {};
+  if (commandLockout.active === null || commandLockout.active === undefined) {
+    state.commandLockoutActive = phaseIndicatesInFlight(recovery.phase);
+  } else {
+    state.commandLockoutActive = Boolean(commandLockout.active);
+  }
+  state.recoveryLaunchArmed = recovery.launch_armed === true;
+  state.recoveryGpsFix3d = recovery.gps_fix_3d === true;
+  if (state.recoveryLaunchArmed) {
+    state.launchArmAwaitingAck = false;
+    state.launchArmAwaitingSinceMs = 0;
+  }
+  const launchArmAckTs = recovery.launch_arm_ack_timestamp;
+  const launchArmAckEnabled = recovery.launch_arm_ack_enabled === true;
   elements.recoveryMode.textContent = recovery.mode || "--";
   elements.recoveryPhase.textContent = recovery.phase || "--";
+  updatePhaseFlow(recovery);
+  if (elements.recoveryArmed) {
+    elements.recoveryArmed.textContent = state.recoveryLaunchArmed ? "ARMED" : "NO";
+  }
+  if (elements.recoveryGpsFix) {
+    elements.recoveryGpsFix.textContent = state.recoveryGpsFix3d ? "3D FIX" : "NO FIX";
+  }
   elements.recoveryAgl.textContent = recovery.altitude_agl_m !== null && recovery.altitude_agl_m !== undefined
     ? `${formatNumber(recovery.altitude_agl_m, 1)} m`
     : "--";
   elements.recoveryVspeed.textContent = recovery.vertical_speed_mps !== null && recovery.vertical_speed_mps !== undefined
     ? `${formatNumber(recovery.vertical_speed_mps, 1)} m/s`
     : "--";
+  appendFlightTrendSample(snapshot, recovery);
+  renderFlightTrend();
+  if (elements.recoveryEventFlags) {
+    elements.recoveryEventFlags.textContent = formatRecoveryEventFlags(recovery);
+  }
   setDeployIndicator(elements.recoveryDrogue, recovery.drogue);
   setDeployIndicator(elements.recoveryMain, recovery.main);
 
@@ -1086,6 +2010,9 @@ function updateFromTelemetry(snapshot) {
   }
 
   const sdLogging = snapshot.sd_logging || {};
+  if (sdLogging.enabled === true || sdLogging.enabled === false) {
+    state.sdLoggingEnabled = sdLogging.enabled;
+  }
   if (sdLogging.ack_timestamp && sdLogging.ack_timestamp !== state.sdLoggingAckTs) {
     state.sdLoggingAckTs = sdLogging.ack_timestamp;
     state.sdLoggingEnabled = sdLogging.enabled;
@@ -1099,6 +2026,47 @@ function updateFromTelemetry(snapshot) {
     if (elements.telemetryWaiting && enabled === true) {
       elements.telemetryWaiting.classList.remove("visible");
     }
+  }
+
+  const sdCard = snapshot.sd_card || {};
+  if (sdCard.ack_timestamp && sdCard.ack_timestamp !== state.sdUtilityAckTs) {
+    state.sdUtilityAckTs = sdCard.ack_timestamp;
+    const command = sdCard.last_command || "sd";
+    const ok = sdCard.ok === true;
+    const detail = (typeof sdCard.detail === "string") ? sdCard.detail.trim() : "";
+    const timeLabel = formatTimestamp(sdCard.ack_timestamp);
+    const pendingAction = state.sdUtilityPendingAction;
+
+    state.sdUtilityCommandPending = false;
+    state.sdUtilityPendingAction = "";
+
+    if (command === "sd_rotate" || command === "sd_format" || command === "sd_dump_sample") {
+      let label = "SD";
+      if (command === "sd_rotate") {
+        label = "Rotate logfile";
+      } else if (command === "sd_format") {
+        label = "Format SD";
+      } else if (command === "sd_dump_sample") {
+        label = "Dump sample";
+      }
+
+      let msg = `${label} ${ok ? "OK" : "failed"} (${timeLabel})`;
+      if (detail) {
+        msg += `: ${detail}`;
+      }
+      setSdUtilityStatus(msg, ok ? "ok" : "error");
+
+      if (command === "sd_dump_sample") {
+        const ageSec = (Date.now() / 1000) - Number(sdCard.ack_timestamp);
+        const ackRecent = Number.isFinite(ageSec) && ageSec >= 0 && ageSec <= 10;
+        const wasRequested = pendingAction === "sd_dump_sample";
+        if (ackRecent || wasRequested) {
+          showSdDumpModal(detail || (ok ? "No sample text returned." : "Dump sample failed."));
+        }
+      }
+    }
+
+    updateSdUtilityControlState();
   }
 
   const telemetryTx = snapshot.telemetry_tx || {};
@@ -1145,7 +2113,45 @@ function updateFromTelemetry(snapshot) {
   syncFilterSelection(attitude);
   syncThreshold(attitude);
   updateSdControlState();
+  updateSdUtilityControlState();
   updateTelemetryControlState();
+  updateLaunchArmControlState();
+  if (launchArmAckTs && launchArmAckTs !== state.launchArmAckTs) {
+    state.launchArmAckTs = launchArmAckTs;
+    state.launchArmAwaitingAck = false;
+    state.launchArmAwaitingSinceMs = 0;
+    const timeLabel = formatTimestamp(launchArmAckTs);
+    const ackAgeSec = (Date.now() / 1000) - Number(launchArmAckTs);
+    const ackRecent = Number.isFinite(ackAgeSec) && ackAgeSec >= 0 && ackAgeSec <= 8;
+    if (launchArmAckEnabled) {
+      setLaunchArmStatus(`Launch detect armed (${timeLabel})`, "ok");
+      if (ackRecent) {
+        playLaunchArmCue(true);
+      }
+    } else if (state.commandLockoutActive) {
+      setLaunchArmStatus(`Launch-arm rejected: flight in progress (${timeLabel})`, "error");
+      if (ackRecent) {
+        playLaunchArmCue(false);
+      }
+    } else if (!state.recoveryGpsFix3d) {
+      setLaunchArmStatus(`Launch-arm rejected: GPS 3D fix required (${timeLabel})`, "error");
+      if (ackRecent) {
+        playLaunchArmCue(false);
+      }
+    } else {
+      setLaunchArmStatus(`Launch-arm rejected (${timeLabel})`, "error");
+      if (ackRecent) {
+        playLaunchArmCue(false);
+      }
+    }
+    if (elements.launchArm) {
+      elements.launchArm.disabled = state.launchArmPending
+        || state.launchArmAwaitingAck
+        || state.commandLockoutActive
+        || state.recoveryLaunchArmed
+        || !state.recoveryGpsFix3d;
+    }
+  }
   updateMap(gps);
 }
 
@@ -1457,6 +2463,17 @@ function updateMap(gps) {
 }
 
 function updateClock() {
+  const nowMs = Date.now();
+  if (elements.datetimeNow) {
+    elements.datetimeNow.textContent = new Date(nowMs).toLocaleString();
+  }
+  if (elements.flightDuration) {
+    const elapsedMs = state.flightTimerActive && state.flightTimerStartMs > 0
+      ? Math.max(0, nowMs - state.flightTimerStartMs)
+      : state.flightTimerElapsedMs;
+    elements.flightDuration.textContent = elapsedMs > 0 ? formatDurationMs(elapsedMs) : "--";
+  }
+
   if (state.lastUpdateMs === 0) {
     elements.lastUpdate.textContent = "--";
     updateConnection(false);
@@ -1504,6 +2521,7 @@ function initEventSource() {
 }
 
 window.addEventListener("resize", () => {
+  renderFlightTrend();
   if (state.map) {
     state.map.invalidateSize();
   }
@@ -1549,6 +2567,7 @@ if (elements.mapSetHome) {
       state.mapHomeMarker.remove();
       state.mapHomeMarker = null;
     }
+    playHomePointSetCue();
   });
 }
 
@@ -1560,7 +2579,11 @@ if (elements.telemTxPower) {
   }
 }
 
+loadSoundSettings();
+updatePhaseFlow({});
+
 setInterval(updateClock, 500);
 
+renderFlightTrend();
 renderRocket();
 initEventSource();

@@ -129,11 +129,25 @@ LORA_CMD_TELEM_DISABLE = 0x05
 LORA_CMD_ALT_CALIBRATE = 0x06
 LORA_CMD_IMU_CALIBRATE = 0x07
 LORA_CMD_SET_TX_POWER = 0x08
+LORA_CMD_LAUNCH_ARM = 0x09
+LORA_CMD_SD_ROTATE = 0x0A
+LORA_CMD_SD_FORMAT = 0x0B
+LORA_CMD_SD_DUMP_SAMPLE = 0x0C
 LORA_CMD_REPEAT_COUNT = 3
 LORA_CMD_REPEAT_DELAY_S = 0.1
 
 COMMAND_LOCKOUT_PHASES = {"ascent", "descent", "boost", "coast"}
-COMMAND_LOCKOUT_ACTIONS = {"sd_stop", "telemetry_disable", "shutdown"}
+COMMAND_LOCKOUT_ACTIONS = {"sd_stop", "sd_format", "telemetry_disable", "shutdown", "reboot"}
+
+AP_CONNECTION_NAME = os.environ.get("GS_AP_CONNECTION_NAME", "pi-ap-hotspot")
+AP_ENABLE_SCRIPT = PROJECT_ROOT / "scripts" / "ap_enable.sh"
+AP_DISABLE_SCRIPT = PROJECT_ROOT / "scripts" / "ap_disable.sh"
+AP_STATUS_CACHE_TTL_S = float(os.environ.get("GS_AP_STATUS_CACHE_TTL_S", "2.0"))
+AP_STATUS_LOCK = threading.Lock()
+AP_STATUS_CACHE = {
+    "ts": 0.0,
+    "active": False,
+}
 
 
 def _command_lockout_active_from_snapshot(snapshot):
@@ -152,6 +166,44 @@ def _command_lockout_active():
 
 def _is_action_locked_during_flight(action):
     return action in COMMAND_LOCKOUT_ACTIONS and _command_lockout_active()
+
+
+def _detect_wifi_ap_active():
+    try:
+        result = subprocess.run(
+            ["nmcli", "-t", "-f", "NAME", "con", "show", "--active"],
+            capture_output=True,
+            text=True,
+            timeout=1.5,
+            check=False,
+        )
+    except Exception:  # pylint: disable=broad-except
+        return False
+
+    if result.returncode != 0:
+        return False
+
+    active_connections = {line.strip() for line in result.stdout.splitlines() if line.strip()}
+    return AP_CONNECTION_NAME in active_connections
+
+
+def _set_wifi_ap_active_cache(active):
+    now = time.time()
+    with AP_STATUS_LOCK:
+        AP_STATUS_CACHE["active"] = bool(active)
+        AP_STATUS_CACHE["ts"] = now
+
+
+def _get_wifi_ap_active(force=False):
+    now = time.time()
+    with AP_STATUS_LOCK:
+        cache_age = now - AP_STATUS_CACHE["ts"]
+        if not force and cache_age >= 0 and cache_age <= AP_STATUS_CACHE_TTL_S:
+            return AP_STATUS_CACHE["active"]
+
+    active = _detect_wifi_ap_active()
+    _set_wifi_ap_active_cache(active)
+    return active
 
 
 def _clamp(value, low, high):
@@ -492,6 +544,8 @@ class TelemetryStore:
                 "svs_used": None,
                 "cno_max": None,
                 "cno_avg": None,
+                "hdop": None,
+                "hdop_x100": None,
             },
             "alt": {
                 "t_ms": None,
@@ -529,6 +583,12 @@ class TelemetryStore:
                 "last_command": None,
                 "ack_timestamp": None,
             },
+            "sd_card": {
+                "last_command": None,
+                "ack_timestamp": None,
+                "ok": None,
+                "detail": None,
+            },
             "telemetry_tx": {
                 "enabled": None,
                 "last_command": None,
@@ -563,6 +623,14 @@ class TelemetryStore:
                 "enabled": True,
                 "mode": "downlink",
                 "phase": "idle",
+                "sensors_calibrated": False,
+                "launch_armed": False,
+                "gps_fix_3d": False,
+                "launch_detected": False,
+                "apogee": False,
+                "landing_detected": False,
+                "launch_arm_ack_timestamp": None,
+                "launch_arm_ack_enabled": None,
                 "launch_alt_m": None,
                 "altitude_agl_m": None,
                 "max_altitude_agl_m": None,
@@ -646,6 +714,8 @@ class TelemetryStore:
                         "svs_used": parsed.get("svs_used"),
                         "cno_max": parsed.get("cno_max"),
                         "cno_avg": parsed.get("cno_avg"),
+                        "hdop": parsed.get("hdop"),
+                        "hdop_x100": parsed.get("hdop_x100"),
                     })
                 elif payload_type == "alt":
                     press_pa_x10 = parsed.get("press_pa_x10")
@@ -717,12 +787,80 @@ class TelemetryStore:
                         "bat_state_label": BAT_STATE_LABELS.get(bat_state, "UNKNOWN"),
                     })
                 elif payload_type == "recovery":
-                    drogue_deployed = bool(parsed.get("drogue_deployed"))
-                    main_deployed = bool(parsed.get("main_deployed"))
+                    prev_recovery = self._state.get("recovery", {})
+                    prev_drogue = prev_recovery.get("drogue", {})
+                    prev_main = prev_recovery.get("main", {})
+
+                    phase = parsed.get("phase") or "unknown"
+                    phase_lower = phase.lower() if isinstance(phase, str) else "unknown"
+
+                    raw_launch_detected = bool(parsed.get("launch_detected"))
+                    raw_apogee = bool(parsed.get("apogee"))
+                    raw_drogue_deployed = bool(parsed.get("drogue_deployed"))
+                    raw_main_deployed = bool(parsed.get("main_deployed"))
+                    raw_landing_detected = bool(parsed.get("landing_detected"))
+
+                    # New preflight cycle from clean idle frame: clear latched event state.
+                    cycle_reset = (
+                        phase_lower == "idle"
+                        and not raw_launch_detected
+                        and not raw_apogee
+                        and not raw_drogue_deployed
+                        and not raw_main_deployed
+                        and not raw_landing_detected
+                    )
+
+                    prev_launch_detected = bool(prev_recovery.get("launch_detected")) if not cycle_reset else False
+                    prev_apogee = bool(prev_recovery.get("apogee")) if not cycle_reset else False
+                    prev_drogue_deployed = bool(prev_drogue.get("deployed")) if not cycle_reset else False
+                    prev_main_deployed = bool(prev_main.get("deployed")) if not cycle_reset else False
+                    prev_landing_detected = bool(prev_recovery.get("landing_detected")) if not cycle_reset else False
+
+                    # Latch forward and enforce rough sequence ordering so spurious frames
+                    # cannot produce impossible transitions (e.g., landing right after launch).
+                    launch_detected = prev_launch_detected or raw_launch_detected
+                    apogee = prev_apogee or (raw_apogee and launch_detected)
+                    drogue_deployed = prev_drogue_deployed or (
+                        raw_drogue_deployed and (apogee or raw_apogee or launch_detected)
+                    )
+                    main_deployed = prev_main_deployed or (
+                        raw_main_deployed
+                        and (drogue_deployed or raw_drogue_deployed or apogee or raw_apogee or launch_detected)
+                    )
+                    landing_detected = prev_landing_detected or (
+                        raw_landing_detected
+                        and main_deployed
+                        and phase_lower in ("descent", "landed")
+                    )
+
+                    sensors_calibrated = bool(parsed.get("sensors_calibrated"))
+
+                    drogue_deploy_alt = parsed.get("drogue_deploy_alt_agl_m")
+                    if drogue_deployed and drogue_deploy_alt is None:
+                        drogue_deploy_alt = prev_drogue.get("deploy_alt_agl_m")
+
+                    main_deploy_alt = parsed.get("main_deploy_alt_agl_m")
+                    if main_deployed and main_deploy_alt is None:
+                        main_deploy_alt = prev_main.get("deploy_alt_agl_m")
+
+                    drogue_reason = None
+                    if drogue_deployed:
+                        drogue_reason = parsed.get("drogue_reason") if raw_drogue_deployed else prev_drogue.get("reason")
+
+                    main_reason = None
+                    if main_deployed:
+                        main_reason = parsed.get("main_reason") if raw_main_deployed else prev_main.get("reason")
+
                     self._state["recovery"].update({
                         "enabled": True,
                         "mode": "downlink",
-                        "phase": parsed.get("phase") or "unknown",
+                        "phase": phase,
+                        "sensors_calibrated": sensors_calibrated,
+                        "launch_armed": bool(parsed.get("launch_armed")),
+                        "gps_fix_3d": bool(parsed.get("gps_fix_3d")),
+                        "launch_detected": launch_detected,
+                        "apogee": apogee,
+                        "landing_detected": landing_detected,
                         "launch_alt_m": None,
                         "altitude_agl_m": parsed.get("altitude_agl_m"),
                         "max_altitude_agl_m": parsed.get("max_altitude_agl_m"),
@@ -730,14 +868,14 @@ class TelemetryStore:
                         "drogue": {
                             "deployed": drogue_deployed,
                             "deploy_timestamp": None,
-                            "deploy_alt_agl_m": parsed.get("drogue_deploy_alt_agl_m"),
-                            "reason": parsed.get("drogue_reason") if drogue_deployed else None,
+                            "deploy_alt_agl_m": drogue_deploy_alt,
+                            "reason": drogue_reason,
                         },
                         "main": {
                             "deployed": main_deployed,
                             "deploy_timestamp": None,
-                            "deploy_alt_agl_m": parsed.get("main_deploy_alt_agl_m"),
-                            "reason": parsed.get("main_reason") if main_deployed else None,
+                            "deploy_alt_agl_m": main_deploy_alt,
+                            "reason": main_reason,
                         },
                         "rules": None,
                     })
@@ -745,11 +883,37 @@ class TelemetryStore:
                     cmd = parsed.get("command")
                     ack_ts = self._state["timestamp"]
                     if cmd in ("sd_start", "sd_stop"):
+                        ack_enabled = parsed.get("logging_enabled", parsed.get("enabled"))
                         self._state["sd_logging"].update({
-                            "enabled": parsed.get("logging_enabled", parsed.get("enabled")),
+                            "enabled": ack_enabled,
                             "last_command": cmd,
                             "ack_timestamp": ack_ts,
                         })
+                        self._state["sd_card"].update({
+                            "last_command": cmd,
+                            "ack_timestamp": ack_ts,
+                            "ok": bool(parsed.get("enabled")),
+                            "detail": parsed.get("detail"),
+                        })
+                    elif cmd in ("sd_rotate", "sd_format", "sd_dump_sample"):
+                        self._state["sd_card"].update({
+                            "last_command": cmd,
+                            "ack_timestamp": ack_ts,
+                            "ok": bool(parsed.get("enabled")),
+                            "detail": parsed.get("detail"),
+                        })
+                        if cmd == "sd_rotate" and parsed.get("enabled") is True:
+                            self._state["sd_logging"].update({
+                                "enabled": True,
+                                "last_command": cmd,
+                                "ack_timestamp": ack_ts,
+                            })
+                        elif cmd == "sd_format" and parsed.get("enabled") is True:
+                            self._state["sd_logging"].update({
+                                "enabled": False,
+                                "last_command": cmd,
+                                "ack_timestamp": ack_ts,
+                            })
                     elif cmd in ("telemetry_enable", "telemetry_disable"):
                         self._state["telemetry_tx"].update({
                             "enabled": parsed.get("telemetry_enabled", parsed.get("enabled")),
@@ -764,6 +928,44 @@ class TelemetryStore:
                         tx_power_dbm = parsed.get("tx_power_dbm")
                         if tx_power_dbm is not None:
                             self._state["telemetry_tx"]["active_power_dbm"] = int(tx_power_dbm)
+                    elif cmd == "launch_arm":
+                        launch_arm_enabled = bool(parsed.get("enabled"))
+                        self._state["recovery"]["launch_armed"] = launch_arm_enabled
+                        self._state["recovery"]["launch_arm_ack_timestamp"] = ack_ts
+                        self._state["recovery"]["launch_arm_ack_enabled"] = launch_arm_enabled
+                    elif cmd == "alt_calibrate":
+                        # Altitude zero also restarts recovery state from preflight.
+                        # Apply this immediately on ACK so UI state resets without
+                        # waiting for the next recovery telemetry frame.
+                        if bool(parsed.get("enabled")):
+                            self._state["recovery"].update({
+                                "enabled": True,
+                                "mode": "downlink",
+                                "phase": "idle",
+                                "sensors_calibrated": False,
+                                "launch_armed": False,
+                                "gps_fix_3d": False,
+                                "launch_detected": False,
+                                "apogee": False,
+                                "landing_detected": False,
+                                "launch_alt_m": None,
+                                "altitude_agl_m": None,
+                                "max_altitude_agl_m": None,
+                                "vertical_speed_mps": None,
+                                "drogue": {
+                                    "deployed": False,
+                                    "deploy_timestamp": None,
+                                    "deploy_alt_agl_m": None,
+                                    "reason": None,
+                                },
+                                "main": {
+                                    "deployed": False,
+                                    "deploy_timestamp": None,
+                                    "deploy_alt_agl_m": None,
+                                    "reason": None,
+                                },
+                                "rules": None,
+                            })
 
             return copy.deepcopy(self._state)
 
@@ -798,9 +1000,15 @@ class MapDownloadManager:
             "max_zoom": None,
             "started_at": None,
             "finished_at": None,
-            "cached_tiles": self._count_cached_tiles(),
+            "cached_tiles": 0,
             "canceled": False,
         }
+        threading.Thread(target=self._scan_cached_tiles_thread, daemon=True).start()
+
+    def _scan_cached_tiles_thread(self):
+        count = self._count_cached_tiles()
+        with self._lock:
+            self._state["cached_tiles"] = count
 
     def _count_cached_tiles(self):
         if not TILE_CACHE_DIR.exists():
@@ -874,7 +1082,6 @@ class MapDownloadManager:
                 "max_zoom": max_zoom,
                 "started_at": time.time(),
                 "finished_at": None,
-                "cached_tiles": self._count_cached_tiles(),
                 "canceled": False,
             })
 
@@ -997,11 +1204,13 @@ def _build_companion_state(snapshot, seq=None):
     voltage_monitor = snapshot.get("voltage_monitor", {})
     attitude = snapshot.get("attitude", {})
     sd_logging = snapshot.get("sd_logging", {})
+    sd_card = snapshot.get("sd_card", {})
     telemetry_tx = snapshot.get("telemetry_tx", {})
 
     connected = age_s is not None and age_s <= 2.0
     phase = recovery.get("phase") or "unknown"
     command_lockout_active = _command_lockout_active_from_snapshot(snapshot)
+    wifi_ap_active = _get_wifi_ap_active()
 
     alerts = []
     if age_s is None or age_s > 5.0:
@@ -1033,6 +1242,9 @@ def _build_companion_state(snapshot, seq=None):
             "alt_m": gps.get("alt_m"),
             "svs_used": navsat.get("svs_used"),
             "svs_total": navsat.get("svs_total"),
+            "hdop": navsat.get("hdop"),
+            "hdop_x100": navsat.get("hdop_x100"),
+            "gps_fix_3d": recovery.get("gps_fix_3d"),
         },
         "alt": {
             "press_kpa": alt.get("press_kpa"),
@@ -1062,6 +1274,12 @@ def _build_companion_state(snapshot, seq=None):
             "last_command": sd_logging.get("last_command"),
             "ack_timestamp": sd_logging.get("ack_timestamp"),
         },
+        "sd_card": {
+            "last_command": sd_card.get("last_command"),
+            "ack_timestamp": sd_card.get("ack_timestamp"),
+            "ok": sd_card.get("ok"),
+            "detail": sd_card.get("detail"),
+        },
         "telemetry_tx": {
             "enabled": telemetry_tx.get("enabled"),
             "last_command": telemetry_tx.get("last_command"),
@@ -1072,14 +1290,34 @@ def _build_companion_state(snapshot, seq=None):
             "active": command_lockout_active,
             "reason": "flight_in_progress" if command_lockout_active else None,
         },
+        "wifi_ap": {
+            "active": wifi_ap_active,
+            "connection": AP_CONNECTION_NAME,
+        },
         "recovery": {
             "enabled": recovery.get("enabled"),
             "phase": recovery.get("phase"),
+            "sensors_calibrated": recovery.get("sensors_calibrated"),
+            "launch_armed": recovery.get("launch_armed"),
+            "gps_fix_3d": recovery.get("gps_fix_3d"),
+            "launch_detected": recovery.get("launch_detected"),
+            "apogee": recovery.get("apogee"),
+            "landing_detected": recovery.get("landing_detected"),
             "altitude_agl_m": recovery.get("altitude_agl_m"),
             "max_altitude_agl_m": recovery.get("max_altitude_agl_m"),
             "vertical_speed_mps": recovery.get("vertical_speed_mps"),
             "drogue": {"deployed": recovery.get("drogue", {}).get("deployed")},
             "main": {"deployed": recovery.get("main", {}).get("deployed")},
+            "events": {
+                "sensors_calibrated": recovery.get("sensors_calibrated"),
+                "gps_fix_3d": recovery.get("gps_fix_3d"),
+                "armed": recovery.get("launch_armed"),
+                "launch_detected": recovery.get("launch_detected"),
+                "apogee": recovery.get("apogee"),
+                "drogue_deployed": recovery.get("drogue", {}).get("deployed"),
+                "main_deployed": recovery.get("main", {}).get("deployed"),
+                "landing_detected": recovery.get("landing_detected"),
+            },
         },
         "alerts": alerts,
     }
@@ -1104,6 +1342,12 @@ class CompanionUartBridge:
     CMD_IMU_CALIBRATE = 0x07
     CMD_SHUTDOWN = 0x08
     CMD_SET_TX_POWER = 0x09
+    CMD_LAUNCH_ARM = 0x0A
+    CMD_REBOOT = 0x0B
+    CMD_SD_ROTATE = 0x0C
+    CMD_SD_FORMAT = 0x0D
+    CMD_SD_DUMP_SAMPLE = 0x0E
+    CMD_WIFI_AP_TOGGLE = 0x0F
 
     def __init__(self, port, baud):
         self._port = port
@@ -1117,6 +1361,7 @@ class CompanionUartBridge:
         self._rx_frames = 0
         self._crc_fail = 0
         self._last_dbg = time.time()
+        self._last_sd_card_ack_ts = None
 
     @staticmethod
     def _crc16_ccitt(data):
@@ -1153,7 +1398,7 @@ class CompanionUartBridge:
         if self._ser is not None:
             try:
                 self._ser.close()
-            except Exception:  # pylint: disable=broad-except
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
                 pass
         self._ser = None
 
@@ -1167,7 +1412,7 @@ class CompanionUartBridge:
 
     def _phase_to_code(self, phase):
         phase = (phase or "").lower()
-        mapping = {"idle": 0, "pad": 1, "boost": 2, "coast": 3, "descent": 4, "landed": 5}
+        mapping = {"idle": 0, "pad": 1, "boost": 2, "coast": 3, "ascent": 2, "descent": 4, "landed": 5}
         return mapping.get(phase, 0)
 
     def send_companion_state(self, state):
@@ -1181,6 +1426,7 @@ class CompanionUartBridge:
         sd_logging = state.get("sd_logging", {})
         telemetry_tx = state.get("telemetry_tx", {})
         command_lockout = state.get("command_lockout", {})
+        wifi_ap = state.get("wifi_ap", {})
 
         lat_deg = gps.get("lat_deg")
         lon_deg = gps.get("lon_deg")
@@ -1189,6 +1435,13 @@ class CompanionUartBridge:
         if altitude_agl_m is None:
             altitude_agl_m = alt_m
         gps_alt_mm = -2147483648 if alt_m is None else int(alt_m * 1000)
+        svs_used = gps.get("svs_used")
+        svs_total = gps.get("svs_total")
+        hdop_x100 = gps.get("hdop_x100")
+        if hdop_x100 is None:
+            hdop = gps.get("hdop")
+            if hdop is not None:
+                hdop_x100 = int(round(float(hdop) * 100.0))
 
         phase_code = self._phase_to_code(flight.get("phase"))
         flags = 0
@@ -1204,6 +1457,28 @@ class CompanionUartBridge:
             flags |= 0x10
         if command_lockout.get("active") is True:
             flags |= 0x20
+        if recovery.get("launch_armed") is True:
+            flags |= 0x40
+        if recovery.get("gps_fix_3d") is True:
+            flags |= 0x80
+
+        event_flags = 0
+        if recovery.get("sensors_calibrated") is True:
+            event_flags |= 0x01
+        if recovery.get("gps_fix_3d") is True:
+            event_flags |= 0x02
+        if recovery.get("launch_armed") is True:
+            event_flags |= 0x04
+        if recovery.get("launch_detected") is True:
+            event_flags |= 0x08
+        if recovery.get("apogee") is True:
+            event_flags |= 0x10
+        if recovery.get("drogue", {}).get("deployed") is True:
+            event_flags |= 0x20
+        if recovery.get("main", {}).get("deployed") is True:
+            event_flags |= 0x40
+        if recovery.get("landing_detected") is True:
+            event_flags |= 0x80
 
         tx_power_dbm = telemetry_tx.get("active_power_dbm")
         if tx_power_dbm is None:
@@ -1211,8 +1486,15 @@ class CompanionUartBridge:
         else:
             tx_power_dbm = int(tx_power_dbm) & 0xFF
 
+        svs_used_field = 0xFF if svs_used is None else (int(svs_used) & 0xFF)
+        svs_total_field = 0xFF if svs_total is None else (int(svs_total) & 0xFF)
+        hdop_x100_field = 0xFFFF if hdop_x100 is None else (int(hdop_x100) & 0xFFFF)
+        companion_flags = 0
+        if wifi_ap.get("active") is True:
+            companion_flags |= 0x01
+
         payload = struct.pack(
-            "<IiiihhbBHHBHiB",
+            "<IiiihhbBHHBHiBBBBHB",
             int((state.get("ts") or time.time()) * 1000) & 0xFFFFFFFF,
             int((lat_deg or 0.0) * 1e7),
             int((lon_deg or 0.0) * 1e7),
@@ -1227,30 +1509,73 @@ class CompanionUartBridge:
             int((battery.get("ground_vbat_v") or 0.0) * 1000) & 0xFFFF,
             gps_alt_mm,
             tx_power_dbm,
+            int(event_flags),
+            svs_used_field,
+            svs_total_field,
+            hdop_x100_field,
+            int(companion_flags),
         )
+        callsign = flight.get("callsign")
+        if isinstance(callsign, str) and callsign:
+            callsign_bytes = callsign.encode("ascii", errors="ignore")[:24]
+            if callsign_bytes:
+                payload += callsign_bytes
         frame = self._encode_frame(self.MSG_TELEM_SNAPSHOT, payload)
         with self._lock:
             try:
                 self._ser.write(frame)
                 self._tx_frames += 1
-            except Exception:  # pylint: disable=broad-except
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
                 pass
         self._debug_tick()
 
-    def _send_cmd_ack(self, cmd, ok, err=0):
+    def _send_cmd_ack(self, cmd, ok, err=0, detail=None):
         if self._ser is None:
             return
-        payload = struct.pack("<BBB", cmd, 1 if ok else 0, err & 0xFF)
-        frame = self._encode_frame(self.MSG_CMD_ACK, payload)
+        payload = bytearray(struct.pack("<BBB", cmd, 1 if ok else 0, err & 0xFF))
+        if detail:
+            detail_bytes = str(detail).encode("ascii", errors="replace")
+            if len(detail_bytes) > 120:
+                detail_bytes = detail_bytes[:120]
+            payload.extend(detail_bytes)
+        frame = self._encode_frame(self.MSG_CMD_ACK, bytes(payload))
         with self._lock:
             try:
                 self._ser.write(frame)
-            except Exception:  # pylint: disable=broad-except
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
                 pass
+
+    def maybe_send_sd_card_ack(self, state):
+        if self._ser is None:
+            return
+
+        sd_card = state.get("sd_card", {}) if isinstance(state, dict) else {}
+        ack_ts = sd_card.get("ack_timestamp")
+        if not ack_ts:
+            return
+        if self._last_sd_card_ack_ts == ack_ts:
+            return
+
+        cmd_name = sd_card.get("last_command")
+        cmd_map = {
+            "sd_rotate": self.CMD_SD_ROTATE,
+            "sd_format": self.CMD_SD_FORMAT,
+            "sd_dump_sample": self.CMD_SD_DUMP_SAMPLE,
+        }
+        cmd = cmd_map.get(cmd_name)
+        if cmd is None:
+            self._last_sd_card_ack_ts = ack_ts
+            return
+
+        ok = bool(sd_card.get("ok") is True)
+        detail = sd_card.get("detail")
+        self._send_cmd_ack(cmd, ok, 0 if ok else 1, detail=detail)
+        self._last_sd_card_ack_ts = ack_ts
 
     def _handle_cmd(self, cmd, arg):
         if COMPANION_UART_DEBUG:
             print(f"Companion UART cmd rx: cmd={cmd} arg={arg}")
+        defer_ack_until_lora = cmd in (self.CMD_SD_ROTATE, self.CMD_SD_FORMAT, self.CMD_SD_DUMP_SAMPLE)
         if cmd == self.CMD_SD_START:
             ok, error = send_lora_command("sd_start")
         elif cmd == self.CMD_SD_STOP:
@@ -1267,13 +1592,33 @@ class CompanionUartBridge:
             ok, error = send_lora_command("imu_calibrate")
         elif cmd == self.CMD_SET_TX_POWER:
             ok, error = send_lora_command("telemetry_tx_power", tx_power_dbm=int(arg))
+        elif cmd == self.CMD_LAUNCH_ARM:
+            ok, error = send_lora_command("launch_arm", duration_s=int(arg))
+        elif cmd == self.CMD_SD_ROTATE:
+            ok, error = send_lora_command("sd_rotate")
+        elif cmd == self.CMD_SD_FORMAT:
+            ok, error = send_lora_command("sd_format")
+        elif cmd == self.CMD_SD_DUMP_SAMPLE:
+            ok, error = send_lora_command("sd_dump_sample")
         elif cmd == self.CMD_SHUTDOWN:
             ok, error = request_pi_shutdown()
+        elif cmd == self.CMD_REBOOT:
+            ok, error = request_pi_reboot()
+        elif cmd == self.CMD_WIFI_AP_TOGGLE:
+            ok, error = request_pi_wifi_ap_toggle()
         else:
             ok, error = False, "Unknown UART command"
 
-        if not ok and error:
-            print(f"Companion UART cmd failed: cmd={cmd} arg={arg} err={error}")
+        if not ok:
+            if error:
+                print(f"Companion UART cmd failed: cmd={cmd} arg={arg} err={error}")
+            self._send_cmd_ack(cmd, False, 1, detail=error)
+            return
+
+        if defer_ack_until_lora:
+            # SD utility commands return their authoritative ACK asynchronously from flight firmware.
+            return
+
         self._send_cmd_ack(cmd, ok, 0 if ok else 1)
 
     def _rx_loop(self):
@@ -1281,7 +1626,7 @@ class CompanionUartBridge:
         while self._running:
             try:
                 chunk = self._ser.read(128)
-            except Exception:  # pylint: disable=broad-except
+            except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
                 time.sleep(0.05)
                 continue
 
@@ -1371,6 +1716,7 @@ def broadcast(snapshot):
 
     if COMPANION_UART_BRIDGE is not None:
         COMPANION_UART_BRIDGE.send_companion_state(companion_state)
+        COMPANION_UART_BRIDGE.maybe_send_sd_card_ack(snapshot)
 
 
 def handle_voltage_monitor_update(monitor_snapshot):
@@ -1481,15 +1827,30 @@ def send_lora_command(action, duration_s=None, tx_power_dbm=None):
     if _is_action_locked_during_flight(action):
         return False, f"{action} blocked after launch; wait for landing"
 
+    snapshot = TELEMETRY.snapshot()
+    sd_logging_enabled = bool((snapshot.get("sd_logging") or {}).get("enabled") is True)
+    if action == "sd_rotate" and not sd_logging_enabled:
+        return False, "sd_rotate requires SD logging to be active"
+    if action in ("sd_format", "sd_dump_sample") and sd_logging_enabled:
+        return False, "Stop SD logging before this command"
+
     if action == "sd_start":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_START])
     elif action == "sd_stop":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_STOP])
+    elif action == "sd_rotate":
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_ROTATE])
+    elif action == "sd_format":
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_FORMAT])
+    elif action == "sd_dump_sample":
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SD_DUMP_SAMPLE])
     elif action == "telemetry_enable":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_TELEM_ENABLE])
     elif action == "telemetry_disable":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_TELEM_DISABLE])
     elif action == "alt_calibrate":
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_ALT_CALIBRATE])
+    elif action == "phase_reset":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_ALT_CALIBRATE])
     elif action == "imu_calibrate":
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_IMU_CALIBRATE])
@@ -1501,6 +1862,12 @@ def send_lora_command(action, duration_s=None, tx_power_dbm=None):
         if tx_power < 2 or tx_power > 17:
             return False, "tx_power_dbm must be between 2 and 17"
         payload = bytes([LORA_CMD_MAGIC, LORA_CMD_SET_TX_POWER, tx_power])
+    elif action == "launch_arm":
+        try:
+            allow_without_gps_fix = 1 if int(duration_s or 0) != 0 else 0
+        except (TypeError, ValueError):
+            return False, "duration_s must be 0 or 1 for launch_arm"
+        payload = bytes([LORA_CMD_MAGIC, LORA_CMD_LAUNCH_ARM, allow_without_gps_fix])
     elif action == "buzzer":
         try:
             duration = int(duration_s)
@@ -1557,6 +1924,50 @@ def request_pi_shutdown():
         return True, None
     except Exception as exc:  # pylint: disable=broad-except
         return False, f"Failed to schedule shutdown: {exc}"
+
+
+def request_pi_reboot():
+    if _is_action_locked_during_flight("reboot"):
+        return False, "reboot blocked after launch; wait for landing"
+
+    def _reboot_worker():
+        # Give the HTTP/UART ACK path a brief moment to flush before reboot.
+        time.sleep(0.3)
+        subprocess.Popen(
+            ["sudo", "shutdown", "-r", "now"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+
+    try:
+        threading.Thread(target=_reboot_worker, daemon=True).start()
+        print("Pi reboot requested via companion command")
+        return True, None
+    except Exception as exc:  # pylint: disable=broad-except
+        return False, f"Failed to schedule reboot: {exc}"
+
+
+def request_pi_wifi_ap_toggle():
+    active_now = _get_wifi_ap_active(force=True)
+    script_path = AP_DISABLE_SCRIPT if active_now else AP_ENABLE_SCRIPT
+    action_text = "disable" if active_now else "enable"
+
+    if not script_path.exists():
+        return False, f"AP script not found: {script_path}"
+
+    try:
+        subprocess.Popen(
+            ["/bin/bash", str(script_path)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        _set_wifi_ap_active_cache(not active_now)
+        print(f"Pi Wi-Fi AP {action_text} requested via companion command")
+        return True, None
+    except Exception as exc:  # pylint: disable=broad-except
+        return False, f"Failed to launch AP script: {exc}"
 
 
 class GroundStationHandler(BaseHTTPRequestHandler):
@@ -1704,6 +2115,10 @@ class GroundStationHandler(BaseHTTPRequestHandler):
             tx_power_dbm = payload.get("tx_power_dbm")
             if action == "shutdown":
                 ok, error = request_pi_shutdown()
+            elif action == "reboot":
+                ok, error = request_pi_reboot()
+            elif action == "wifi_ap_toggle":
+                ok, error = request_pi_wifi_ap_toggle()
             else:
                 ok, error = send_lora_command(action, duration_s, tx_power_dbm)
             if not ok:
@@ -1795,7 +2210,7 @@ class GroundStationHandler(BaseHTTPRequestHandler):
 
                 self.wfile.write(f"data: {data}\n\n".encode("utf-8"))
                 self.wfile.flush()
-        except Exception:  # pylint: disable=broad-except
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             # FIX: Catch all connection errors (BrokenPipeError, ConnectionResetError,
             # ConnectionAbortedError, OSError, etc.) to ensure client cleanup always runs.
             # Client disconnects can manifest in various ways depending on OS and network state.
@@ -1837,7 +2252,7 @@ class GroundStationHandler(BaseHTTPRequestHandler):
 
                 self.wfile.write(f"event: telemetry\ndata: {data}\n\n".encode("utf-8"))
                 self.wfile.flush()
-        except Exception:  # pylint: disable=broad-except
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             pass
         finally:
             with COMPANION_CLIENTS_LOCK:

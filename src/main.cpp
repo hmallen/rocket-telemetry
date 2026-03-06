@@ -406,8 +406,8 @@ static void sd_logging_start() {
 }
 
 #if ENABLE_GNSS
-static GnssUbx gnss_primary(GNSS_SERIAL_PRIMARY);
-static GnssUbx gnss_backup(GNSS_SERIAL_BACKUP);
+static GnssUbx gnss_primary(GNSS_SERIAL_PRIMARY, GNSS_PRIMARY_UBX_PORT_ID);
+static GnssUbx gnss_backup(GNSS_SERIAL_BACKUP, GNSS_BACKUP_UBX_PORT_ID, true);
 static bool gnss_use_backup_as_primary = false;
 #endif
 static Sensors sensors;
@@ -441,6 +441,11 @@ struct BuzzerSeq {
 };
 
 static BuzzerSeq buzzer_seq;
+static constexpr uint16_t kRecoveryAlertChirpOnMs = 80;
+static constexpr uint16_t kRecoveryAlertChirpGapMs = 90;
+static constexpr uint16_t kRecoveryAlertLoopGapMs = 260;
+static uint32_t recovery_alert_next_ms = 0;
+static uint8_t recovery_alert_last_chirps = 0;
 
 static inline bool buzzer_busy() {
   return buzzer_seq.active;
@@ -508,6 +513,32 @@ static inline void buzzer_ok() {
 
 static inline void buzzer_fail() {
   buzzer_pulse(250, 150, 3);
+}
+
+static void buzzer_update_recovery_alert(bool drogue_deployed, bool main_deployed, uint32_t now_ms) {
+ #if !ENABLE_BUZZER
+   (void)drogue_deployed;
+   (void)main_deployed;
+   (void)now_ms;
+   return;
+ #endif
+   const uint8_t chirps = main_deployed ? 2 : (drogue_deployed ? 1 : 0);
+   if (chirps == 0) {
+     recovery_alert_next_ms = 0;
+     recovery_alert_last_chirps = 0;
+     return;
+   }
+   if (recovery_alert_last_chirps != chirps) {
+     recovery_alert_last_chirps = chirps;
+     recovery_alert_next_ms = now_ms;
+   }
+   if (buzzer_busy()) return;
+   if (recovery_alert_next_ms != 0 && (int32_t)(now_ms - recovery_alert_next_ms) < 0) return;
+
+   buzzer_start_seq(kRecoveryAlertChirpOnMs, kRecoveryAlertChirpGapMs, chirps, now_ms);
+   const uint32_t chirp_train_ms = (uint32_t)chirps * kRecoveryAlertChirpOnMs
+                                 + (uint32_t)(chirps - 1) * kRecoveryAlertChirpGapMs;
+   recovery_alert_next_ms = now_ms + chirp_train_ms + kRecoveryAlertLoopGapMs;
 }
 
 static inline void ring_write_stats() {
@@ -860,12 +891,15 @@ void loop() {
 #if ENABLE_GNSS
     const bool primary_fresh_dbg = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
     const bool backup_fresh_dbg  = gnss_backup.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const bool primary_parsed_dbg = gnss_primary.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const bool backup_parsed_dbg  = gnss_backup.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
     const GnssTime& pt = gnss_primary.time();
     const GnssTime& bt = gnss_backup.time();
 
     DBG_PRINTF(" gnss_sel=%c", gnss_use_backup_as_primary ? 'B' : 'P');
-    DBG_PRINTF(" gnss_p_fresh=%u fix_ok=%u fix=%u lat=%.7f lon=%.7f alt_m=%.3f tow_ms=%lu week=%u bytes=%lu",
+    DBG_PRINTF(" gnss_p_fresh=%u parsed=%u fix_ok=%u fix=%u lat=%.7f lon=%.7f alt_m=%.3f tow_ms=%lu week=%u bytes=%lu",
                (unsigned)primary_fresh_dbg,
+               (unsigned)primary_parsed_dbg,
                (unsigned)pt.fix_ok, (unsigned)pt.fix_type,
                (double)pt.lat_e7 / 1e7,
                (double)pt.lon_e7 / 1e7,
@@ -873,8 +907,9 @@ void loop() {
                (unsigned long)pt.tow_ms, (unsigned)pt.week,
                (unsigned long)gnss_primary.bytes_rx());
 
-    DBG_PRINTF(" gnss_b_fresh=%u fix_ok=%u fix=%u lat=%.7f lon=%.7f alt_m=%.3f tow_ms=%lu week=%u bytes=%lu",
+    DBG_PRINTF(" gnss_b_fresh=%u parsed=%u fix_ok=%u fix=%u lat=%.7f lon=%.7f alt_m=%.3f tow_ms=%lu week=%u bytes=%lu",
                (unsigned)backup_fresh_dbg,
+               (unsigned)backup_parsed_dbg,
                (unsigned)bt.fix_ok, (unsigned)bt.fix_type,
                (double)bt.lat_e7 / 1e7,
                (double)bt.lon_e7 / 1e7,
@@ -883,8 +918,11 @@ void loop() {
                (unsigned long)gnss_backup.bytes_rx());
 
     const GnssTime& gt = gnss_use_backup_as_primary ? bt : pt;
-    if (gt.last_sat_ms != 0) {
-      DBG_PRINTF(" sat=%u/%u", (unsigned)gt.navsat_n, (unsigned)gt.navsat_num_svs);
+    if (gt.last_sat_ms != 0 || gt.navsat_num_svs_total != 0 || gt.navsat_num_svs != 0) {
+      DBG_PRINTF(" sat=%u/%u used=%u",
+                 (unsigned)gt.navsat_n,
+                 (unsigned)gt.navsat_num_svs_total,
+                 (unsigned)gt.navsat_num_svs);
       const uint8_t show = (gt.navsat_n < 4) ? gt.navsat_n : 4;
       for (uint8_t i = 0; i < show; ++i) {
         const auto& s = gt.navsat[i];
@@ -903,9 +941,15 @@ void loop() {
   uint32_t t_pps;
   if (time_pop_pps(t_pps)) {
 #if ENABLE_GNSS
-    const GnssUbx& anchor = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US)
+    const bool primary_anchor_fresh = gnss_primary.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const bool backup_anchor_fresh = gnss_backup.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const GnssUbx& anchor = primary_anchor_fresh
                               ? gnss_primary
-                              : gnss_backup;
+                              : (backup_anchor_fresh
+                                   ? gnss_backup
+                                   : (gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US)
+                                        ? gnss_primary
+                                        : gnss_backup));
     ring_write_time_anchor(t_pps, anchor.time());
 #else
     GnssTime dummy{};
@@ -916,21 +960,21 @@ void loop() {
 #if ENABLE_GNSS
   if (!primary_3d_beeped) {
     const GnssTime& pt = gnss_primary.time();
-    const bool primary_fresh = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
-    const bool primary_3d = primary_fresh && pt.fix_ok && pt.fix_type >= 3;
+    const bool primary_solution_fresh = gnss_primary.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const bool primary_3d = primary_solution_fresh && pt.fix_ok && pt.fix_type >= 3;
     if (primary_3d && !buzzer_busy()) {
       buzzer_start_seq(150, 150, 2, now_ms);
       primary_3d_beeped = true;
     }
   }
 
-  const bool primary_fresh = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
-  const bool backup_fresh  = gnss_backup.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+  const bool primary_solution_fresh = gnss_primary.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+  const bool backup_solution_fresh  = gnss_backup.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
 
   if (!gnss_use_backup_as_primary) {
-    if (!primary_fresh && backup_fresh) gnss_use_backup_as_primary = true;
+    if (!primary_solution_fresh && backup_solution_fresh) gnss_use_backup_as_primary = true;
   } else {
-    if (primary_fresh) gnss_use_backup_as_primary = false;
+    if (primary_solution_fresh) gnss_use_backup_as_primary = false;
   }
 
   ByteRing* ring_out_primary = gnss_use_backup_as_primary ? nullptr : &ring;
@@ -1026,12 +1070,12 @@ void loop() {
   const GnssTime* lora_gps = nullptr;
 #if ENABLE_GNSS
   {
-    const bool primary_fresh = gnss_primary.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
-    const bool backup_fresh  = gnss_backup.fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const bool primary_solution_fresh = gnss_primary.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
+    const bool backup_solution_fresh  = gnss_backup.parsed_fresh(now_us, GNSS_FAILOVER_TIMEOUT_US);
     if (!gnss_use_backup_as_primary) {
-      lora_gps = primary_fresh ? &gnss_primary.time() : (backup_fresh ? &gnss_backup.time() : nullptr);
+      lora_gps = primary_solution_fresh ? &gnss_primary.time() : (backup_solution_fresh ? &gnss_backup.time() : nullptr);
     } else {
-      lora_gps = backup_fresh ? &gnss_backup.time() : (primary_fresh ? &gnss_primary.time() : nullptr);
+      lora_gps = backup_solution_fresh ? &gnss_backup.time() : (primary_solution_fresh ? &gnss_primary.time() : nullptr);
     }
   }
 #endif
@@ -1064,6 +1108,9 @@ void loop() {
     uint8_t cmd_arg = 0;
     if (lora.pop_command(cmd, &cmd_arg)) {
       bool ack_enabled_state = sd_logging_enabled;
+      const char* ack_detail = nullptr;
+      char ack_detail_buf[320];
+      ack_detail_buf[0] = '\0';
       if (cmd == LoraCommand::kSdStart) {
         if (!buzzer_busy()) {
           buzzer_start_seq(60, 0, 1, now_ms);
@@ -1116,16 +1163,96 @@ void loop() {
         }
         const bool tx_power_ok = lora.set_tx_power_dbm(cmd_arg);
         ack_enabled_state = tx_power_ok;
+      } else if (cmd == LoraCommand::kLaunchArm) {
+        if (!buzzer_busy()) {
+          buzzer_start_seq(60, 0, 1, now_ms);
+        }
+        const bool allow_without_gps_fix = (cmd_arg != 0);
+        const bool launch_armed = lora.arm_launch_detect_mode(allow_without_gps_fix);
+        ack_enabled_state = launch_armed;
+      } else if (cmd == LoraCommand::kSdRotate) {
+        if (!buzzer_busy()) {
+          buzzer_start_seq(60, 0, 1, now_ms);
+        }
+        if (!sd_logging_enabled) {
+          ack_enabled_state = false;
+          snprintf(ack_detail_buf, sizeof(ack_detail_buf), "sd_rotate requires logging active");
+          ack_detail = ack_detail_buf;
+        } else {
+#if ENABLE_SD_LOGGER
+          const bool close_ok = sdlog.close_log();
+          const bool open_ok = sdlog.open_new_log(PREALLOC_BYTES);
+          const bool rotate_ok = close_ok && open_ok;
+          sd_logging_enabled = rotate_ok;
+          ack_enabled_state = rotate_ok;
+          if (!rotate_ok) {
+            snprintf(ack_detail_buf, sizeof(ack_detail_buf), "Rotate log failed");
+            ack_detail = ack_detail_buf;
+          }
+#else
+          ack_enabled_state = false;
+          snprintf(ack_detail_buf, sizeof(ack_detail_buf), "SD logger disabled");
+          ack_detail = ack_detail_buf;
+#endif
+        }
+      } else if (cmd == LoraCommand::kSdFormat) {
+        if (!buzzer_busy()) {
+          buzzer_start_seq(60, 0, 1, now_ms);
+        }
+        if (sd_logging_enabled) {
+          ack_enabled_state = false;
+          snprintf(ack_detail_buf, sizeof(ack_detail_buf), "Stop logging before format");
+          ack_detail = ack_detail_buf;
+        } else {
+#if ENABLE_SD_LOGGER
+          const bool formatted = sdlog.format_card();
+          if (formatted) {
+            sd_logging_reset_buffers();
+          }
+          ack_enabled_state = formatted;
+          if (!formatted) {
+            snprintf(ack_detail_buf, sizeof(ack_detail_buf), "Format SD failed");
+            ack_detail = ack_detail_buf;
+          }
+#else
+          ack_enabled_state = false;
+          snprintf(ack_detail_buf, sizeof(ack_detail_buf), "SD logger disabled");
+          ack_detail = ack_detail_buf;
+#endif
+        }
+      } else if (cmd == LoraCommand::kSdDumpSample) {
+        if (!buzzer_busy()) {
+          buzzer_start_seq(60, 0, 1, now_ms);
+        }
+        if (sd_logging_enabled) {
+          ack_enabled_state = false;
+          snprintf(ack_detail_buf, sizeof(ack_detail_buf), "Stop logging before dump");
+          ack_detail = ack_detail_buf;
+        } else {
+#if ENABLE_SD_LOGGER
+          const bool sample_ok = sdlog.dump_latest_sample(ack_detail_buf, sizeof(ack_detail_buf));
+          ack_enabled_state = sample_ok;
+          ack_detail = ack_detail_buf;
+#else
+          ack_enabled_state = false;
+          snprintf(ack_detail_buf, sizeof(ack_detail_buf), "SD logger disabled");
+          ack_detail = ack_detail_buf;
+#endif
+        }
       }
       if (cmd != LoraCommand::kBuzzer) {
-        lora.queue_command_ack(cmd, ack_enabled_state);
+        lora.queue_command_ack(cmd, ack_enabled_state, ack_detail);
       }
     }
   }
-#endif
+
+  buzzer_update_recovery_alert(lora.recovery_drogue_deployed(),
+                               lora.recovery_main_deployed(),
+                               now_ms);
+ #endif
 
   // Controlled SD sync
-#if ENABLE_SD_LOGGER
+ #if ENABLE_SD_LOGGER
   if (sd_logging_enabled) {
     sdlog.poll_sync(now_ms);
   }

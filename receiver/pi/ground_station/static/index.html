@@ -35,8 +35,16 @@
               <span id="last-update">--</span>
             </div>
             <div class="top-status-item">
+              <span class="label">Date/Time</span>
+              <span id="datetime-now">--</span>
+            </div>
+            <div class="top-status-item">
               <span class="label">Callsign</span>
               <span id="callsign">--</span>
+            </div>
+            <div class="top-status-item">
+              <span class="label">Flight Time</span>
+              <span id="flight-duration">--</span>
             </div>
           </div>
         </div>
@@ -51,6 +59,15 @@
                   <button class="control-button danger" id="sd-stop" type="button">Stop logging</button>
                 </div>
                 <p class="control-status" id="sd-status">Idle</p>
+              </div>
+              <div class="control-panel">
+                <span class="label">SD Card Functions</span>
+                <div class="control-buttons">
+                  <button class="control-button" id="sd-rotate" type="button">Rotate logfile</button>
+                  <button class="control-button danger" id="sd-format" type="button">Format SD card</button>
+                  <button class="control-button" id="sd-dump-sample" type="button">Dump sample</button>
+                </div>
+                <p class="control-status" id="sd-util-status">Idle</p>
               </div>
               <div class="control-panel">
                 <span class="label">Telemetry TX</span>
@@ -103,6 +120,29 @@
                 </div>
                 <p class="control-status" id="imu-cal-status">Idle</p>
               </div>
+              <div class="control-panel">
+                <span class="label">Launch Detect</span>
+                <div class="control-buttons">
+                  <button class="control-button" id="launch-arm" type="button">Arm launch detect</button>
+                </div>
+                <p class="control-status" id="launch-arm-status">Waiting for GPS 3D fix</p>
+              </div>
+              <div class="control-panel">
+                <span class="label">Sound Cues</span>
+                <div class="control-buttons">
+                  <label class="control-toggle" for="sound-enabled">
+                    <input id="sound-enabled" type="checkbox" checked />
+                    <span>Enable sound cues</span>
+                  </label>
+                  <div class="control-input">
+                    <label for="sound-volume">Volume</label>
+                    <input id="sound-volume" class="control-range" type="range" min="0" max="100" step="1" value="70" />
+                    <div class="control-inline-value" id="sound-volume-value">70%</div>
+                  </div>
+                  <button class="control-button" id="sound-test" type="button">Play test tone</button>
+                </div>
+                <p class="control-status" id="sound-status">Sound cues enabled</p>
+              </div>
               <a class="ghost-button" href="/map-setup">Offline map setup</a>
             </div>
           </details>
@@ -111,6 +151,23 @@
     </header>
 
     <main class="dashboard-layout">
+      <section class="panel phase-strip" aria-label="Flight phase progression">
+        <p class="phase-strip-title">Flight Phase Progression</p>
+        <div class="phase-flow" id="phase-flow">
+          <div class="phase-node" data-phase-index="0">Armed</div>
+          <span class="phase-arrow" aria-hidden="true">→</span>
+          <div class="phase-node" data-phase-index="1">Launch</div>
+          <span class="phase-arrow" aria-hidden="true">→</span>
+          <div class="phase-node" data-phase-index="2">Apogee</div>
+          <span class="phase-arrow" aria-hidden="true">→</span>
+          <div class="phase-node" data-phase-index="3">Drogue</div>
+          <span class="phase-arrow" aria-hidden="true">→</span>
+          <div class="phase-node" data-phase-index="4">Main</div>
+          <span class="phase-arrow" aria-hidden="true">→</span>
+          <div class="phase-node" data-phase-index="5">Landing</div>
+        </div>
+      </section>
+
       <section class="visuals">
         <article class="panel">
           <div class="panel-header">
@@ -190,6 +247,26 @@
             </div>
           </div>
         </article>
+
+        <article class="panel trend-panel">
+          <div class="panel-header">
+            <div>
+              <h2>Flight Trend</h2>
+              <p class="muted">Real-time altitude and vertical-speed traces</p>
+            </div>
+            <div class="status-pill compact">
+              <span id="flight-trend-window">Window --</span>
+            </div>
+          </div>
+          <div class="chart-shell" id="flight-trend-shell">
+            <canvas id="flight-trend-canvas"></canvas>
+            <div class="chart-overlay" id="flight-trend-overlay">Awaiting telemetry...</div>
+            <div class="chart-legend">
+              <span class="legend-chip alt">Altitude (m)</span>
+              <span class="legend-chip vs">Vertical Speed (m/s)</span>
+            </div>
+          </div>
+        </article>
       </section>
 
       <section class="panel telemetry-panel">
@@ -235,6 +312,8 @@
               <div><dt>Sample Time</dt><dd id="navsat-time">--</dd></div>
               <div><dt>SVs Used</dt><dd id="navsat-svs-used">--</dd></div>
               <div><dt>SVs Total</dt><dd id="navsat-svs-total">--</dd></div>
+              <div><dt>HDOP</dt><dd id="navsat-hdop">--</dd></div>
+              <div><dt>GPS 3D Fix</dt><dd id="navsat-fix-3d">--</dd></div>
               <div><dt>C/N0 Max</dt><dd id="navsat-cno-max">--</dd></div>
               <div><dt>C/N0 Avg</dt><dd id="navsat-cno-avg">--</dd></div>
             </dl>
@@ -255,8 +334,11 @@
             <dl>
               <div><dt>Mode</dt><dd id="recovery-mode">--</dd></div>
               <div><dt>Phase</dt><dd id="recovery-phase">--</dd></div>
+              <div><dt>Launch Armed</dt><dd id="recovery-armed">--</dd></div>
+              <div><dt>GPS 3D Fix</dt><dd id="recovery-gps-fix">--</dd></div>
               <div><dt>AGL Altitude</dt><dd id="recovery-agl">--</dd></div>
               <div><dt>Vertical Speed</dt><dd id="recovery-vspeed">--</dd></div>
+              <div><dt>Event Flags</dt><dd id="recovery-event-flags" class="mono">--</dd></div>
               <div><dt>Drogue</dt><dd><span id="recovery-drogue" class="deploy-state">--</span></dd></div>
               <div><dt>Main</dt><dd><span id="recovery-main" class="deploy-state">--</span></dd></div>
             </dl>
@@ -301,6 +383,16 @@
     <footer class="footer">
       <span>Rocket telemetry ground station · receiver-side display</span>
     </footer>
+
+    <div class="modal-backdrop hidden" id="sd-dump-modal" role="dialog" aria-modal="true" aria-labelledby="sd-dump-title">
+      <div class="modal-card">
+        <div class="modal-header">
+          <h3 id="sd-dump-title">SD Dump Sample</h3>
+          <button class="modal-close" id="sd-dump-close" type="button" aria-label="Close">&times;</button>
+        </div>
+        <pre class="sd-dump-content" id="sd-dump-content">No sample yet.</pre>
+      </div>
+    </div>
 
     <script
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"

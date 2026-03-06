@@ -27,6 +27,12 @@ enum CmdType : uint8_t {
   CMD_IMU_CALIBRATE = 0x07,
   CMD_SHUTDOWN = 0x08,
   CMD_SET_TX_POWER = 0x09,
+  CMD_LAUNCH_ARM = 0x0A,
+  CMD_REBOOT = 0x0B,
+  CMD_SD_ROTATE = 0x0C,
+  CMD_SD_FORMAT = 0x0D,
+  CMD_SD_DUMP_SAMPLE = 0x0E,
+  CMD_WIFI_AP_TOGGLE = 0x0F,
 };
 
 #pragma pack(push, 1)
@@ -60,6 +66,11 @@ struct TelemetryV1 {
   uint16_t ground_vbat_mv;
   int32_t gps_alt_mm;
   uint8_t telemetry_tx_power_dbm;
+  uint8_t recovery_event_flags;
+  uint8_t gps_svs_used;
+  uint8_t gps_svs_total;
+  uint16_t gps_hdop_x100;
+  uint8_t companion_flags;
 };
 
 struct AlertV1 {

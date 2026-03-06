@@ -62,6 +62,41 @@
 // Set to 1 to show a quick LCD bring-up test (RGB + text) at boot.
 #define DISPLAY_TEST_SCREEN 1
 
+// Optional SD card bootstrap for future on-device assets (for example: sounds).
+// Set COMPANION_SD_CS_PIN to your board's SD/TF CS pin (or -1 to disable).
+// By default, SD uses a dedicated SPI bus (18/19/23) so TFT/touch SPI is not reconfigured.
+#define COMPANION_SD_ENABLE 0
+#define COMPANION_SD_CS_PIN -1
+#define COMPANION_SD_SPI_FREQ 10000000
+#define COMPANION_SD_SCK_PIN 18
+#define COMPANION_SD_MISO_PIN 19
+#define COMPANION_SD_MOSI_PIN 23
+#define COMPANION_SD_SOUND_DIR "/sounds"
+
+// Optional speaker playback for flight events using WAV files on SD.
+// Configure speaker pin/output and place matching WAV files on the card.
+// Elecrow CrowPanel 3.5 SPK header is driven from GPIO26 (DAC2/PWM-capable).
+#define COMPANION_AUDIO_ENABLE 1
+#define COMPANION_AUDIO_SPK_PIN 26
+#define COMPANION_AUDIO_PWM_CHANNEL 0
+#define COMPANION_AUDIO_PWM_FREQ 32000
+#define COMPANION_AUDIO_PWM_BITS 8
+
+#define COMPANION_SOUND_FILE_POWER_ON "/sounds/power_on.wav"
+#define COMPANION_SOUND_FILE_ARMED "/sounds/armed.wav"
+#define COMPANION_SOUND_FILE_CALIBRATING "/sounds/calibrating.wav"
+#define COMPANION_SOUND_FILE_SENSORS_READY "/sounds/sensors_ready.wav"
+#define COMPANION_SOUND_FILE_WAITING_FOR_LOCATION_FIX "/sounds/waiting_for_location_fix.wav"
+#define COMPANION_SOUND_FILE_LOCATION_FIX_ACQUIRED "/sounds/location_fix_acquired.wav"
+#define COMPANION_SOUND_FILE_LAUNCH_DETECT_MODE "/sounds/launch_detect_mode.wav"
+#define COMPANION_SOUND_FILE_LAUNCH_DETECTED "/sounds/launch_detected.wav"
+#define COMPANION_SOUND_FILE_APOGEE "/sounds/apogee.wav"
+#define COMPANION_SOUND_FILE_DROGUE_DEPLOYED "/sounds/drogue_deployed.wav"
+#define COMPANION_SOUND_FILE_MAIN_DEPLOYED "/sounds/main_deployed.wav"
+#define COMPANION_SOUND_FILE_LANDING_DETECTED "/sounds/landing_detected.wav"
+#define COMPANION_SOUND_FILE_HOME_POINT_SET "/sounds/home_point_set.wav"
+#define COMPANION_SOUND_FILE_AUDIO_TEST "/sounds/audio_test.wav"
+
 // OTA update settings.
 // When enabled, firmware keeps Wi-Fi active even in UART transport mode.
 // First flash should be done over USB, then OTA can be used for updates.
