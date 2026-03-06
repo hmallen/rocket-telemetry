@@ -38,14 +38,21 @@ struct GnssTime {
 // Minimal UBX stream logger + optional NAV-PVT time extraction later.
 class GnssUbx {
 public:
-  explicit GnssUbx(HardwareSerial& serial) : serial_(serial) {}
+  explicit GnssUbx(HardwareSerial& serial, uint8_t ubx_port_id = 1, bool use_legacy_cfg_msg = false)
+      : serial_(serial), ubx_port_id_(ubx_port_id), use_legacy_cfg_msg_(use_legacy_cfg_msg) {}
   bool begin();
   void poll(ByteRing* ring, uint32_t now_us);
   const GnssTime& time() const { return time_; }
   uint32_t last_rx_us() const { return last_rx_us_; }
   uint32_t bytes_rx() const { return bytes_rx_; }
+  uint32_t last_valid_msg_ms() const { return last_valid_msg_ms_; }
   bool fresh(uint32_t now_us, uint32_t timeout_us) const {
     return last_rx_us_ != 0 && (uint32_t)(now_us - last_rx_us_) <= timeout_us;
+  }
+  bool parsed_fresh(uint32_t now_us, uint32_t timeout_us) const {
+    const uint32_t now_ms = (uint32_t)(now_us / 1000U);
+    const uint32_t timeout_ms = (timeout_us + 999U) / 1000U;
+    return time_.last_pvt_ms != 0 && (uint32_t)(now_ms - time_.last_pvt_ms) <= timeout_ms;
   }
 
 private:
@@ -54,9 +61,13 @@ private:
   void parse_byte(uint8_t b, uint32_t now_us);
 
   HardwareSerial& serial_;
+  uint8_t ubx_port_id_ = 1;
+  bool use_legacy_cfg_msg_ = false;
   GnssTime time_;
   uint32_t last_rx_us_ = 0;
   uint32_t bytes_rx_ = 0;
+  uint32_t last_config_ms_ = 0;
+  uint32_t last_valid_msg_ms_ = 0;
   uint8_t sync_ = 0;
   uint8_t cls_ = 0;
   uint8_t id_ = 0;

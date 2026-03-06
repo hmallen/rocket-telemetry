@@ -84,6 +84,7 @@ void GnssUbx::parse_byte(uint8_t b, uint32_t now_us) {
     case 8:
       ck_b_recv_ = b;
       if (ck_a_recv_ == ck_a_ && ck_b_recv_ == ck_b_) {
+        last_valid_msg_ms_ = (uint32_t)(now_us / 1000U);
         if (cls_ == 0x01 && id_ == 0x07 && len_ >= 40) {
           const uint8_t* p = payload_;
           const uint32_t iTOW = rd_u32_le(p + 0);
@@ -111,6 +112,48 @@ void GnssUbx::parse_byte(uint8_t b, uint32_t now_us) {
           time_.last_pvt_ms = (uint32_t)(now_us / 1000U);
         }
 
+        if (cls_ == 0x01 && id_ == 0x02 && len_ >= 28) {
+          const uint8_t* p = payload_;
+          const uint32_t iTOW = rd_u32_le(p + 0);
+          const int32_t lon = rd_i32_le(p + 4);
+          const int32_t lat = rd_i32_le(p + 8);
+          const int32_t height = rd_i32_le(p + 12);
+          time_.tow_ms = iTOW;
+          time_.lon_e7 = lon;
+          time_.lat_e7 = lat;
+          time_.height_mm = height;
+          time_.last_pvt_ms = (uint32_t)(now_us / 1000U);
+        }
+
+        if (cls_ == 0x01 && id_ == 0x03 && len_ >= 16) {
+          const uint8_t* p = payload_;
+          const uint32_t iTOW = rd_u32_le(p + 0);
+          const uint8_t fixType = p[4];
+          const uint8_t flags = p[5];
+          time_.tow_ms = iTOW;
+          time_.fix_type = fixType;
+          time_.fix_ok = (flags & 0x01) != 0;
+        }
+
+        if (cls_ == 0x01 && id_ == 0x06 && len_ >= 48) {
+          const uint8_t* p = payload_;
+          const uint32_t iTOW = rd_u32_le(p + 0);
+          const uint16_t week = rd_u16_le(p + 8);
+          const uint8_t fixType = p[10];
+          const uint8_t flags = p[11];
+          const uint16_t pDOP = rd_u16_le(p + 44);
+          const uint8_t numSV = p[47];
+          time_.tow_ms = iTOW;
+          time_.week = week;
+          time_.fix_type = fixType;
+          time_.fix_ok = (flags & 0x01) != 0;
+          time_.hdop_x100 = pDOP;
+          time_.navsat_num_svs = numSV;
+          if (time_.navsat_num_svs_total < numSV) {
+            time_.navsat_num_svs_total = numSV;
+          }
+        }
+
         if (cls_ == 0x01 && id_ == 0x20 && len_ >= 16) {
           const uint8_t* p = payload_;
           const uint32_t iTOW = rd_u32_le(p + 0);
@@ -134,6 +177,27 @@ void GnssUbx::parse_byte(uint8_t b, uint32_t now_us) {
             s.azim_deg = (int16_t)rd_u16_le(p + off + 4);
             s.pr_res_cm = (int16_t)rd_u16_le(p + off + 6);
             s.flags = rd_u32_le(p + off + 8);
+            time_.navsat[nstore++] = s;
+            off = (uint16_t)(off + 12);
+          }
+          time_.navsat_n = nstore;
+          time_.last_sat_ms = (uint32_t)(now_us / 1000U);
+        }
+
+        if (cls_ == 0x01 && id_ == 0x30 && len_ >= 8) {
+          const uint8_t* p = payload_;
+          const uint8_t numCh = p[4];
+          time_.navsat_num_svs_total = numCh;
+          uint8_t nstore = 0;
+          uint16_t off = 8;
+          while (off + 12 <= len_ && nstore < (uint8_t)(sizeof(time_.navsat) / sizeof(time_.navsat[0]))) {
+            GnssTime::Sat s{};
+            s.gnss_id = 0;
+            s.sv_id = p[off + 1];
+            s.cno = p[off + 4];
+            s.elev_deg = (int8_t)p[off + 5];
+            s.azim_deg = (int16_t)rd_u16_le(p + off + 6);
+            s.flags = p[off + 2];
             time_.navsat[nstore++] = s;
             off = (uint16_t)(off + 12);
           }
@@ -182,7 +246,8 @@ static void write_gnss_chunk(ByteRing& ring, uint32_t t_us, const uint8_t* data,
 
 bool GnssUbx::begin() {
   serial_.begin(GNSS_BAUD);
-  delay(50);
+  delay(250);
+  last_config_ms_ = millis();
   configure();
   return true;
 }
@@ -201,7 +266,7 @@ void GnssUbx::configure() {
     delay(20);
   };
 
-  {
+  auto send_cfg_prt = [&](uint8_t port_id) {
     struct {
       uint8_t portID;
       uint8_t reserved0;
@@ -213,12 +278,20 @@ void GnssUbx::configure() {
       uint16_t flags;
       uint16_t reserved5;
     } p{};
-    p.portID = 1;
+    p.portID = port_id;
     p.mode = 0x08D0;
     p.baudRate = GNSS_BAUD;
     p.inProtoMask = 0x0001;
     p.outProtoMask = 0x0001;
     send(0x06, 0x00, &p, (uint16_t)sizeof(p));
+  };
+
+  if (ubx_port_id_ == 1 || ubx_port_id_ == 2) {
+    send_cfg_prt(ubx_port_id_);
+    send_cfg_prt((ubx_port_id_ == 1) ? 2 : 1);
+  } else {
+    send_cfg_prt(1);
+    send_cfg_prt(2);
   }
 
   {
@@ -236,32 +309,34 @@ void GnssUbx::configure() {
     }
   }
 
-  {
+  auto send_cfg_msg = [&](uint8_t msg_class, uint8_t msg_id) {
     uint8_t p[8] = {0};
-    p[0] = 0x01;
-    p[1] = 0x07;
+    p[0] = msg_class;
+    p[1] = msg_id;
     p[3] = 1;
     p[4] = 1;
     send(0x06, 0x01, p, (uint16_t)sizeof(p));
-  }
+  };
 
-  {
-    uint8_t p[8] = {0};
-    p[0] = 0x01;
-    p[1] = 0x35;
-    p[3] = 1;
-    p[4] = 1;
+  auto send_cfg_msg_legacy = [&](uint8_t msg_class, uint8_t msg_id) {
+    uint8_t p[3] = {msg_class, msg_id, 1};
     send(0x06, 0x01, p, (uint16_t)sizeof(p));
-  }
+  };
 
-  {
-    uint8_t p[8] = {0};
-    p[0] = 0x01;
-    p[1] = 0x20;
-    p[3] = 1;
-    p[4] = 1;
-    send(0x06, 0x01, p, (uint16_t)sizeof(p));
-  }
+  auto enable_msg = [&](uint8_t msg_class, uint8_t msg_id) {
+    send_cfg_msg(msg_class, msg_id);
+    if (use_legacy_cfg_msg_) {
+      send_cfg_msg_legacy(msg_class, msg_id);
+    }
+  };
+
+  enable_msg(0x01, 0x02);
+  enable_msg(0x01, 0x03);
+  enable_msg(0x01, 0x06);
+  enable_msg(0x01, 0x07);
+  enable_msg(0x01, 0x20);
+  enable_msg(0x01, 0x30);
+  enable_msg(0x01, 0x35);
 
   {
     if (GNSS_HZ == 0) return;
@@ -294,5 +369,10 @@ void GnssUbx::poll(ByteRing* ring, uint32_t now_us) {
   if (chunk_n_ && serial_.available() == 0) {
     if (ring) write_gnss_chunk(*ring, now_us, chunk_, chunk_n_);
     chunk_n_ = 0;
+  }
+  const uint32_t now_ms = (uint32_t)(now_us / 1000U);
+  if (time_.last_pvt_ms == 0 && (last_config_ms_ == 0 || (uint32_t)(now_ms - last_config_ms_) >= GNSS_CONFIG_RETRY_MS)) {
+    last_config_ms_ = now_ms;
+    configure();
   }
 }
