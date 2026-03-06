@@ -10,6 +10,7 @@ struct GnssTime {
   uint32_t tow_ms = 0;
   bool fix_ok = false;
   uint8_t fix_type = 0;
+  uint16_t hdop_x100 = 0;
   int32_t lon_e7 = 0;
   int32_t lat_e7 = 0;
   int32_t height_mm = 0;
@@ -25,7 +26,10 @@ struct GnssTime {
     uint32_t flags = 0;
   };
 
+  // Number of satellites used in navigation solution (NAV-PVT numSV).
   uint8_t navsat_num_svs = 0;
+  // Number of satellites visible/tracked (NAV-SAT numSvs).
+  uint8_t navsat_num_svs_total = 0;
   uint8_t navsat_n = 0;
   Sat navsat[16];
   uint32_t last_sat_ms = 0;
@@ -34,14 +38,21 @@ struct GnssTime {
 // Minimal UBX stream logger + optional NAV-PVT time extraction later.
 class GnssUbx {
 public:
-  explicit GnssUbx(HardwareSerial& serial) : serial_(serial) {}
+  explicit GnssUbx(HardwareSerial& serial, uint8_t ubx_port_id = 1, bool use_legacy_cfg_msg = false)
+      : serial_(serial), ubx_port_id_(ubx_port_id), use_legacy_cfg_msg_(use_legacy_cfg_msg) {}
   bool begin();
   void poll(ByteRing* ring, uint32_t now_us);
   const GnssTime& time() const { return time_; }
   uint32_t last_rx_us() const { return last_rx_us_; }
   uint32_t bytes_rx() const { return bytes_rx_; }
+  uint32_t last_valid_msg_ms() const { return last_valid_msg_ms_; }
   bool fresh(uint32_t now_us, uint32_t timeout_us) const {
     return last_rx_us_ != 0 && (uint32_t)(now_us - last_rx_us_) <= timeout_us;
+  }
+  bool parsed_fresh(uint32_t now_us, uint32_t timeout_us) const {
+    const uint32_t now_ms = (uint32_t)(now_us / 1000U);
+    const uint32_t timeout_ms = (timeout_us + 999U) / 1000U;
+    return time_.last_pvt_ms != 0 && (uint32_t)(now_ms - time_.last_pvt_ms) <= timeout_ms;
   }
 
 private:
@@ -50,9 +61,13 @@ private:
   void parse_byte(uint8_t b, uint32_t now_us);
 
   HardwareSerial& serial_;
+  uint8_t ubx_port_id_ = 1;
+  bool use_legacy_cfg_msg_ = false;
   GnssTime time_;
   uint32_t last_rx_us_ = 0;
   uint32_t bytes_rx_ = 0;
+  uint32_t last_config_ms_ = 0;
+  uint32_t last_valid_msg_ms_ = 0;
   uint8_t sync_ = 0;
   uint8_t cls_ = 0;
   uint8_t id_ = 0;
@@ -62,7 +77,9 @@ private:
   uint8_t ck_b_ = 0;
   uint8_t ck_a_recv_ = 0;
   uint8_t ck_b_recv_ = 0;
-  uint8_t payload_[512];
+  // NAV-SAT payload can exceed 512 bytes on modern multi-GNSS receivers.
+  // Keep this large enough to avoid dropping the whole message when many SVs are visible.
+  uint8_t payload_[2048];
   uint8_t chunk_[240];
   uint16_t chunk_n_ = 0;
 };

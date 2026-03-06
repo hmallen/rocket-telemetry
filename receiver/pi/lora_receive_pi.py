@@ -34,15 +34,21 @@ class VoltageMonitorConfig:
     address: int = 0x49
 
     ch_vin: int = 0b11000001
+    # PiZ-UpTime sample mapping: channel 1 = output, channel 2 = battery.
     ch_vout: int = 0b11010001
     ch_vbatt: int = 0b11100001
     ch_tempv: int = 0b11110001
+
+    # ADS word decode mode: "swapped" (legacy SMBus byte-swapped),
+    # "native" (no byte swap), or "auto" (heuristic selection).
+    adc_decode_mode: str = "auto"
+    ground_batt_adc_decode_mode: str = "auto"
 
     vref: float = 6.144
     max_reading: float = 2047.0
 
     group_sleep_s: float = 2.0
-    channel_sleep_s: float = 0.1
+    channel_sleep_s: float = 0.02
 
     vbatt_min: float = 3.1
     vin_min: float = 3.8
@@ -79,6 +85,8 @@ _VOLTAGE_STATE = {
     "warning": None,
     "shutdown_triggered": False,
     "last_error": None,
+    "adc_decode_mode": VOLTAGE_MONITOR_CFG.adc_decode_mode,
+    "ground_batt_adc_decode_mode": VOLTAGE_MONITOR_CFG.ground_batt_adc_decode_mode,
 }
 
 
@@ -92,7 +100,32 @@ def get_voltage_monitor_snapshot():
         return dict(_VOLTAGE_STATE)
 
 
-def _read_adc_voltage(bus, address, channel_cfg, cfg):
+def _decode_adc_voltage_from_raw(raw, cfg, decode_mode):
+    raw_i = int(raw) & 0xFFFF
+
+    swapped_word = (((raw_i & 0xFF) << 8) | ((raw_i >> 8) & 0xFF))
+    swapped_value = (swapped_word >> 4) & 0x0FFF
+    swapped_v = (swapped_value / cfg.max_reading) * cfg.vref
+
+    native_value = (raw_i >> 4) & 0x0FFF
+    native_v = (native_value / cfg.max_reading) * cfg.vref
+
+    mode = str(decode_mode or "swapped").strip().lower()
+    if mode in ("native", "no_swap", "noswap", "direct"):
+        return native_v
+    if mode in ("swapped", "swap"):
+        return swapped_v
+
+    # Auto mode: pick whichever decode path avoids implausibly tiny values
+    # while preserving backward compatibility when both look plausible.
+    if native_v >= 2.0 and swapped_v < 1.0:
+        return native_v
+    if swapped_v >= 2.0 and native_v < 1.0:
+        return swapped_v
+    return swapped_v
+
+
+def _read_adc_voltage(bus, address, channel_cfg, cfg, decode_mode="swapped"):
     bus.write_i2c_block_data(address, 0x01, [0x85, 0x83])
     bus.write_i2c_block_data(address, 0x00, [0x00, 0x00])
     time.sleep(cfg.channel_sleep_s)
@@ -101,9 +134,7 @@ def _read_adc_voltage(bus, address, channel_cfg, cfg):
     time.sleep(cfg.channel_sleep_s)
 
     raw = bus.read_word_data(address, 0x00)
-    value = (((raw & 0xFF) << 8) | ((int(raw) & 0xFFF0) >> 8))
-    value >>= 4
-    return (value / cfg.max_reading) * cfg.vref
+    return _decode_adc_voltage_from_raw(raw, cfg, decode_mode)
 
 
 def _temp_c_from_tempv(temp_v, profile):
@@ -189,10 +220,10 @@ class VoltageMonitor:
         try:
             with SMBus(cfg.i2c_bus) as bus:
                 while not self._stop_event.is_set():
-                    vin = _read_adc_voltage(bus, cfg.address, cfg.ch_vin, cfg)
-                    vbatt = _read_adc_voltage(bus, cfg.address, cfg.ch_vbatt, cfg)
-                    vout = _read_adc_voltage(bus, cfg.address, cfg.ch_vout, cfg)
-                    temp_v = _read_adc_voltage(bus, cfg.address, cfg.ch_tempv, cfg)
+                    vin = _read_adc_voltage(bus, cfg.address, cfg.ch_vin, cfg, cfg.adc_decode_mode)
+                    vbatt = _read_adc_voltage(bus, cfg.address, cfg.ch_vbatt, cfg, cfg.adc_decode_mode)
+                    vout = _read_adc_voltage(bus, cfg.address, cfg.ch_vout, cfg, cfg.adc_decode_mode)
+                    temp_v = _read_adc_voltage(bus, cfg.address, cfg.ch_tempv, cfg, cfg.adc_decode_mode)
 
                     ground_vbat_v = None
                     try:
@@ -201,6 +232,7 @@ class VoltageMonitor:
                             cfg.ground_batt_address,
                             cfg.ground_batt_channel,
                             cfg,
+                            cfg.ground_batt_adc_decode_mode,
                         )
                         scaled_ground_v = (
                             ground_adc_v
@@ -235,6 +267,8 @@ class VoltageMonitor:
                         temp_f=temp_f,
                         warning=warning,
                         last_error=None,
+                        adc_decode_mode=cfg.adc_decode_mode,
+                        ground_batt_adc_decode_mode=cfg.ground_batt_adc_decode_mode,
                     )
                     self._emit_update()
 
@@ -437,9 +471,9 @@ REG_PKT_SNR_VALUE           = 0x19
 REG_PKT_RSSI_VALUE          = 0x1A
 REG_MODEM_CONFIG_1          = 0x1D
 REG_MODEM_CONFIG_2          = 0x1E
+REG_MODEM_CONFIG_3          = 0x26
 REG_PREAMBLE_MSB            = 0x20
 REG_PREAMBLE_LSB            = 0x21
-REG_MODEM_CONFIG_3          = 0x26
 REG_SYNC_WORD               = 0x39
 REG_DIO_MAPPING_1           = 0x40
 REG_VERSION                 = 0x42
@@ -474,6 +508,10 @@ CMD_TELEM_DISABLE = 0x05
 CMD_ALT_CALIBRATE = 0x06
 CMD_IMU_CALIBRATE = 0x07
 CMD_SET_TX_POWER = 0x08
+CMD_LAUNCH_ARM = 0x09
+CMD_SD_ROTATE = 0x0A
+CMD_SD_FORMAT = 0x0B
+CMD_SD_DUMP_SAMPLE = 0x0C
 
 RECOVERY_PHASE_LABELS = {
     0: "idle",
@@ -581,9 +619,9 @@ class SX1278:
         self.set_frequency(433_000_000)
 
         self.write_reg(REG_LNA, self.read_reg(REG_LNA) | 0x03)
-        self.write_reg(REG_MODEM_CONFIG_1, 0x72)  # BW125 / CR4/5
-        self.write_reg(REG_MODEM_CONFIG_2, 0x74)  # SF7 / CRC on
-        self.write_reg(REG_MODEM_CONFIG_3, 0x04)  # AGC on
+        self.write_reg(REG_MODEM_CONFIG_1, 0x72)  # BW125 (0x70) + CR4/5 (0x02) + explicit header
+        self.write_reg(REG_MODEM_CONFIG_2, 0x74)  # SF7 (0x70) + CRC on (0x04)
+        self.write_reg(REG_MODEM_CONFIG_3, 0x04)  # AGC on; low data rate optimize off for SF7/BW125
         self.write_reg(REG_PREAMBLE_MSB, 0x00)
         self.write_reg(REG_PREAMBLE_LSB, 0x08)
         self.write_reg(REG_SYNC_WORD, SYNCWORD_LORA_PUBLIC)
@@ -684,11 +722,36 @@ def decode_payload(payload):
         elif cmd == CMD_SET_TX_POWER:
             cmd_label = "telemetry_tx_power"
             state_label = "tx_power"
+        elif cmd == CMD_LAUNCH_ARM:
+            cmd_label = "launch_arm"
+            state_label = "launch_detect_mode"
+        elif cmd == CMD_SD_ROTATE:
+            cmd_label = "sd_rotate"
+            state_label = "logging"
+        elif cmd == CMD_SD_FORMAT:
+            cmd_label = "sd_format"
+            state_label = "sd_card"
+        elif cmd == CMD_SD_DUMP_SAMPLE:
+            cmd_label = "sd_dump_sample"
+            state_label = "sd_card"
         else:
             cmd_label = "0x%02X" % cmd
+
+        detail = None
+        detail_offset = 4
         if cmd == CMD_SET_TX_POWER and len(payload) >= 5:
             tx_power_dbm = int(payload[4])
+            detail_offset = 5
+            if len(payload) > detail_offset:
+                detail = payload[detail_offset:].decode("ascii", errors="replace").strip("\x00").strip()
+            if detail:
+                return "ACK %s ok=%s active=%ddBm detail=%s" % (cmd_label, enabled, tx_power_dbm, detail)
             return "ACK %s ok=%s active=%ddBm" % (cmd_label, enabled, tx_power_dbm)
+
+        if len(payload) > detail_offset:
+            detail = payload[detail_offset:].decode("ascii", errors="replace").strip("\x00").strip()
+        if detail:
+            return "ACK %s %s=%s detail=%s" % (cmd_label, state_label, enabled, detail)
         return "ACK %s %s=%s" % (cmd_label, state_label, enabled)
     if payload[0] != 0xA1:
         return None
@@ -755,6 +818,16 @@ def decode_payload(payload):
         svs_used = int(payload[7])
         cno_max = int(payload[8])
         cno_avg = int(payload[9])
+        hdop_x100 = int.from_bytes(payload[10:12], "little", signed=False) if len(payload) >= 12 else None
+        if hdop_x100 is not None:
+            return "NAVSAT t_ms=%d svs=%d/%d cno_max=%d cno_avg=%d hdop=%.2f" % (
+                t_ms,
+                svs_used,
+                svs_total,
+                cno_max,
+                cno_avg,
+                hdop_x100 / 100.0,
+            )
         return "NAVSAT t_ms=%d svs=%d/%d cno_max=%d cno_avg=%d" % (
             t_ms,
             svs_used,
@@ -773,21 +846,36 @@ def decode_payload(payload):
         vspeed_mps = int.from_bytes(payload[16:18], "little", signed=True) / 100.0
         drogue_agl_mm = int.from_bytes(payload[18:22], "little", signed=True)
         main_agl_mm = int.from_bytes(payload[22:26], "little", signed=True)
+        sensors_calibrated = bool(flags & 0x01)
+        gps_fix_3d = bool(flags & 0x02)
+        launch_armed = bool(flags & 0x04)
+        launch_detected = bool(flags & 0x08)
+        apogee = bool(flags & 0x10)
+        drogue_deployed = bool(flags & 0x20)
+        main_deployed = bool(flags & 0x40)
+        landing_detected = bool(flags & 0x80)
         drogue_reason_code = int(payload[26]) if len(payload) >= 27 else 0
         main_reason_code = int(payload[27]) if len(payload) >= 28 else 0
         drogue_m = (drogue_agl_mm / 1000.0) if drogue_agl_mm >= 0 else None
         main_m = (main_agl_mm / 1000.0) if main_agl_mm >= 0 else None
         return (
-            "RECOVERY t_ms=%d phase=%s agl=%.1f max_agl=%.1f vs=%.2f drogue=%s"
-            " main=%s drogue_agl=%s main_agl=%s drogue_reason=%s main_reason=%s"
+            "RECOVERY t_ms=%d phase=%s cal=%s gps3d=%s armed=%s launch=%s apogee=%s"
+            " drogue=%s main=%s landed=%s agl=%.1f max_agl=%.1f vs=%.2f"
+            " drogue_agl=%s main_agl=%s drogue_reason=%s main_reason=%s"
         ) % (
             t_ms,
             RECOVERY_PHASE_LABELS.get(phase, str(phase)),
+            "yes" if sensors_calibrated else "no",
+            "yes" if gps_fix_3d else "no",
+            "yes" if launch_armed else "no",
+            "yes" if launch_detected else "no",
+            "yes" if apogee else "no",
+            "yes" if drogue_deployed else "no",
+            "yes" if main_deployed else "no",
+            "yes" if landing_detected else "no",
             agl_m,
             max_agl_m,
             vspeed_mps,
-            "yes" if (flags & 0x01) else "no",
-            "yes" if (flags & 0x02) else "no",
             "%.1f" % drogue_m if drogue_m is not None else "--",
             "%.1f" % main_m if main_m is not None else "--",
             RECOVERY_DROGUE_REASON_LABELS.get(drogue_reason_code, str(drogue_reason_code)),
@@ -821,6 +909,14 @@ def parse_payload(payload):
             cmd_label = "imu_calibrate"
         elif cmd == CMD_SET_TX_POWER:
             cmd_label = "telemetry_tx_power"
+        elif cmd == CMD_LAUNCH_ARM:
+            cmd_label = "launch_arm"
+        elif cmd == CMD_SD_ROTATE:
+            cmd_label = "sd_rotate"
+        elif cmd == CMD_SD_FORMAT:
+            cmd_label = "sd_format"
+        elif cmd == CMD_SD_DUMP_SAMPLE:
+            cmd_label = "sd_dump_sample"
         else:
             cmd_label = "unknown"
         enabled = bool(payload[3])
@@ -829,9 +925,17 @@ def parse_payload(payload):
             "command": cmd_label,
             "enabled": enabled,
         }
+        detail_offset = 4
         if cmd == CMD_SET_TX_POWER and len(payload) >= 5:
             parsed["tx_power_dbm"] = int(payload[4])
+            detail_offset = 5
+        if len(payload) > detail_offset:
+            detail_text = payload[detail_offset:].decode("ascii", errors="replace").strip("\x00").strip()
+            if detail_text:
+                parsed["detail"] = detail_text
         if cmd_label in ("sd_start", "sd_stop"):
+            parsed["logging_enabled"] = enabled
+        elif cmd_label == "sd_rotate":
             parsed["logging_enabled"] = enabled
         elif cmd_label in ("telemetry_enable", "telemetry_disable"):
             parsed["telemetry_enabled"] = enabled
@@ -916,6 +1020,7 @@ def parse_payload(payload):
         if len(payload) < 10:
             return None
         t_ms = int.from_bytes(payload[2:6], "little", signed=False)
+        hdop_x100 = int.from_bytes(payload[10:12], "little", signed=False) if len(payload) >= 12 else None
         return {
             "type": "navsat",
             "t_ms": t_ms,
@@ -923,6 +1028,8 @@ def parse_payload(payload):
             "svs_used": int(payload[7]),
             "cno_max": int(payload[8]),
             "cno_avg": int(payload[9]),
+            "hdop": (hdop_x100 / 100.0) if hdop_x100 is not None else None,
+            "hdop_x100": hdop_x100,
         }
     if typ == 6:
         if len(payload) < 26:
@@ -932,7 +1039,10 @@ def parse_payload(payload):
         # [1]    u8   6                   packet type (recovery)
         # [2:6]  u32  t_ms                telemetry timestamp (ms)
         # [6]    u8   phase               0=idle,1=ascent,2=descent,3=landed
-        # [7]    u8   flags               bit0=drogue deployed, bit1=main deployed
+        # [7]    u8   event_flags         bit0=sensors calibrated, bit1=gps 3d fix,
+        #                                  bit2=launch armed, bit3=launch detected,
+        #                                  bit4=apogee, bit5=drogue deployed,
+        #                                  bit6=main deployed, bit7=landing detected
         # [8:12] i32  agl_mm              current altitude AGL (mm)
         # [12:16]i32  max_agl_mm          max altitude AGL reached (mm)
         # [16:18]i16  vspeed_cms          vertical speed (cm/s)
@@ -955,8 +1065,14 @@ def parse_payload(payload):
             "t_ms": t_ms,
             "phase_code": phase_code,
             "phase": RECOVERY_PHASE_LABELS.get(phase_code, "unknown"),
-            "drogue_deployed": bool(flags & 0x01),
-            "main_deployed": bool(flags & 0x02),
+            "sensors_calibrated": bool(flags & 0x01),
+            "gps_fix_3d": bool(flags & 0x02),
+            "launch_armed": bool(flags & 0x04),
+            "launch_detected": bool(flags & 0x08),
+            "apogee": bool(flags & 0x10),
+            "drogue_deployed": bool(flags & 0x20),
+            "main_deployed": bool(flags & 0x40),
+            "landing_detected": bool(flags & 0x80),
             "altitude_agl_m": agl_mm / 1000.0,
             "max_altitude_agl_m": max_agl_mm / 1000.0,
             "vertical_speed_mps": vspeed_cms / 100.0,

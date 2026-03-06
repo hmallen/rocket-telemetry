@@ -15,6 +15,10 @@ enum class LoraCommand : uint8_t {
   kAltCalibrate = 0x06,
   kImuCalibrate = 0x07,
   kSetTxPower = 0x08,
+  kLaunchArm = 0x09,
+  kSdRotate = 0x0A,
+  kSdFormat = 0x0B,
+  kSdDumpSample = 0x0C,
 };
 
 class LoraLink {
@@ -23,6 +27,7 @@ public:
 
   void enable_tx(bool enable);
   bool set_tx_power_dbm(uint8_t power_dbm);
+  bool arm_launch_detect_mode(bool allow_without_gps_fix = false);
   void shutdown();
   void set_faulted(bool faulted);
 
@@ -30,8 +35,10 @@ public:
   bool tx_enabled() const;
   bool consume_landing_detected_event();
   bool pop_command(LoraCommand& cmd, uint8_t* arg = nullptr);
-  void queue_command_ack(LoraCommand cmd, bool enabled_state);
+  void queue_command_ack(LoraCommand cmd, bool enabled_state, const char* detail = nullptr);
   void request_recovery_calibration();
+  bool recovery_drogue_deployed() const { return recovery_drogue_deployed_; }
+  bool recovery_main_deployed() const { return recovery_main_deployed_; }
 
   // Cleartext telemetry payload (ASCII, human-decodable):
   //   ID=<CALLSIGN>;t_ms=<uint32>;
@@ -57,7 +64,7 @@ private:
   void poll_rx_(uint32_t now_ms);
   bool handle_command_(const uint8_t* data, size_t len);
   void reset_recovery_state_();
-  static int32_t agl_from_press_mm_(int32_t press_pa_x10, int32_t ref_press_pa_x10);
+  public: static int32_t agl_from_press_mm_(int32_t press_pa_x10, int32_t ref_press_pa_x10);
   bool start_id_tx_(uint32_t now_ms, uint16_t vbat_mv);
   bool start_alt_tx_(uint32_t now_ms,
                      int32_t press_pa_x10,
@@ -127,11 +134,15 @@ private:
   int16_t recovery_vspeed_cms_ = 0;
   uint8_t recovery_phase_ = 0;
   bool recovery_launch_armed_ = false;
+  bool recovery_gps_fix_3d_ = false;
+  bool recovery_gps_fix_3d_latched_ = false;
   bool recovery_liftoff_detected_ = false;
+  bool recovery_apogee_detected_ = false;
   bool recovery_have_min_press_ = false;
   int32_t recovery_min_press_pa_x10_ = 0;
   bool recovery_drogue_deployed_ = false;
   bool recovery_main_deployed_ = false;
+  bool recovery_landing_detected_ = false;
   uint8_t recovery_drogue_reason_ = 0;
   uint8_t recovery_main_reason_ = 0;
   int32_t recovery_drogue_deploy_agl_mm_ = -1;
@@ -152,7 +163,7 @@ private:
   uint32_t ack_retry_after_ms_ = 0;
   uint8_t ack_retries_left_ = 0;
   size_t ack_len_ = 0;
-  uint8_t ack_buf_[8] = {0};
+  uint8_t ack_buf_[255] = {0};
 
   bool landing_detected_event_ = false;
   bool landing_detected_latched_ = false;

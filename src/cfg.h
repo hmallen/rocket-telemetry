@@ -23,8 +23,11 @@ constexpr uint32_t SPOOL_BYTES = 6UL * 1024UL * 1024UL;
 
 // ---------- GNSS ----------
 constexpr uint32_t GNSS_BAUD = 115200;
+constexpr uint8_t GNSS_PRIMARY_UBX_PORT_ID = 1;
+constexpr uint8_t GNSS_BACKUP_UBX_PORT_ID = 1;
+constexpr uint32_t GNSS_CONFIG_RETRY_MS = 1000;
 #define GNSS_SERIAL_PRIMARY Serial1
-#define GNSS_SERIAL_BACKUP  Serial2
+#define GNSS_SERIAL_BACKUP  Serial3
 constexpr uint32_t GNSS_FAILOVER_TIMEOUT_US = 2000000;
 constexpr uint8_t  GNSS_PPS_PIN = 2;   // pick an interrupt-capable pin
 
@@ -92,10 +95,10 @@ constexpr const char LORA_CALLSIGN[] = "CALLSIGN";
 #define LORA_CONTROL_OPERATOR_OK 1
 
 // RF parameter discipline: choose minimum BW/SF/power that meets link budget.
-constexpr uint8_t LORA_SF = 7;            // 6..12
-constexpr float   LORA_BW_KHZ = 125.0f;   // one of standard LoRa BWs; validated at startup
-constexpr uint8_t LORA_CR = 5;            // 5..8 => 4/5..4/8
-constexpr int8_t  LORA_TX_POWER_DBM = 10; // conservative default; avoid max/PA_BOOST unless required
+constexpr uint8_t LORA_SF = 7;           // 6..12 (max sensitivity)
+constexpr float   LORA_BW_KHZ = 125.0f;    // narrower BW for improved receiver sensitivity
+constexpr uint8_t LORA_CR = 5;            // 5..8 => 4/5..4/8 (max FEC)
+constexpr int8_t  LORA_TX_POWER_DBM = 10; // SX127x PA_BOOST max in this firmware
 
 // Deterministic scheduling + duty-cycle restraint.
 constexpr uint32_t LORA_MIN_TX_INTERVAL_MS = (1000UL / LORA_HZ);
@@ -161,7 +164,7 @@ constexpr int32_t  LORA_FLIGHT_PRESS_DELTA_PA_X10 = 5000;
 #define LORA_TX_ENABLE_AT_BOOT 0
 
 // ---------- Build toggles ----------
-#define ENABLE_SD_LOGGER 0
+#define ENABLE_SD_LOGGER 1
 #define ENABLE_SD_DUMP 0
 #define ENABLE_PSRAM_SPOOL 1
 #define ENABLE_GNSS 1
