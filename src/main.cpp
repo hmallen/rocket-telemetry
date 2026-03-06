@@ -441,6 +441,11 @@ struct BuzzerSeq {
 };
 
 static BuzzerSeq buzzer_seq;
+static constexpr uint16_t kRecoveryAlertChirpOnMs = 80;
+static constexpr uint16_t kRecoveryAlertChirpGapMs = 90;
+static constexpr uint16_t kRecoveryAlertLoopGapMs = 260;
+static uint32_t recovery_alert_next_ms = 0;
+static uint8_t recovery_alert_last_chirps = 0;
 
 static inline bool buzzer_busy() {
   return buzzer_seq.active;
@@ -508,6 +513,32 @@ static inline void buzzer_ok() {
 
 static inline void buzzer_fail() {
   buzzer_pulse(250, 150, 3);
+}
+
+static void buzzer_update_recovery_alert(bool drogue_deployed, bool main_deployed, uint32_t now_ms) {
+ #if !ENABLE_BUZZER
+   (void)drogue_deployed;
+   (void)main_deployed;
+   (void)now_ms;
+   return;
+ #endif
+   const uint8_t chirps = main_deployed ? 2 : (drogue_deployed ? 1 : 0);
+   if (chirps == 0) {
+     recovery_alert_next_ms = 0;
+     recovery_alert_last_chirps = 0;
+     return;
+   }
+   if (recovery_alert_last_chirps != chirps) {
+     recovery_alert_last_chirps = chirps;
+     recovery_alert_next_ms = now_ms;
+   }
+   if (buzzer_busy()) return;
+   if (recovery_alert_next_ms != 0 && (int32_t)(now_ms - recovery_alert_next_ms) < 0) return;
+
+   buzzer_start_seq(kRecoveryAlertChirpOnMs, kRecoveryAlertChirpGapMs, chirps, now_ms);
+   const uint32_t chirp_train_ms = (uint32_t)chirps * kRecoveryAlertChirpOnMs
+                                 + (uint32_t)(chirps - 1) * kRecoveryAlertChirpGapMs;
+   recovery_alert_next_ms = now_ms + chirp_train_ms + kRecoveryAlertLoopGapMs;
 }
 
 static inline void ring_write_stats() {
@@ -1214,10 +1245,14 @@ void loop() {
       }
     }
   }
-#endif
+
+  buzzer_update_recovery_alert(lora.recovery_drogue_deployed(),
+                               lora.recovery_main_deployed(),
+                               now_ms);
+ #endif
 
   // Controlled SD sync
-#if ENABLE_SD_LOGGER
+ #if ENABLE_SD_LOGGER
   if (sd_logging_enabled) {
     sdlog.poll_sync(now_ms);
   }
