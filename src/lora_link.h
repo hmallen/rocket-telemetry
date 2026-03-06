@@ -36,6 +36,8 @@ public:
   bool pop_command(LoraCommand& cmd, uint8_t* arg = nullptr);
   void queue_command_ack(LoraCommand cmd, bool enabled_state, const char* detail = nullptr);
   void request_recovery_calibration();
+  bool recovery_drogue_deployed() const { return recovery_drogue_deployed_; }
+  bool recovery_main_deployed() const { return recovery_main_deployed_; }
 
   // Cleartext telemetry payload (ASCII, human-decodable):
   //   ID=<CALLSIGN>;t_ms=<uint32>;
