@@ -33,6 +33,7 @@ public:
 
   bool ready() const;
   bool tx_enabled() const;
+  bool consume_landing_detected_event();
   bool pop_command(LoraCommand& cmd, uint8_t* arg = nullptr);
   void queue_command_ack(LoraCommand cmd, bool enabled_state, const char* detail = nullptr);
   void request_recovery_calibration();
@@ -163,4 +164,12 @@ private:
   uint8_t ack_retries_left_ = 0;
   size_t ack_len_ = 0;
   uint8_t ack_buf_[255] = {0};
+
+  bool landing_detected_event_ = false;
+  bool landing_detected_latched_ = false;
+  bool flight_detected_ = false;
+  bool landing_window_open_ = false;
+  int32_t flight_baseline_press_ = 0;
+  int32_t landing_ref_press_ = 0;
+  uint32_t landing_stable_start_ms_ = 0;
 };
