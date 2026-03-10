@@ -27,6 +27,35 @@ if not hasattr(time, "sleep_ms"):
     time.sleep_ms = sleep_ms
 
 
+def _env_str(name, default):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    value = str(value).strip()
+    return value if value else default
+
+
+def _env_int(name, default):
+    try:
+        return int(_env_str(name, default))
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _env_float(name, default):
+    try:
+        return float(_env_str(name, default))
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _env_bool(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
 @dataclass(frozen=True)
 class VoltageMonitorConfig:
     i2c_bus: int = 1
@@ -50,12 +79,12 @@ class VoltageMonitorConfig:
     group_sleep_s: float = 2.0
     channel_sleep_s: float = 0.02
 
-    vbatt_min: float = 3.1
-    vin_min: float = 3.8
+    vbatt_min: float = _env_float("GS_UPS_VBATT_MIN_V", 3.1)
+    vin_min: float = _env_float("GS_UPS_VIN_MIN_V", 3.8)
     temp_min_c: float = 5.0
     temp_max_c: float = 60.0
 
-    shutdown_cmd: str = "shutdown -h 2 &"
+    shutdown_cmd: str = _env_str("GS_VOLTAGE_MONITOR_SHUTDOWN_CMD", "sudo shutdown -h now")
     temp_profile: str = "piz_uptime_2"
 
     # External ADS1115 for ground battery sensing (A0 via 100k/100k divider).
@@ -64,6 +93,10 @@ class VoltageMonitorConfig:
     ground_batt_divider_scale: float = 2.0
     ground_batt_cal_scale: float = 1.0
     ground_batt_min_v: float = 0.2
+    ground_batt_warn_v: float = _env_float("GS_GROUND_BATT_WARN_V", 6.8)
+    ground_batt_shutdown_v: float = _env_float("GS_GROUND_BATT_SHUTDOWN_V", 6.4)
+    ground_batt_shutdown_samples: int = max(1, _env_int("GS_GROUND_BATT_SHUTDOWN_SAMPLES", 3))
+    ground_batt_auto_shutdown: bool = _env_bool("GS_GROUND_BATT_AUTO_SHUTDOWN", True)
 
 
 VOLTAGE_MONITOR_CFG = VoltageMonitorConfig()
@@ -84,7 +117,15 @@ _VOLTAGE_STATE = {
     "temp_f": None,
     "warning": None,
     "shutdown_triggered": False,
+    "shutdown_reason": None,
     "last_error": None,
+    "ups_vin_min_v": VOLTAGE_MONITOR_CFG.vin_min,
+    "ups_vbatt_min_v": VOLTAGE_MONITOR_CFG.vbatt_min,
+    "ground_batt_warn_v": VOLTAGE_MONITOR_CFG.ground_batt_warn_v,
+    "ground_batt_shutdown_v": VOLTAGE_MONITOR_CFG.ground_batt_shutdown_v,
+    "ground_batt_shutdown_samples": VOLTAGE_MONITOR_CFG.ground_batt_shutdown_samples,
+    "ground_batt_auto_shutdown": VOLTAGE_MONITOR_CFG.ground_batt_auto_shutdown,
+    "ground_batt_low_samples": 0,
     "adc_decode_mode": VOLTAGE_MONITOR_CFG.adc_decode_mode,
     "ground_batt_adc_decode_mode": VOLTAGE_MONITOR_CFG.ground_batt_adc_decode_mode,
 }
@@ -168,7 +209,9 @@ class VoltageMonitor:
             status="idle" if self._enabled else "disabled",
             disabled_reason=self._disabled_reason,
             warning=None,
+            shutdown_reason=None,
             last_error=None,
+            ground_batt_low_samples=0,
         )
 
     def _emit_update(self):
@@ -192,7 +235,9 @@ class VoltageMonitor:
             running=True,
             status="running",
             shutdown_triggered=False,
+            shutdown_reason=None,
             last_error=None,
+            ground_batt_low_samples=0,
         )
         self._emit_update()
 
@@ -214,6 +259,7 @@ class VoltageMonitor:
 
     def _run(self):
         cfg = self._cfg
+        ground_batt_low_samples = 0
         print("Date & Time               Vin   Vout  Batt-V  GS-Batt  Board Temperature")
         sys.stdout.flush()
 
@@ -246,13 +292,28 @@ class VoltageMonitor:
 
                     temp_c = _temp_c_from_tempv(temp_v, cfg.temp_profile)
                     temp_f = temp_c * 1.8 + 32.0
-                    warning = None
+                    warnings = []
 
                     if vin > cfg.vin_min:
                         if temp_c < cfg.temp_min_c:
-                            warning = "Temperature too cold for charging"
+                            warnings.append("Temperature too cold for charging")
                         elif temp_c > cfg.temp_max_c:
-                            warning = "Temperature too hot for charging"
+                            warnings.append("Temperature too hot for charging")
+
+                    if ground_vbat_v is not None and cfg.ground_batt_warn_v > 0 and ground_vbat_v <= cfg.ground_batt_warn_v:
+                        warnings.append("Ground battery low: %.2fV" % ground_vbat_v)
+
+                    if (
+                        cfg.ground_batt_auto_shutdown
+                        and ground_vbat_v is not None
+                        and cfg.ground_batt_shutdown_v > 0
+                        and ground_vbat_v <= cfg.ground_batt_shutdown_v
+                    ):
+                        ground_batt_low_samples += 1
+                    else:
+                        ground_batt_low_samples = 0
+
+                    warning = "; ".join(warnings) if warnings else None
 
                     _update_voltage_state(
                         timestamp=time.time(),
@@ -266,7 +327,15 @@ class VoltageMonitor:
                         temp_c=temp_c,
                         temp_f=temp_f,
                         warning=warning,
+                        shutdown_reason=None,
                         last_error=None,
+                        ups_vin_min_v=cfg.vin_min,
+                        ups_vbatt_min_v=cfg.vbatt_min,
+                        ground_batt_warn_v=cfg.ground_batt_warn_v,
+                        ground_batt_shutdown_v=cfg.ground_batt_shutdown_v,
+                        ground_batt_shutdown_samples=cfg.ground_batt_shutdown_samples,
+                        ground_batt_auto_shutdown=cfg.ground_batt_auto_shutdown,
+                        ground_batt_low_samples=ground_batt_low_samples,
                         adc_decode_mode=cfg.adc_decode_mode,
                         ground_batt_adc_decode_mode=cfg.ground_batt_adc_decode_mode,
                     )
@@ -279,22 +348,62 @@ class VoltageMonitor:
                     )
                     sys.stdout.flush()
 
+                    shutdown_reason = None
+                    shutdown_warning = None
                     if vin < cfg.vin_min and vbatt < cfg.vbatt_min:
+                        shutdown_reason = "ups_low_voltage"
+                        shutdown_warning = "Vin and battery below limits"
+                    elif (
+                        cfg.ground_batt_auto_shutdown
+                        and ground_vbat_v is not None
+                        and cfg.ground_batt_shutdown_v > 0
+                        and ground_batt_low_samples >= cfg.ground_batt_shutdown_samples
+                    ):
+                        shutdown_reason = "ground_battery_low"
+                        shutdown_warning = (
+                            "Ground battery %.2fV is below %.2fV for %d samples"
+                            % (
+                                ground_vbat_v,
+                                cfg.ground_batt_shutdown_v,
+                                ground_batt_low_samples,
+                            )
+                        )
+
+                    if shutdown_reason is not None:
                         _update_voltage_state(
                             running=False,
                             status="shutdown-triggered",
                             shutdown_triggered=True,
-                            warning="Vin and battery below limits",
+                            warning=shutdown_warning,
+                            shutdown_reason=shutdown_reason,
+                            ground_batt_low_samples=ground_batt_low_samples,
                         )
                         self._emit_update()
                         print("Shutdown initiated at %s" % time.ctime())
-                        print(
-                            "At %s, Vin = %4.2f, Vout = %4.2f, Vbattery = %4.2f, Temperature = %5.2fC %5.2fF"
-                            % (time.ctime(), vin, vout, vbatt, temp_c, temp_f)
-                        )
+                        if shutdown_reason == "ground_battery_low":
+                            print(
+                                "At %s, Ground battery = %4.2fV, threshold = %4.2fV, low_samples = %d"
+                                % (
+                                    time.ctime(),
+                                    ground_vbat_v,
+                                    cfg.ground_batt_shutdown_v,
+                                    ground_batt_low_samples,
+                                )
+                            )
+                        else:
+                            print(
+                                "At %s, Vin = %4.2f, Vout = %4.2f, Vbattery = %4.2f, Temperature = %5.2fC %5.2fF"
+                                % (time.ctime(), vin, vout, vbatt, temp_c, temp_f)
+                            )
                         sys.stdout.flush()
-                        subprocess.call(cfg.shutdown_cmd, shell=True)
-                        time.sleep(2)
+                        subprocess.Popen(
+                            cfg.shutdown_cmd,
+                            shell=True,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                            start_new_session=True,
+                        )
+                        time.sleep(0.2)
                         return
 
                     if vin > cfg.vin_min:
