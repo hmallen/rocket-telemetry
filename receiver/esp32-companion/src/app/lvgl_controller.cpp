@@ -535,11 +535,11 @@ void LvglController::buildUi() {
 
   cmdStatusLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(cmdStatusLabel_, lv_color_hex(0x6be7a4), 0);
-  lv_obj_align(cmdStatusLabel_, LV_ALIGN_BOTTOM_RIGHT, 0, 8);
+  lv_obj_align(cmdStatusLabel_, LV_ALIGN_BOTTOM_RIGHT, 0, 20);
 
   alertLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(alertLabel_, lv_color_hex(0xff8181), 0);
-  lv_obj_align(alertLabel_, LV_ALIGN_BOTTOM_RIGHT, 0, -36);
+  lv_obj_align(alertLabel_, LV_ALIGN_BOTTOM_RIGHT, 0, -8);
 
   touchDebugLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_width(touchDebugLabel_, 162);
