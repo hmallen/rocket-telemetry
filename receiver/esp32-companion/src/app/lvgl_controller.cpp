@@ -505,7 +505,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_text_color(phaseChecklistLabel_, lv_color_hex(0xb8c9e6), 0);
   lv_obj_set_style_text_align(phaseChecklistLabel_, LV_TEXT_ALIGN_LEFT, 0);
   lv_obj_clear_flag(phaseChecklistLabel_, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_align(phaseChecklistLabel_, LV_ALIGN_TOP_RIGHT, 10, 72);
+  lv_obj_align(phaseChecklistLabel_, LV_ALIGN_TOP_RIGHT, 18, 72);
 
   callsignLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_width(callsignLabel_, 220);
@@ -535,7 +535,7 @@ void LvglController::buildUi() {
 
   cmdStatusLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(cmdStatusLabel_, lv_color_hex(0x6be7a4), 0);
-  lv_obj_align(cmdStatusLabel_, LV_ALIGN_BOTTOM_RIGHT, 0, -8);
+  lv_obj_align(cmdStatusLabel_, LV_ALIGN_BOTTOM_RIGHT, 0, 8);
 
   alertLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(alertLabel_, lv_color_hex(0xff8181), 0);
