@@ -311,6 +311,9 @@ bool ApiClient::applyStateJson(const String& jsonPayload, CompanionState& ioStat
       battery["vbat_v"].isNull() ? NAN : (float)battery["vbat_v"].as<float>();
   ioState.battery.groundVbatV =
       battery["ground_vbat_v"].isNull() ? NAN : (float)battery["ground_vbat_v"].as<float>();
+  ioState.battery.groundLow = !battery["ground_low"].isNull() && battery["ground_low"].as<bool>();
+  ioState.battery.groundCritical =
+      !battery["ground_critical"].isNull() && battery["ground_critical"].as<bool>();
   ioState.battery.label = String((const char*)(battery["bat_state_label"] | ""));
 
   JsonObject sdLogging = state["sd_logging"];
