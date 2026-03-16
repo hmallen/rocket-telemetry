@@ -743,7 +743,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_pad_bottom(settingsBody_, 6, 0);
   lv_obj_set_style_pad_left(settingsBody_, 10, 0);
   lv_obj_set_style_pad_right(settingsBody_, 10, 0);
-  lv_obj_set_style_pad_gap(settingsBody_, 6, 0);
+  lv_obj_set_style_pad_gap(settingsBody_, 10, 0);
   lv_obj_set_flex_flow(settingsBody_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(settingsBody_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_SCROLLABLE);
@@ -897,7 +897,10 @@ void LvglController::buildUi() {
   lv_obj_set_height(txPowerConfigRow_, LV_SIZE_CONTENT);
   lv_obj_set_style_bg_opa(txPowerConfigRow_, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(txPowerConfigRow_, 0, 0);
-  lv_obj_set_style_pad_all(txPowerConfigRow_, 0, 0);
+  lv_obj_set_style_pad_top(txPowerConfigRow_, 0, 0);
+  lv_obj_set_style_pad_bottom(txPowerConfigRow_, 0, 0);
+  lv_obj_set_style_pad_left(txPowerConfigRow_, 6, 0);
+  lv_obj_set_style_pad_right(txPowerConfigRow_, 6, 0);
   lv_obj_set_style_pad_gap(txPowerConfigRow_, kSettingsRowGapPx, 0);
   lv_obj_set_flex_flow(txPowerConfigRow_, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(txPowerConfigRow_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
