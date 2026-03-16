@@ -26,7 +26,7 @@ constexpr int32_t kTouchReleaseThreshold = 90;
 constexpr lv_coord_t kActionPanelGapPx = 10;
 constexpr lv_coord_t kActionItemsGapPx = 16;
 constexpr lv_coord_t kSettingsButtonHeight = 28;
-constexpr lv_coord_t kSettingsStackGapPx = 24;
+constexpr lv_coord_t kSettingsStackGapPx = 12;
 constexpr lv_coord_t kSettingsPanelMaxHeight = 262;
 constexpr lv_coord_t kSettingsRowGapPx = 14;
 constexpr int32_t kTrendChartScaleMax = 100;
@@ -535,7 +535,7 @@ void LvglController::buildUi() {
 
   cmdStatusLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(cmdStatusLabel_, lv_color_hex(0x6be7a4), 0);
-  lv_obj_align(cmdStatusLabel_, LV_ALIGN_BOTTOM_RIGHT, 0, 20);
+  lv_obj_align(cmdStatusLabel_, LV_ALIGN_BOTTOM_RIGHT, 0, -24);
 
   alertLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(alertLabel_, lv_color_hex(0xff8181), 0);
@@ -821,8 +821,11 @@ void LvglController::buildUi() {
     lv_obj_align(settingsMainPages_[i], LV_ALIGN_TOP_LEFT, 0, 0);
     lv_obj_set_style_bg_opa(settingsMainPages_[i], LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(settingsMainPages_[i], 0, 0);
-    lv_obj_set_style_pad_all(settingsMainPages_[i], 0, 0);
-    lv_obj_set_style_pad_gap(settingsMainPages_[i], kSettingsStackGapPx, 0);
+    lv_obj_set_style_pad_top(settingsMainPages_[i], 4, 0);
+    lv_obj_set_style_pad_bottom(settingsMainPages_[i], 4, 0);
+    lv_obj_set_style_pad_left(settingsMainPages_[i], 6, 0);
+    lv_obj_set_style_pad_right(settingsMainPages_[i], 6, 0);
+    lv_obj_set_style_pad_gap(settingsMainPages_[i], 8, 0);
     lv_obj_set_flex_flow(settingsMainPages_[i], LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(settingsMainPages_[i], LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
     lv_obj_clear_flag(settingsMainPages_[i], LV_OBJ_FLAG_SCROLLABLE);
@@ -1026,7 +1029,10 @@ void LvglController::buildUi() {
   lv_obj_align(soundSettingsPanel_, LV_ALIGN_TOP_LEFT, 0, 0);
   lv_obj_set_style_bg_opa(soundSettingsPanel_, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(soundSettingsPanel_, 0, 0);
-  lv_obj_set_style_pad_all(soundSettingsPanel_, 0, 0);
+  lv_obj_set_style_pad_top(soundSettingsPanel_, 4, 0);
+  lv_obj_set_style_pad_bottom(soundSettingsPanel_, 4, 0);
+  lv_obj_set_style_pad_left(soundSettingsPanel_, 6, 0);
+  lv_obj_set_style_pad_right(soundSettingsPanel_, 6, 0);
   lv_obj_set_style_pad_gap(soundSettingsPanel_, kSettingsStackGapPx, 0);
   lv_obj_set_flex_flow(soundSettingsPanel_, LV_FLEX_FLOW_COLUMN);
   lv_obj_clear_flag(soundSettingsPanel_, LV_OBJ_FLAG_SCROLLABLE);
@@ -1086,7 +1092,10 @@ void LvglController::buildUi() {
   lv_obj_align(sdFunctionsPanel_, LV_ALIGN_TOP_LEFT, 0, 0);
   lv_obj_set_style_bg_opa(sdFunctionsPanel_, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(sdFunctionsPanel_, 0, 0);
-  lv_obj_set_style_pad_all(sdFunctionsPanel_, 0, 0);
+  lv_obj_set_style_pad_top(sdFunctionsPanel_, 4, 0);
+  lv_obj_set_style_pad_bottom(sdFunctionsPanel_, 4, 0);
+  lv_obj_set_style_pad_left(sdFunctionsPanel_, 6, 0);
+  lv_obj_set_style_pad_right(sdFunctionsPanel_, 6, 0);
   lv_obj_set_style_pad_gap(sdFunctionsPanel_, kSettingsStackGapPx, 0);
   lv_obj_set_flex_flow(sdFunctionsPanel_, LV_FLEX_FLOW_COLUMN);
   lv_obj_clear_flag(sdFunctionsPanel_, LV_OBJ_FLAG_SCROLLABLE);
