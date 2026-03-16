@@ -1333,8 +1333,8 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(trendRangeLabel_, LV_OBJ_FLAG_CLICKABLE);
 
   trendChart_ = lv_chart_create(trendPage_);
-  lv_obj_set_size(trendChart_, kScreenWidth - 16, 260);
-  lv_obj_align(trendChart_, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_set_size(trendChart_, kScreenWidth - 16, 244);
+  lv_obj_align(trendChart_, LV_ALIGN_TOP_MID, 0, 60);
   lv_obj_set_style_bg_color(trendChart_, lv_color_hex(0x0b1220), 0);
   lv_obj_set_style_bg_grad_color(trendChart_, lv_color_hex(0x13263c), 0);
   lv_obj_set_style_bg_grad_dir(trendChart_, LV_GRAD_DIR_VER, 0);
