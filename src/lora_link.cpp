@@ -125,6 +125,13 @@ bool LoraLink::begin() {
   began_ = true;
   mission_start_ms_ = millis();
   request_recovery_calibration();
+  landing_detected_event_ = false;
+  landing_detected_latched_ = false;
+  flight_detected_ = false;
+  landing_window_open_ = false;
+  flight_baseline_press_ = 0;
+  landing_ref_press_ = 0;
+  landing_stable_start_ms_ = 0;
 
   config_ok_ = validate_config_();
 
@@ -199,6 +206,12 @@ bool LoraLink::tx_enabled() const {
   return tx_enabled_;
 }
 
+bool LoraLink::consume_landing_detected_event() {
+  const bool triggered = landing_detected_event_;
+  landing_detected_event_ = false;
+  return triggered;
+}
+
 void LoraLink::request_recovery_calibration() {
   reset_recovery_state_();
 
@@ -241,6 +254,13 @@ void LoraLink::reset_recovery_state_() {
   recovery_main_reason_ = RECOVERY_REASON_NONE;
   recovery_drogue_deploy_agl_mm_ = -1;
   recovery_main_deploy_agl_mm_ = -1;
+  landing_detected_event_ = false;
+  landing_detected_latched_ = false;
+  flight_detected_ = false;
+  landing_window_open_ = false;
+  flight_baseline_press_ = 0;
+  landing_ref_press_ = 0;
+  landing_stable_start_ms_ = 0;
 }
 
 int32_t LoraLink::agl_from_press_mm_(int32_t press_pa_x10, int32_t ref_press_pa_x10) {
@@ -493,38 +513,37 @@ void LoraLink::poll_telem(uint32_t now_ms,
 
   // Automatic transmitter shutdown after landing: detect stable pressure after flight.
   // Flight heuristic: a large pressure delta vs initial baseline indicates ascent/descent.
-  static bool flight_detected = false;
-  static bool landing_window_open = false;
-  static int32_t flight_baseline_press = 0;
-  static int32_t landing_ref_press = 0;
-  static uint32_t landing_stable_start_ms = 0;
-
-  if (!flight_baseline_press && press_pa_x10 != 0) {
-    flight_baseline_press = press_pa_x10;
+  if (!flight_baseline_press_ && press_pa_x10 != 0) {
+    flight_baseline_press_ = press_pa_x10;
   }
 
-  if (!flight_detected && flight_baseline_press) {
-    if (abs_i32(press_pa_x10 - flight_baseline_press) >= LORA_FLIGHT_PRESS_DELTA_PA_X10) {
-      flight_detected = true;
-      landing_window_open = true;
-      landing_stable_start_ms = 0;
-      landing_ref_press = press_pa_x10;
+  if (!flight_detected_ && flight_baseline_press_) {
+    if (abs_i32(press_pa_x10 - flight_baseline_press_) >= LORA_FLIGHT_PRESS_DELTA_PA_X10) {
+      flight_detected_ = true;
+      landing_window_open_ = true;
+      landing_stable_start_ms_ = 0;
+      landing_ref_press_ = press_pa_x10;
     }
   }
 
-  if (flight_detected && landing_window_open) {
-    if (landing_stable_start_ms == 0) {
-      landing_ref_press = press_pa_x10;
-      landing_stable_start_ms = now_ms;
+  if (flight_detected_ && landing_window_open_) {
+    if (landing_stable_start_ms_ == 0) {
+      landing_ref_press_ = press_pa_x10;
+      landing_stable_start_ms_ = now_ms;
     }
 
-    if (abs_i32(press_pa_x10 - landing_ref_press) > LORA_LANDING_PRESS_STABLE_DELTA_PA_X10) {
-      landing_ref_press = press_pa_x10;
-      landing_stable_start_ms = now_ms;
+    if (abs_i32(press_pa_x10 - landing_ref_press_) > LORA_LANDING_PRESS_STABLE_DELTA_PA_X10) {
+      landing_ref_press_ = press_pa_x10;
+      landing_stable_start_ms_ = now_ms;
     }
 
-    if ((uint32_t)(now_ms - landing_stable_start_ms) >= LORA_LANDING_STABLE_MS) {
-      DBG_PRINTLN("lora: landing detected");
+    if ((uint32_t)(now_ms - landing_stable_start_ms_) >= LORA_LANDING_STABLE_MS) {
+      if (!landing_detected_latched_) {
+        landing_detected_latched_ = true;
+        landing_detected_event_ = true;
+        DBG_PRINTLN("lora: landing detected");
+      }
+      landing_window_open_ = false;
 #if LORA_HEARTBEAT_ENABLE
       if (tx_enabled_) {
         DBG_PRINTLN("lora: landing -> heartbeat-only");
