@@ -2,17 +2,17 @@
 
 High-rate flight data logger / telemetry firmware for a **Teensy 4.1** (Arduino framework via PlatformIO).
 
-The firmware samples sensors, timestamps data with `micros()`, optionally anchors time to GNSS PPS, buffers records through a fast in-RAM ring (and optional PSRAM “spool”), and can write framed binary blocks to SD (Teensy 4.1 SDIO). A LoRa downlink module exists but is **disabled by default** and includes **FCC Part 97** guardrails.
+The firmware samples sensors, timestamps data with `micros()`, optionally anchors time to GNSS PPS, buffers records through a fast in-RAM ring (and optional PSRAM “spool”), and can write framed binary blocks to SD (Teensy 4.1 SDIO). A LoRa downlink module exists (enabled by default) and includes **FCC Part 97** guardrails.
 
 ## Status / defaults
 
 `src/cfg.h` controls feature toggles. Current defaults in this repo:
 
-- **SD logging**: disabled (`ENABLE_SD_LOGGER 0`)
+- **SD logging**: enabled (`ENABLE_SD_LOGGER 1`)
 - **PSRAM spool**: enabled (`ENABLE_PSRAM_SPOOL 1`)
 - **GNSS**: enabled (`ENABLE_GNSS 1`) (raw UBX byte logging; configuration is a stub)
 - **Sensors**: enabled (`ENABLE_SENSORS 1`)
-- **LoRa**: disabled (`ENABLE_LORA 0`, `LORA_CONTROL_OPERATOR_OK 0`)
+- **LoRa**: enabled (`ENABLE_LORA 1`, `LORA_CONTROL_OPERATOR_OK 1`)
 
 ## Hardware
 
@@ -22,10 +22,10 @@ The firmware samples sensors, timestamps data with `micros()`, optionally anchor
 
 ### Sensors / peripherals (as implemented)
 
-- **Barometer**: BMP3XX (configured via SPI)
+- **Barometer**: BMP3XX (configured via SPI) and BMP180 (I2C) as `baro2`
 - **Gyro**: Adafruit L3GD20 (I2C)
 - **Accelerometer**: Adafruit LSM303 (I2C)
-- **GNSS**: two UARTs (`Serial1` primary, `Serial2` backup) + PPS input
+- **GNSS**: two UARTs (`Serial1` primary, `Serial3` backup) + PPS input
 - **SD**: Teensy 4.1 on-board SDIO (when enabled)
 - **LoRa**: SX1276 via RadioLib (when enabled)
 
@@ -35,14 +35,14 @@ All pins and bus settings are defined in `src/cfg.h`:
 
 - **GNSS**
   - `GNSS_SERIAL_PRIMARY`: `Serial1`
-  - `GNSS_SERIAL_BACKUP`: `Serial2`
+  - `GNSS_SERIAL_BACKUP`: `Serial3`
   - `GNSS_PPS_PIN`: `2`
   - `GNSS_BAUD`: `115200`
 - **Buzzer**: `BUZZER_PIN = 28` (short beep every ~2 seconds)
-- **I2C**: `Wire`, `I2C_HZ = 1,000,000`
+- **I2C**: `Wire`, `I2C_HZ = 400,000`
 - **BMP3XX SPI**
   - `BMP_SPI_BUS = SPI`
-  - `BMP_CS = 6`
+  - `BMP_CS = 38`
 - **LoRa (SX127x)**
   - `LORA_CS = 10`, `LORA_DIO0 = 9`, `LORA_RST = 8`
 
@@ -96,9 +96,11 @@ Record types currently used:
 
 - `REC_IMU_FAST` (accel/gyro)
 - `REC_BARO`
+- `REC_BARO2` (BMP180)
 - `REC_GNSS_CHUNK` (raw bytes)
 - `REC_TIME_ANCHOR` (PPS-to-GNSS time anchor)
-- `REC_STATS` (drop counters, SD write error counter)
+- `REC_EVENT` (markers)
+- `REC_STATS` (drop counters, voltages, SD write error counter)
 
 ### SD block framing
 
@@ -115,13 +117,13 @@ When SD logging is enabled, data is written as a sequence of blocks:
 
 Log files are named `LOG00000.BIN`, `LOG00001.BIN`, ... and are preallocated (see `PREALLOC_BYTES`).
 
-## LoRa telemetry (disabled by default)
+## LoRa telemetry
 
 The LoRa downlink code (`src/lora_link.*`) is intended for **FCC Part 97** amateur telemetry and includes multiple safeguards:
 
 - Transmit is blocked unless you explicitly set `LORA_CONTROL_OPERATOR_OK 1`.
 - Transmit is disabled at boot by default (`LORA_TX_ENABLE_AT_BOOT 0`).
-- Telemetry payload is **cleartext ASCII** and always includes `ID=<CALLSIGN>`.
+- Telemetry payload uses a **custom binary format** and includes the callsign as an identifier byte sequence.
 
 If you enable LoRa, you must also set a real `LORA_CALLSIGN` and ensure you are operating legally and under appropriate supervision.
 
@@ -133,6 +135,15 @@ Edit `src/cfg.h` for:
 - Buffer sizes (`RING_BYTES`, `SPOOL_BYTES`)
 - SD write/sync parameters (`LOG_BLOCK_BYTES`, `SD_SYNC_MS`, `PREALLOC_BYTES`)
 - Enabling/disabling features (the `ENABLE_*` macros)
+
+
+## Receiver Tools
+
+The project includes several ground-side companion tools located in the `receiver/` directory:
+
+- **ESP32 Companion** (`receiver/esp32-companion`): An ESP32-based application using the Arduino framework and LVGL to display live telemetry data received over LoRa.
+- **Pi Ground Station** (`receiver/pi`): A Python-based ground station server designed to run on a Raspberry Pi, providing a web interface, logging, and mapping capabilities.
+- **Pico Emulator** (`receiver/pico`): A LoRa flight emulator for the Raspberry Pi Pico to generate simulated telemetry data for testing ground station setups.
 
 ## License
 

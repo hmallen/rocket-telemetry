@@ -26,7 +26,8 @@ constexpr int32_t kTouchReleaseThreshold = 90;
 constexpr lv_coord_t kActionPanelGapPx = 10;
 constexpr lv_coord_t kActionItemsGapPx = 16;
 constexpr lv_coord_t kSettingsButtonHeight = 28;
-constexpr lv_coord_t kSettingsStackGapPx = 24;
+constexpr lv_coord_t kSettingsStackGapPx = 12;
+constexpr lv_coord_t kSettingsPanelMaxHeight = 262;
 constexpr lv_coord_t kSettingsRowGapPx = 14;
 constexpr int32_t kTrendChartScaleMax = 100;
 constexpr float kTrendAltMinSpanM = 20.0f;
@@ -504,7 +505,7 @@ void LvglController::buildUi() {
   lv_obj_set_style_text_color(phaseChecklistLabel_, lv_color_hex(0xb8c9e6), 0);
   lv_obj_set_style_text_align(phaseChecklistLabel_, LV_TEXT_ALIGN_LEFT, 0);
   lv_obj_clear_flag(phaseChecklistLabel_, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_align(phaseChecklistLabel_, LV_ALIGN_TOP_RIGHT, 4, 82);
+  lv_obj_align(phaseChecklistLabel_, LV_ALIGN_TOP_RIGHT, 18, 72);
 
   callsignLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_width(callsignLabel_, 220);
@@ -534,7 +535,7 @@ void LvglController::buildUi() {
 
   cmdStatusLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(cmdStatusLabel_, lv_color_hex(0x6be7a4), 0);
-  lv_obj_align(cmdStatusLabel_, LV_ALIGN_BOTTOM_RIGHT, 0, -36);
+  lv_obj_align(cmdStatusLabel_, LV_ALIGN_BOTTOM_RIGHT, 0, -24);
 
   alertLabel_ = lv_label_create(telemetryPanel_);
   lv_obj_set_style_text_color(alertLabel_, lv_color_hex(0xff8181), 0);
@@ -742,35 +743,104 @@ void LvglController::buildUi() {
   lv_obj_set_style_pad_bottom(settingsBody_, 6, 0);
   lv_obj_set_style_pad_left(settingsBody_, 10, 0);
   lv_obj_set_style_pad_right(settingsBody_, 10, 0);
-  lv_obj_set_style_pad_gap(settingsBody_, kSettingsStackGapPx, 0);
+  lv_obj_set_style_pad_gap(settingsBody_, 10, 0);
   lv_obj_set_flex_flow(settingsBody_, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(settingsBody_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_clear_flag(settingsBody_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_align(settingsBody_, LV_ALIGN_TOP_RIGHT, -kSettingsPanelRightInsetPx, kSettingsPanelTopOffsetPx);
 
-  lv_obj_t* settingsTitle = lv_label_create(settingsBody_);
-  lv_label_set_text(settingsTitle, "SETTINGS");
-  lv_obj_set_style_text_color(settingsTitle, lv_color_hex(0xe6eeff), 0);
-  lv_obj_clear_flag(settingsTitle, LV_OBJ_FLAG_CLICKABLE);
+  settingsHeader_ = lv_obj_create(settingsBody_);
+  lv_obj_set_width(settingsHeader_, LV_PCT(100));
+  lv_obj_set_height(settingsHeader_, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(settingsHeader_, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(settingsHeader_, 0, 0);
+  lv_obj_set_style_pad_all(settingsHeader_, 0, 0);
+  lv_obj_set_style_pad_gap(settingsHeader_, 6, 0);
+  lv_obj_set_flex_flow(settingsHeader_, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(settingsHeader_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_clear_flag(settingsHeader_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(settingsHeader_, LV_OBJ_FLAG_CLICKABLE);
+
+  settingsNavPrevBtn_ = lv_btn_create(settingsHeader_);
+  lv_obj_add_flag(settingsNavPrevBtn_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(settingsNavPrevBtn_, 28, 24);
+  lv_obj_set_style_radius(settingsNavPrevBtn_, 7, 0);
+  lv_obj_set_style_bg_color(settingsNavPrevBtn_, lv_color_hex(0x244374), 0);
+  lv_obj_set_style_bg_color(settingsNavPrevBtn_, lv_color_hex(0x2e5ca0), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(settingsNavPrevBtn_, lv_color_hex(0x16253b), LV_STATE_DISABLED);
+  lv_obj_set_style_border_color(settingsNavPrevBtn_, lv_color_hex(0x6ea4ff), 0);
+  lv_obj_set_style_border_color(settingsNavPrevBtn_, lv_color_hex(0x2f486c), LV_STATE_DISABLED);
+  lv_obj_set_style_border_width(settingsNavPrevBtn_, 1, 0);
+  lv_obj_add_event_cb(settingsNavPrevBtn_, onSettingsPrevPageEvent, LV_EVENT_PRESSED, this);
+
+  lv_obj_t* settingsNavPrevLabel = lv_label_create(settingsNavPrevBtn_);
+  lv_label_set_text(settingsNavPrevLabel, LV_SYMBOL_LEFT);
+  lv_obj_set_style_text_color(settingsNavPrevLabel, lv_color_hex(0xe6eeff), 0);
+  lv_obj_clear_flag(settingsNavPrevLabel, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(settingsNavPrevLabel);
+
+  settingsNavNextBtn_ = lv_btn_create(settingsHeader_);
+  lv_obj_add_flag(settingsNavNextBtn_, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(settingsNavNextBtn_, 28, 24);
+  lv_obj_set_style_radius(settingsNavNextBtn_, 7, 0);
+  lv_obj_set_style_bg_color(settingsNavNextBtn_, lv_color_hex(0x244374), 0);
+  lv_obj_set_style_bg_color(settingsNavNextBtn_, lv_color_hex(0x2e5ca0), LV_STATE_PRESSED);
+  lv_obj_set_style_bg_color(settingsNavNextBtn_, lv_color_hex(0x16253b), LV_STATE_DISABLED);
+  lv_obj_set_style_border_color(settingsNavNextBtn_, lv_color_hex(0x6ea4ff), 0);
+  lv_obj_set_style_border_color(settingsNavNextBtn_, lv_color_hex(0x2f486c), LV_STATE_DISABLED);
+  lv_obj_set_style_border_width(settingsNavNextBtn_, 1, 0);
+  lv_obj_add_event_cb(settingsNavNextBtn_, onSettingsNextPageEvent, LV_EVENT_PRESSED, this);
+
+  lv_obj_t* settingsNavNextLabel = lv_label_create(settingsNavNextBtn_);
+  lv_label_set_text(settingsNavNextLabel, LV_SYMBOL_RIGHT);
+  lv_obj_set_style_text_color(settingsNavNextLabel, lv_color_hex(0xe6eeff), 0);
+  lv_obj_clear_flag(settingsNavNextLabel, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_center(settingsNavNextLabel);
+
+  settingsTitleLabel_ = lv_label_create(settingsHeader_);
+  lv_obj_set_width(settingsTitleLabel_, 150);
+  lv_obj_set_flex_grow(settingsTitleLabel_, 1);
+  lv_obj_set_style_text_align(settingsTitleLabel_, LV_TEXT_ALIGN_LEFT, 0);
+  lv_obj_set_style_text_color(settingsTitleLabel_, lv_color_hex(0xe6eeff), 0);
+  lv_obj_clear_flag(settingsTitleLabel_, LV_OBJ_FLAG_CLICKABLE);
+
+  settingsContent_ = lv_obj_create(settingsBody_);
+  lv_obj_set_width(settingsContent_, LV_PCT(100));
+  lv_obj_set_height(settingsContent_, 0);
+  lv_obj_set_flex_grow(settingsContent_, 1);
+  lv_obj_set_style_bg_opa(settingsContent_, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(settingsContent_, 0, 0);
+  lv_obj_set_style_pad_all(settingsContent_, 0, 0);
+  lv_obj_clear_flag(settingsContent_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(settingsContent_, LV_OBJ_FLAG_CLICKABLE);
+
+  for (uint8_t i = 0; i < kSettingsMainPageCount; ++i) {
+    settingsMainPages_[i] = lv_obj_create(settingsContent_);
+    lv_obj_set_size(settingsMainPages_[i], LV_PCT(100), LV_PCT(100));
+    lv_obj_align(settingsMainPages_[i], LV_ALIGN_TOP_LEFT, 0, 0);
+    lv_obj_set_style_bg_opa(settingsMainPages_[i], LV_OPA_TRANSP, 0);
+    lv_obj_set_style_border_width(settingsMainPages_[i], 0, 0);
+    lv_obj_set_style_pad_top(settingsMainPages_[i], 4, 0);
+    lv_obj_set_style_pad_bottom(settingsMainPages_[i], 4, 0);
+    lv_obj_set_style_pad_left(settingsMainPages_[i], 6, 0);
+    lv_obj_set_style_pad_right(settingsMainPages_[i], 6, 0);
+    lv_obj_set_style_pad_gap(settingsMainPages_[i], 8, 0);
+    lv_obj_set_flex_flow(settingsMainPages_[i], LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(settingsMainPages_[i], LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_clear_flag(settingsMainPages_[i], LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_clear_flag(settingsMainPages_[i], LV_OBJ_FLAG_CLICKABLE);
+  }
+
+  settingsActions_ = settingsMainPages_[0];
+  lv_obj_t* settingsMainPage2 = settingsMainPages_[1];
+  lv_obj_t* settingsMainPage3 = settingsMainPages_[2];
+  lv_obj_t* settingsMainPage4 = settingsMainPages_[3];
 
   // lv_obj_t* settingsInfo = lv_label_create(settingsBody_);
   // lv_label_set_text(settingsInfo, "Touch calibration\nstored in flash");
   // lv_obj_set_style_text_color(settingsInfo, lv_color_hex(0xc2d4f4), 0);
   // lv_obj_clear_flag(settingsInfo, LV_OBJ_FLAG_CLICKABLE);
-
-  settingsActions_ = lv_obj_create(settingsBody_);
-  lv_obj_set_width(settingsActions_, LV_PCT(100));
-  lv_obj_set_height(settingsActions_, 0);
-  lv_obj_set_flex_grow(settingsActions_, 1);
-  lv_obj_set_style_bg_opa(settingsActions_, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(settingsActions_, 0, 0);
-  lv_obj_set_style_pad_all(settingsActions_, 0, 0);
-  lv_obj_set_style_pad_gap(settingsActions_, kSettingsStackGapPx, 0);
-  lv_obj_set_flex_flow(settingsActions_, LV_FLEX_FLOW_COLUMN);
-  lv_obj_add_flag(settingsActions_, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_scroll_dir(settingsActions_, LV_DIR_VER);
-  lv_obj_set_scrollbar_mode(settingsActions_, LV_SCROLLBAR_MODE_AUTO);
 
   resetFlightBtn_ = lv_btn_create(settingsActions_);
   lv_obj_add_flag(resetFlightBtn_, LV_OBJ_FLAG_CLICKABLE);
@@ -809,24 +879,28 @@ void LvglController::buildUi() {
                    this,
                    kSettingsButtonHeight,
                    LV_EVENT_CLICKED);
-  makeActionButton(settingsActions_,
+
+  makeActionButton(settingsMainPage2,
                    "TREND CHART",
                    onTrendPageOpenEvent,
                    this,
                    kSettingsButtonHeight,
                    LV_EVENT_CLICKED);
 
-  lv_obj_t* txPowerTitle = lv_label_create(settingsActions_);
+  lv_obj_t* txPowerTitle = lv_label_create(settingsMainPage2);
   lv_label_set_text(txPowerTitle, "TELEMETRY TX POWER");
   lv_obj_set_style_text_color(txPowerTitle, lv_color_hex(0xcfe0ff), 0);
   lv_obj_clear_flag(txPowerTitle, LV_OBJ_FLAG_CLICKABLE);
 
-  txPowerConfigRow_ = lv_obj_create(settingsActions_);
+  txPowerConfigRow_ = lv_obj_create(settingsMainPage2);
   lv_obj_set_width(txPowerConfigRow_, LV_PCT(100));
   lv_obj_set_height(txPowerConfigRow_, LV_SIZE_CONTENT);
   lv_obj_set_style_bg_opa(txPowerConfigRow_, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(txPowerConfigRow_, 0, 0);
-  lv_obj_set_style_pad_all(txPowerConfigRow_, 0, 0);
+  lv_obj_set_style_pad_top(txPowerConfigRow_, 0, 0);
+  lv_obj_set_style_pad_bottom(txPowerConfigRow_, 0, 0);
+  lv_obj_set_style_pad_left(txPowerConfigRow_, 6, 0);
+  lv_obj_set_style_pad_right(txPowerConfigRow_, 6, 0);
   lv_obj_set_style_pad_gap(txPowerConfigRow_, kSettingsRowGapPx, 0);
   lv_obj_set_flex_flow(txPowerConfigRow_, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(txPowerConfigRow_, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -864,13 +938,13 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(txPowerSendLabel, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_center(txPowerSendLabel);
 
-  txPowerActiveLabel_ = lv_label_create(settingsActions_);
+  txPowerActiveLabel_ = lv_label_create(settingsMainPage2);
   lv_obj_set_width(txPowerActiveLabel_, LV_PCT(100));
   lv_obj_set_style_text_color(txPowerActiveLabel_, lv_color_hex(0x9fb7df), 0);
   lv_obj_clear_flag(txPowerActiveLabel_, LV_OBJ_FLAG_CLICKABLE);
   lv_label_set_text(txPowerActiveLabel_, "Active: -- dBm");
 
-  lv_obj_t* touchDebugCheckbox = lv_checkbox_create(settingsActions_);
+  lv_obj_t* touchDebugCheckbox = lv_checkbox_create(settingsMainPage3);
   lv_checkbox_set_text(touchDebugCheckbox, "Touchscreen debug");
   lv_obj_set_width(touchDebugCheckbox, LV_PCT(100));
   lv_obj_set_style_text_color(touchDebugCheckbox, lv_color_hex(0xeaf1ff), 0);
@@ -882,7 +956,7 @@ void LvglController::buildUi() {
   }
   lv_obj_add_event_cb(touchDebugCheckbox, onTouchDebugToggleEvent, LV_EVENT_VALUE_CHANGED, this);
 
-  armNoGpsCheckbox_ = lv_checkbox_create(settingsActions_);
+  armNoGpsCheckbox_ = lv_checkbox_create(settingsMainPage3);
   lv_checkbox_set_text(armNoGpsCheckbox_, "Allow arm without GPS fix");
   lv_obj_set_width(armNoGpsCheckbox_, LV_PCT(100));
   lv_obj_set_style_text_color(armNoGpsCheckbox_, lv_color_hex(0xeaf1ff), 0);
@@ -894,7 +968,7 @@ void LvglController::buildUi() {
   }
   lv_obj_add_event_cb(armNoGpsCheckbox_, onArmNoGpsToggleEvent, LV_EVENT_VALUE_CHANGED, this);
 
-  wifiApToggleBtn_ = lv_btn_create(settingsActions_);
+  wifiApToggleBtn_ = lv_btn_create(settingsMainPage3);
   lv_obj_add_flag(wifiApToggleBtn_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_width(wifiApToggleBtn_, LV_PCT(100));
   lv_obj_set_height(wifiApToggleBtn_, kSettingsButtonHeight);
@@ -911,14 +985,14 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(wifiApToggleLabel_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_center(wifiApToggleLabel_);
 
-  makeActionButton(settingsActions_,
+  makeActionButton(settingsMainPage3,
                    "SCREEN CALIBRATION",
                    onCalibrateEvent,
                    this,
                    kSettingsButtonHeight,
                    LV_EVENT_CLICKED);
 
-  rebootBtn_ = lv_btn_create(settingsActions_);
+  rebootBtn_ = lv_btn_create(settingsMainPage4);
   lv_obj_add_flag(rebootBtn_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_width(rebootBtn_, LV_PCT(100));
   lv_obj_set_height(rebootBtn_, kSettingsButtonHeight);
@@ -935,7 +1009,7 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(rebootLabel, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_center(rebootLabel);
 
-  shutdownBtn_ = lv_btn_create(settingsActions_);
+  shutdownBtn_ = lv_btn_create(settingsMainPage4);
   lv_obj_add_flag(shutdownBtn_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_width(shutdownBtn_, LV_PCT(100));
   lv_obj_set_height(shutdownBtn_, kSettingsButtonHeight);
@@ -952,18 +1026,20 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(shutdownLabel, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_center(shutdownLabel);
 
-  soundSettingsPanel_ = lv_obj_create(settingsBody_);
+  soundSettingsPanel_ = lv_obj_create(settingsContent_);
   lv_obj_set_width(soundSettingsPanel_, LV_PCT(100));
-  lv_obj_set_height(soundSettingsPanel_, 0);
-  lv_obj_set_flex_grow(soundSettingsPanel_, 1);
+  lv_obj_set_height(soundSettingsPanel_, LV_PCT(100));
+  lv_obj_align(soundSettingsPanel_, LV_ALIGN_TOP_LEFT, 0, 0);
   lv_obj_set_style_bg_opa(soundSettingsPanel_, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(soundSettingsPanel_, 0, 0);
-  lv_obj_set_style_pad_all(soundSettingsPanel_, 0, 0);
+  lv_obj_set_style_pad_top(soundSettingsPanel_, 4, 0);
+  lv_obj_set_style_pad_bottom(soundSettingsPanel_, 4, 0);
+  lv_obj_set_style_pad_left(soundSettingsPanel_, 6, 0);
+  lv_obj_set_style_pad_right(soundSettingsPanel_, 6, 0);
   lv_obj_set_style_pad_gap(soundSettingsPanel_, kSettingsStackGapPx, 0);
   lv_obj_set_flex_flow(soundSettingsPanel_, LV_FLEX_FLOW_COLUMN);
-  lv_obj_add_flag(soundSettingsPanel_, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_scroll_dir(soundSettingsPanel_, LV_DIR_VER);
-  lv_obj_set_scrollbar_mode(soundSettingsPanel_, LV_SCROLLBAR_MODE_AUTO);
+  lv_obj_clear_flag(soundSettingsPanel_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(soundSettingsPanel_, LV_OBJ_FLAG_CLICKABLE);
 
   soundEnabledCheckbox_ = lv_checkbox_create(soundSettingsPanel_);
   lv_checkbox_set_text(soundEnabledCheckbox_, "Enable sound cues");
@@ -976,13 +1052,6 @@ void LvglController::buildUi() {
     lv_obj_clear_state(soundEnabledCheckbox_, LV_STATE_CHECKED);
   }
   lv_obj_add_event_cb(soundEnabledCheckbox_, onSoundEnableToggleEvent, LV_EVENT_VALUE_CHANGED, this);
-
-  makeActionButton(soundSettingsPanel_,
-                   "BACK",
-                   onSoundSettingsBackEvent,
-                   this,
-                   kSettingsButtonHeight,
-                   LV_EVENT_CLICKED);
   makeActionButton(soundSettingsPanel_,
                    "PLAY TEST SOUND",
                    onSoundTestEvent,
@@ -1020,25 +1089,20 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(soundVolumeLabel_, LV_OBJ_FLAG_CLICKABLE);
   lv_label_set_text_fmt(soundVolumeLabel_, "%u%%", static_cast<unsigned>(audioVolumePercent_));
 
-  sdFunctionsPanel_ = lv_obj_create(settingsBody_);
+  sdFunctionsPanel_ = lv_obj_create(settingsContent_);
   lv_obj_set_width(sdFunctionsPanel_, LV_PCT(100));
-  lv_obj_set_height(sdFunctionsPanel_, 0);
-  lv_obj_set_flex_grow(sdFunctionsPanel_, 1);
+  lv_obj_set_height(sdFunctionsPanel_, LV_PCT(100));
+  lv_obj_align(sdFunctionsPanel_, LV_ALIGN_TOP_LEFT, 0, 0);
   lv_obj_set_style_bg_opa(sdFunctionsPanel_, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(sdFunctionsPanel_, 0, 0);
-  lv_obj_set_style_pad_all(sdFunctionsPanel_, 0, 0);
+  lv_obj_set_style_pad_top(sdFunctionsPanel_, 4, 0);
+  lv_obj_set_style_pad_bottom(sdFunctionsPanel_, 4, 0);
+  lv_obj_set_style_pad_left(sdFunctionsPanel_, 6, 0);
+  lv_obj_set_style_pad_right(sdFunctionsPanel_, 6, 0);
   lv_obj_set_style_pad_gap(sdFunctionsPanel_, kSettingsStackGapPx, 0);
   lv_obj_set_flex_flow(sdFunctionsPanel_, LV_FLEX_FLOW_COLUMN);
-  lv_obj_add_flag(sdFunctionsPanel_, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_scroll_dir(sdFunctionsPanel_, LV_DIR_VER);
-  lv_obj_set_scrollbar_mode(sdFunctionsPanel_, LV_SCROLLBAR_MODE_AUTO);
-
-  makeActionButton(sdFunctionsPanel_,
-                   "BACK",
-                   onSdFunctionsBackEvent,
-                   this,
-                   kSettingsButtonHeight,
-                   LV_EVENT_CLICKED);
+  lv_obj_clear_flag(sdFunctionsPanel_, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_clear_flag(sdFunctionsPanel_, LV_OBJ_FLAG_CLICKABLE);
 
   sdRotateBtn_ = lv_btn_create(sdFunctionsPanel_);
   lv_obj_add_flag(sdRotateBtn_, LV_OBJ_FLAG_CLICKABLE);
@@ -1092,8 +1156,7 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(sdDumpLabel_, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_center(sdDumpLabel_);
 
-  setSoundSettingsVisible(false);
-  setSdFunctionsVisible(false);
+  showSettingsSection(SettingsSection::kMain, 0);
 
   lv_obj_add_flag(settingsBody_, LV_OBJ_FLAG_HIDDEN);
 
@@ -1270,8 +1333,8 @@ void LvglController::buildUi() {
   lv_obj_clear_flag(trendRangeLabel_, LV_OBJ_FLAG_CLICKABLE);
 
   trendChart_ = lv_chart_create(trendPage_);
-  lv_obj_set_size(trendChart_, kScreenWidth - 16, 260);
-  lv_obj_align(trendChart_, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_set_size(trendChart_, kScreenWidth - 16, 244);
+  lv_obj_align(trendChart_, LV_ALIGN_TOP_MID, 0, 60);
   lv_obj_set_style_bg_color(trendChart_, lv_color_hex(0x0b1220), 0);
   lv_obj_set_style_bg_grad_color(trendChart_, lv_color_hex(0x13263c), 0);
   lv_obj_set_style_bg_grad_dir(trendChart_, LV_GRAD_DIR_VER, 0);
@@ -2873,6 +2936,99 @@ void LvglController::setBuzzerConfigVisible(bool visible) {
   }
 }
 
+void LvglController::setSettingsMainPage(uint8_t pageIndex) {
+  showSettingsSection(SettingsSection::kMain, pageIndex);
+}
+
+void LvglController::showSettingsSection(SettingsSection section, uint8_t mainPageIndex) {
+  if (settingsContent_ == nullptr || soundSettingsPanel_ == nullptr || sdFunctionsPanel_ == nullptr) {
+    return;
+  }
+
+  if (mainPageIndex >= kSettingsMainPageCount) {
+    mainPageIndex = static_cast<uint8_t>(kSettingsMainPageCount - 1);
+  }
+
+  settingsSection_ = section;
+  if (section == SettingsSection::kMain) {
+    settingsMainPageIndex_ = mainPageIndex;
+  } else {
+    settingsMainPageReturnIndex_ = mainPageIndex;
+  }
+
+  soundSettingsVisible_ = section == SettingsSection::kSound;
+  sdFunctionsVisible_ = section == SettingsSection::kSdFunctions;
+
+  for (uint8_t i = 0; i < kSettingsMainPageCount; ++i) {
+    if (settingsMainPages_[i] == nullptr) {
+      continue;
+    }
+    if (section == SettingsSection::kMain && i == settingsMainPageIndex_) {
+      lv_obj_clear_flag(settingsMainPages_[i], LV_OBJ_FLAG_HIDDEN);
+    } else {
+      lv_obj_add_flag(settingsMainPages_[i], LV_OBJ_FLAG_HIDDEN);
+    }
+  }
+
+  if (soundSettingsVisible_) {
+    lv_obj_clear_flag(soundSettingsPanel_, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(soundSettingsPanel_, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  if (sdFunctionsVisible_) {
+    lv_obj_clear_flag(sdFunctionsPanel_, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(sdFunctionsPanel_, LV_OBJ_FLAG_HIDDEN);
+  }
+
+  updateSettingsPageControls();
+
+  if (settingsBody_ != nullptr) {
+    lv_obj_update_layout(settingsBody_);
+  }
+}
+
+void LvglController::updateSettingsPageControls() {
+  if (settingsNavPrevBtn_ == nullptr || settingsNavNextBtn_ == nullptr || settingsTitleLabel_ == nullptr) {
+    return;
+  }
+
+  bool prevEnabled = false;
+  bool nextEnabled = false;
+
+  switch (settingsSection_) {
+    case SettingsSection::kMain:
+      prevEnabled = settingsMainPageIndex_ > 0;
+      nextEnabled = settingsMainPageIndex_ + 1 < kSettingsMainPageCount;
+      lv_label_set_text_fmt(settingsTitleLabel_,
+                            "SETTINGS %u/%u",
+                            static_cast<unsigned>(settingsMainPageIndex_ + 1),
+                            static_cast<unsigned>(kSettingsMainPageCount));
+      break;
+    case SettingsSection::kSound:
+      prevEnabled = true;
+      lv_label_set_text(settingsTitleLabel_, "SOUND SETTINGS");
+      break;
+    case SettingsSection::kSdFunctions:
+      prevEnabled = true;
+      lv_label_set_text(settingsTitleLabel_, "SD CARD FUNCTIONS");
+      break;
+  }
+
+  if (prevEnabled) {
+    lv_obj_clear_state(settingsNavPrevBtn_, LV_STATE_DISABLED);
+  } else {
+    lv_obj_add_state(settingsNavPrevBtn_, LV_STATE_DISABLED);
+  }
+
+  if (nextEnabled) {
+    lv_obj_clear_state(settingsNavNextBtn_, LV_STATE_DISABLED);
+  } else {
+    lv_obj_add_state(settingsNavNextBtn_, LV_STATE_DISABLED);
+  }
+}
+
 bool LvglController::sendAction(const String& action, int durationS) {
   bool sent = false;
   if (COMPANION_LINK_UART) {
@@ -3012,11 +3168,7 @@ void LvglController::toggleSettings() {
         lv_label_set_text_fmt(txPowerLabel_, "%udBm", static_cast<unsigned>(txPowerDbm_));
       }
     }
-    setSoundSettingsVisible(false);
-    setSdFunctionsVisible(false);
-    if (settingsActions_ != nullptr) {
-      lv_obj_scroll_to_y(settingsActions_, 0, LV_ANIM_OFF);
-    }
+    showSettingsSection(SettingsSection::kMain, 0);
     panelCollapsed_ = true;
     lv_obj_add_flag(actionPanel_, LV_OBJ_FLAG_HIDDEN);
   }
@@ -3056,29 +3208,19 @@ void LvglController::setSoundEnabled(bool enabled) {
 }
 
 void LvglController::setSoundSettingsVisible(bool visible) {
-  soundSettingsVisible_ = visible;
-  if (settingsActions_ == nullptr || soundSettingsPanel_ == nullptr || sdFunctionsPanel_ == nullptr) {
+  if (settingsContent_ == nullptr || soundSettingsPanel_ == nullptr || sdFunctionsPanel_ == nullptr) {
     return;
   }
 
-  if (soundSettingsVisible_) {
-    sdFunctionsVisible_ = false;
-    lv_obj_add_flag(settingsActions_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(soundSettingsPanel_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(sdFunctionsPanel_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_scroll_to_y(soundSettingsPanel_, 0, LV_ANIM_OFF);
+  if (visible) {
+    showSettingsSection(SettingsSection::kSound, settingsMainPageIndex_);
   } else {
-    if (!sdFunctionsVisible_) {
-      lv_obj_clear_flag(settingsActions_, LV_OBJ_FLAG_HIDDEN);
+    soundSettingsVisible_ = false;
+    if (settingsSection_ == SettingsSection::kSound) {
+      showSettingsSection(SettingsSection::kMain, settingsMainPageReturnIndex_);
+    } else {
+      updateSettingsPageControls();
     }
-    lv_obj_add_flag(soundSettingsPanel_, LV_OBJ_FLAG_HIDDEN);
-    if (!sdFunctionsVisible_) {
-      lv_obj_scroll_to_y(settingsActions_, 0, LV_ANIM_OFF);
-    }
-  }
-
-  if (settingsBody_ != nullptr) {
-    lv_obj_update_layout(settingsBody_);
   }
 }
 
@@ -3251,29 +3393,19 @@ void LvglController::refreshTrendChart() {
 }
 
 void LvglController::setSdFunctionsVisible(bool visible) {
-  sdFunctionsVisible_ = visible;
-  if (settingsActions_ == nullptr || soundSettingsPanel_ == nullptr || sdFunctionsPanel_ == nullptr) {
+  if (settingsContent_ == nullptr || soundSettingsPanel_ == nullptr || sdFunctionsPanel_ == nullptr) {
     return;
   }
 
-  if (sdFunctionsVisible_) {
-    soundSettingsVisible_ = false;
-    lv_obj_add_flag(settingsActions_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(soundSettingsPanel_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(sdFunctionsPanel_, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_scroll_to_y(sdFunctionsPanel_, 0, LV_ANIM_OFF);
+  if (visible) {
+    showSettingsSection(SettingsSection::kSdFunctions, settingsMainPageIndex_);
   } else {
-    if (!soundSettingsVisible_) {
-      lv_obj_clear_flag(settingsActions_, LV_OBJ_FLAG_HIDDEN);
+    sdFunctionsVisible_ = false;
+    if (settingsSection_ == SettingsSection::kSdFunctions) {
+      showSettingsSection(SettingsSection::kMain, settingsMainPageReturnIndex_);
+    } else {
+      updateSettingsPageControls();
     }
-    lv_obj_add_flag(sdFunctionsPanel_, LV_OBJ_FLAG_HIDDEN);
-    if (!soundSettingsVisible_) {
-      lv_obj_scroll_to_y(settingsActions_, 0, LV_ANIM_OFF);
-    }
-  }
-
-  if (settingsBody_ != nullptr) {
-    lv_obj_update_layout(settingsBody_);
   }
 }
 
@@ -3590,12 +3722,21 @@ void LvglController::refreshUi() {
 
   const String txVbat = formatFloat(state_.battery.telemetryVbatV, 2, "--.--");
   const String groundVbat = formatFloat(state_.battery.groundVbatV, 2, "--.--");
+  const char* groundBatteryStateText = state_.battery.groundCritical
+                                           ? " CRIT"
+                                           : (state_.battery.groundLow ? " LOW" : "");
   const String clockText = formatClockText(now);
   const String flightText = (flightDurationMs_ > 0) ? formatDurationText(flightDurationMs_) : String("--:--:--");
+  const lv_color_t batteryColor = state_.battery.groundCritical
+                                      ? lv_color_hex(0xff8e8e)
+                                      : (state_.battery.groundLow ? lv_color_hex(0xffd166)
+                                                                  : lv_color_hex(0xd9e3f8));
+  lv_obj_set_style_text_color(batteryLabel_, batteryColor, 0);
   lv_label_set_text_fmt(batteryLabel_,
-                        "TX: %sV / GS: %sV\nDT %s  FLT %s",
+                        "TX: %sV / GS: %sV%s\nDT %s  FLT %s",
                         txVbat.c_str(),
                         groundVbat.c_str(),
+                        groundBatteryStateText,
                         clockText.c_str(),
                         flightText.c_str());
 
@@ -3607,15 +3748,29 @@ void LvglController::refreshUi() {
   lv_label_set_text(cmdStatusLabel_, cmdStatus.c_str());
 
   String alert;
+  lv_color_t alertColor = lv_color_hex(0xff8181);
   if (groundStationAppOffline) {
     alert = "Start ground_station_server.py on Pi";
   } else if (state_.primaryAlert.length() > 0) {
     alert = state_.primaryAlert;
+    if (state_.battery.groundCritical) {
+      alertColor = lv_color_hex(0xff8e8e);
+    } else if (state_.battery.groundLow) {
+      alertColor = lv_color_hex(0xffd166);
+    }
   } else if (state_.stale) {
     alert = "Telemetry stale";
+  } else if (state_.battery.groundCritical) {
+    alert = "Ground battery critical";
+    alertColor = lv_color_hex(0xff8e8e);
+  } else if (state_.battery.groundLow) {
+    alert = "Ground battery low";
+    alertColor = lv_color_hex(0xffd166);
   } else {
     alert = "Nominal";
+    alertColor = lv_color_hex(0x87f0ae);
   }
+  lv_obj_set_style_text_color(alertLabel_, alertColor, 0);
   lv_label_set_text(alertLabel_, alert.c_str());
 
   const int touchAgeMs = (touchDebugTs_ == 0) ? -1 : static_cast<int>(now - touchDebugTs_);
@@ -3871,6 +4026,39 @@ void LvglController::onSettingsToggleEvent(lv_event_t* e) {
     return;
   }
   self->toggleSettings();
+}
+
+void LvglController::onSettingsPrevPageEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+
+  if (self->settingsSection_ == SettingsSection::kMain) {
+    if (self->settingsMainPageIndex_ > 0) {
+      self->setSettingsMainPage(static_cast<uint8_t>(self->settingsMainPageIndex_ - 1));
+    }
+    return;
+  }
+
+  self->showSettingsSection(SettingsSection::kMain, self->settingsMainPageReturnIndex_);
+}
+
+void LvglController::onSettingsNextPageEvent(lv_event_t* e) {
+  LvglController* self = static_cast<LvglController*>(lv_event_get_user_data(e));
+  if (self == nullptr) {
+    return;
+  }
+
+  if (self->settingsSection_ != SettingsSection::kMain) {
+    return;
+  }
+
+  if (self->settingsMainPageIndex_ + 1 >= kSettingsMainPageCount) {
+    return;
+  }
+
+  self->setSettingsMainPage(static_cast<uint8_t>(self->settingsMainPageIndex_ + 1));
 }
 
 void LvglController::onTouchDebugToggleEvent(lv_event_t* e) {

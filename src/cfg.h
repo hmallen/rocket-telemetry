@@ -98,7 +98,7 @@ constexpr const char LORA_CALLSIGN[] = "CALLSIGN";
 constexpr uint8_t LORA_SF = 7;           // 6..12 (max sensitivity)
 constexpr float   LORA_BW_KHZ = 125.0f;    // narrower BW for improved receiver sensitivity
 constexpr uint8_t LORA_CR = 5;            // 5..8 => 4/5..4/8 (max FEC)
-constexpr int8_t  LORA_TX_POWER_DBM = 10; // SX127x PA_BOOST max in this firmware
+constexpr int8_t  LORA_TX_POWER_DBM = 2; // SX127x PA_BOOST max in this firmware
 
 // Deterministic scheduling + duty-cycle restraint.
 constexpr uint32_t LORA_MIN_TX_INTERVAL_MS = (1000UL / LORA_HZ);

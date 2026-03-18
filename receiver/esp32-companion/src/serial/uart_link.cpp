@@ -110,6 +110,8 @@ void UartLink::applyTelemetry(const TelemetryV1& t,
   ioState.commandLockoutActive = (t.flags & 0x20) != 0;
   ioState.hasWifiApState = hasCompanionFlags;
   ioState.wifiApActive = hasCompanionFlags ? ((t.companion_flags & 0x01) != 0) : false;
+  ioState.battery.groundLow = hasCompanionFlags ? ((t.companion_flags & 0x02) != 0) : false;
+  ioState.battery.groundCritical = hasCompanionFlags ? ((t.companion_flags & 0x04) != 0) : false;
   ioState.hasRecoveryDeploymentState = true;
   if (hasRecoveryEvents) {
     const uint8_t events = t.recovery_event_flags;
@@ -235,6 +237,8 @@ bool UartLink::poll(CompanionState& ioState) {
         ioState.commandLockoutActive = (t.flags & 0x20) != 0;
         ioState.hasWifiApState = false;
         ioState.wifiApActive = false;
+        ioState.battery.groundLow = false;
+        ioState.battery.groundCritical = false;
         ioState.hasRecoveryDeploymentState = true;
         ioState.recoveryDrogueDeployed = (t.flags & 0x02) != 0;
         ioState.recoveryMainDeployed = (t.flags & 0x04) != 0;
