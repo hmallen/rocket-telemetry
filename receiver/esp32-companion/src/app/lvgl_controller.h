@@ -43,11 +43,18 @@ class LvglController {
     bool swapXY = TOUCH_SWAP_XY;
   };
 
+  enum class SettingsSection : uint8_t {
+    kMain = 0,
+    kSound,
+    kSdFunctions,
+  };
+
   static constexpr int kScreenWidth = 480;
   static constexpr int kScreenHeight = 320;
   static constexpr int kDrawBufferLines = 28;
   static constexpr int kActionPanelWidth = 210;
   static constexpr int kSettingsPanelWidth = 252;
+  static constexpr uint8_t kSettingsMainPageCount = 4;
   static constexpr uint16_t kTrendHistoryPoints = 120;
 
   ApiClient api_;
@@ -153,6 +160,9 @@ class LvglController {
   bool settingsCollapsed_ = true;
   bool soundSettingsVisible_ = false;
   bool sdFunctionsVisible_ = false;
+  SettingsSection settingsSection_ = SettingsSection::kMain;
+  uint8_t settingsMainPageIndex_ = 0;
+  uint8_t settingsMainPageReturnIndex_ = 0;
   bool trendPageVisible_ = false;
   bool hasTrendPacketCount_ = false;
   uint32_t lastTrendPacketCount_ = 0;
@@ -217,7 +227,13 @@ class LvglController {
   lv_obj_t* rebootBtn_ = nullptr;
   lv_obj_t* shutdownBtn_ = nullptr;
   lv_obj_t* settingsBody_ = nullptr;
+  lv_obj_t* settingsHeader_ = nullptr;
+  lv_obj_t* settingsNavPrevBtn_ = nullptr;
+  lv_obj_t* settingsNavNextBtn_ = nullptr;
+  lv_obj_t* settingsTitleLabel_ = nullptr;
+  lv_obj_t* settingsContent_ = nullptr;
   lv_obj_t* settingsActions_ = nullptr;
+  lv_obj_t* settingsMainPages_[kSettingsMainPageCount] = {};
   lv_obj_t* soundSettingsPanel_ = nullptr;
   lv_obj_t* sdFunctionsPanel_ = nullptr;
   lv_obj_t* sdRotateBtn_ = nullptr;
@@ -270,6 +286,9 @@ class LvglController {
   void setCommandStatus(const String& msg, bool ok);
   void updateDashboardActionButtons();
   void setBuzzerConfigVisible(bool visible);
+  void setSettingsMainPage(uint8_t pageIndex);
+  void showSettingsSection(SettingsSection section, uint8_t mainPageIndex);
+  void updateSettingsPageControls();
   void syncCommandStateFromTelemetry();
   void updatePendingCommandTimeouts(uint32_t now);
   void requestSdToggle(bool enable);
@@ -326,6 +345,8 @@ class LvglController {
 
   static void onPanelToggleEvent(lv_event_t* e);
   static void onSettingsToggleEvent(lv_event_t* e);
+  static void onSettingsPrevPageEvent(lv_event_t* e);
+  static void onSettingsNextPageEvent(lv_event_t* e);
   static void onTouchDebugToggleEvent(lv_event_t* e);
   static void onCalibrateEvent(lv_event_t* e);
   static void onCalibrationCancelEvent(lv_event_t* e);

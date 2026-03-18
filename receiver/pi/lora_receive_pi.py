@@ -77,7 +77,7 @@ class VoltageMonitorConfig:
     max_reading: float = 2047.0
 
     group_sleep_s: float = 2.0
-    channel_sleep_s: float = 0.02
+    channel_sleep_s: float = _env_float("GS_UPS_CHANNEL_SLEEP_S", 0.10)
 
     vbatt_min: float = _env_float("GS_UPS_VBATT_MIN_V", 3.1)
     vin_min: float = _env_float("GS_UPS_VIN_MIN_V", 3.8)
