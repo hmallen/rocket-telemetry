@@ -1244,12 +1244,9 @@ void loop() {
           ack_detail = ack_detail_buf;
         } else {
 #if ENABLE_SD_LOGGER
-          const bool close_ok = sdlog.close_log();
-          const bool open_ok = sdlog.open_new_log(PREALLOC_BYTES);
-          const bool rotate_ok = close_ok && open_ok;
-          sd_logging_enabled = rotate_ok;
-          ack_enabled_state = rotate_ok;
-          if (!rotate_ok) {
+          sd_rotate_log();
+          ack_enabled_state = sd_logging_enabled;
+          if (!ack_enabled_state) {
             snprintf(ack_detail_buf, sizeof(ack_detail_buf), "Rotate log failed");
             ack_detail = ack_detail_buf;
           }

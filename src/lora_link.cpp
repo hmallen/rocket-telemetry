@@ -254,6 +254,13 @@ void LoraLink::reset_recovery_state_() {
   recovery_main_reason_ = RECOVERY_REASON_NONE;
   recovery_drogue_deploy_agl_mm_ = -1;
   recovery_main_deploy_agl_mm_ = -1;
+  landing_detected_event_ = false;
+  landing_detected_latched_ = false;
+  flight_detected_ = false;
+  landing_window_open_ = false;
+  flight_baseline_press_ = 0;
+  landing_ref_press_ = 0;
+  landing_stable_start_ms_ = 0;
 }
 
 int32_t LoraLink::agl_from_press_mm_(int32_t press_pa_x10, int32_t ref_press_pa_x10) {
