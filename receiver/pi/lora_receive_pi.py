@@ -725,7 +725,7 @@ class SX1278:
         self.write_reg(REG_FIFO_TX_BASE_ADDR, 0x00)
         self.write_reg(REG_FIFO_RX_BASE_ADDR, 0x00)
 
-        self.set_frequency(433_000_000)
+        self.set_frequency(430_500_000)
 
         self.write_reg(REG_LNA, self.read_reg(REG_LNA) | 0x03)
         self.write_reg(REG_MODEM_CONFIG_1, 0x72)  # BW125 (0x70) + CR4/5 (0x02) + explicit header
