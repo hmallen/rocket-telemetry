@@ -31,6 +31,8 @@ constexpr uint32_t SD_ROTATE_DRAIN_MAX_MS = 3000;
 static inline bool build_and_write_block_from_source(uint32_t now_ms, bool force_write = false);
 static inline void pump_ring_to_spool();
 static void sd_logging_flush_pending(uint32_t now_ms, uint32_t max_drain_ms);
+static inline void ring_write_sd_log_open_event(int16_t reason);
+static inline void ring_write_sd_log_close_event(int16_t reason);
 
 #if ENABLE_SD_DUMP
 static const char* sd_dump_record_name(uint8_t type) {
@@ -137,6 +139,18 @@ static void sd_dump_print_record(uint32_t idx,
                     (unsigned long)r.t_us,
                     (unsigned)cmd,
                     cmd_name != nullptr ? cmd_name : "unknown",
+                    (int)r.value);
+    } else if (record_event_is_sd_log_open(r.event_id)) {
+      const char* reason = record_sd_log_open_reason_name(r.value);
+      Serial.printf("    t_us=%lu event=sd_log_open reason=%s(%d)\n",
+                    (unsigned long)r.t_us,
+                    reason != nullptr ? reason : "unknown",
+                    (int)r.value);
+    } else if (record_event_is_sd_log_close(r.event_id)) {
+      const char* reason = record_sd_log_close_reason_name(r.value);
+      Serial.printf("    t_us=%lu event=sd_log_close reason=%s(%d)\n",
+                    (unsigned long)r.t_us,
+                    reason != nullptr ? reason : "unknown",
                     (int)r.value);
     } else {
       Serial.printf("    t_us=%lu event_id=%u value=%d\n",
@@ -311,6 +325,15 @@ static void sd_clear_logs() {
   return;
 #endif
   const bool restart_logging = sd_logging_enabled;
+  if (sd_logging_enabled) {
+    ring_write_sd_log_close_event(REC_EVENT_VALUE_SD_LOG_CLOSE_CLEAR);
+    sd_logging_flush_pending(millis(), SD_ROTATE_DRAIN_MAX_MS);
+    sdlog.force_sync();
+    if (!sdlog.close_log()) {
+      Serial.println("sd: close failed before clear");
+    }
+    sd_logging_enabled = false;
+  }
   if (!sdlog.clear_logs()) {
     Serial.println("sd: clear failed");
     return;
@@ -331,6 +354,8 @@ static void sd_clear_logs() {
     }
 
     sd_logging_enabled = true;
+    ring_write_sd_log_open_event(REC_EVENT_VALUE_SD_LOG_OPEN_RESTART);
+    sd_logging_flush_pending(millis(), SD_ROTATE_DRAIN_MAX_MS);
     const char* log_name = sdlog.log_name();
     if (log_name) {
       Serial.print("sd: new log ");
@@ -354,6 +379,7 @@ static void sd_rotate_log() {
     snprintf(old_name, sizeof(old_name), "%s", log_name);
   }
 
+  ring_write_sd_log_close_event(REC_EVENT_VALUE_SD_LOG_CLOSE_ROTATE);
   sd_logging_flush_pending(millis(), SD_ROTATE_DRAIN_MAX_MS);
 
   if (!sdlog.close_log()) {
@@ -366,6 +392,8 @@ static void sd_rotate_log() {
   }
 
   sd_logging_enabled = true;
+  ring_write_sd_log_open_event(REC_EVENT_VALUE_SD_LOG_OPEN_ROTATE);
+  sd_logging_flush_pending(millis(), SD_ROTATE_DRAIN_MAX_MS);
   if (old_name[0]) {
     Serial.print("sd: closed ");
     Serial.println(old_name);
@@ -391,6 +419,7 @@ static void sd_rotate_log() {
 #if !ENABLE_SD_LOGGER
   return;
 #else
+  ring_write_sd_log_close_event(REC_EVENT_VALUE_SD_LOG_CLOSE_ROTATE);
   sd_logging_flush_pending(millis(), SD_ROTATE_DRAIN_MAX_MS);
   if (!sdlog.close_log()) {
     DBG_PRINTLN("sd: close failed");
@@ -401,6 +430,8 @@ static void sd_rotate_log() {
     return;
   }
   sd_logging_enabled = true;
+  ring_write_sd_log_open_event(REC_EVENT_VALUE_SD_LOG_OPEN_ROTATE);
+  sd_logging_flush_pending(millis(), SD_ROTATE_DRAIN_MAX_MS);
 #endif
 }
 #endif
@@ -451,9 +482,12 @@ static void sd_logging_stop() {
   return;
 #endif
   if (!sd_logging_enabled) return;
+  ring_write_sd_log_close_event(REC_EVENT_VALUE_SD_LOG_CLOSE_STOP);
   sd_logging_flush_pending(millis(), SD_ROTATE_DRAIN_MAX_MS);
   sdlog.force_sync();
-  sdlog.close_log();
+  if (!sdlog.close_log()) {
+    DBG_PRINTLN("sd: close failed");
+  }
   sd_logging_enabled = false;
   sd_logging_reset_buffers();
   DBG_PRINTLN("sd: logging stopped");
@@ -467,6 +501,8 @@ static void sd_logging_start() {
   sd_logging_reset_buffers();
   if (sdlog.open_new_log(PREALLOC_BYTES)) {
     sd_logging_enabled = true;
+    ring_write_sd_log_open_event(REC_EVENT_VALUE_SD_LOG_OPEN_START);
+    sd_logging_flush_pending(millis(), SD_ROTATE_DRAIN_MAX_MS);
     DBG_PRINTLN("sd: logging started");
   } else {
     sd_logging_enabled = false;
@@ -622,6 +658,14 @@ static inline void ring_write_event(uint32_t t_us, uint16_t event_id, int16_t va
 
 static inline void ring_write_lora_cmd_rx_event(uint32_t t_us, LoraCommand cmd, uint8_t arg) {
   ring_write_event(t_us, record_event_lora_cmd_rx_id((uint8_t)cmd), (int16_t)arg);
+}
+
+static inline void ring_write_sd_log_open_event(int16_t reason) {
+  ring_write_event(micros(), REC_EVENT_ID_SD_LOG_OPEN, reason);
+}
+
+static inline void ring_write_sd_log_close_event(int16_t reason) {
+  ring_write_event(micros(), REC_EVENT_ID_SD_LOG_CLOSE, reason);
 }
 
 static inline void ring_write_stats() {

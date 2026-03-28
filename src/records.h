@@ -11,11 +11,31 @@ enum RecordType : uint8_t {
   REC_BARO2        = 0x07, // bmp180 (fixed)
 };
 
+constexpr uint16_t REC_EVENT_ID_SD_LOG_OPEN = 0x0001;
+constexpr uint16_t REC_EVENT_ID_SD_LOG_CLOSE = 0x0002;
 constexpr uint16_t REC_EVENT_ID_LORA_CMD_RX_BASE = 0x0100;
+
+constexpr int16_t REC_EVENT_VALUE_SD_LOG_OPEN_START = 1;
+constexpr int16_t REC_EVENT_VALUE_SD_LOG_OPEN_ROTATE = 2;
+constexpr int16_t REC_EVENT_VALUE_SD_LOG_OPEN_RESTART = 3;
+
+constexpr int16_t REC_EVENT_VALUE_SD_LOG_CLOSE_STOP = 1;
+constexpr int16_t REC_EVENT_VALUE_SD_LOG_CLOSE_ROTATE = 2;
+constexpr int16_t REC_EVENT_VALUE_SD_LOG_CLOSE_CLEAR = 3;
+
+static inline const char* record_lora_cmd_name(uint8_t cmd);
 
 static inline bool record_event_is_lora_cmd_rx(uint16_t event_id) {
   return event_id >= REC_EVENT_ID_LORA_CMD_RX_BASE &&
          event_id < (REC_EVENT_ID_LORA_CMD_RX_BASE + 0x0100u);
+}
+
+static inline bool record_event_is_sd_log_open(uint16_t event_id) {
+  return event_id == REC_EVENT_ID_SD_LOG_OPEN;
+}
+
+static inline bool record_event_is_sd_log_close(uint16_t event_id) {
+  return event_id == REC_EVENT_ID_SD_LOG_CLOSE;
 }
 
 static inline uint8_t record_event_lora_cmd_rx_cmd(uint16_t event_id) {
@@ -24,6 +44,37 @@ static inline uint8_t record_event_lora_cmd_rx_cmd(uint16_t event_id) {
 
 static inline uint16_t record_event_lora_cmd_rx_id(uint8_t cmd) {
   return (uint16_t)(REC_EVENT_ID_LORA_CMD_RX_BASE + cmd);
+}
+
+static inline const char* record_sd_log_open_reason_name(int16_t value) {
+  switch (value) {
+    case REC_EVENT_VALUE_SD_LOG_OPEN_START: return "start";
+    case REC_EVENT_VALUE_SD_LOG_OPEN_ROTATE: return "rotate";
+    case REC_EVENT_VALUE_SD_LOG_OPEN_RESTART: return "restart";
+    default: return nullptr;
+  }
+}
+
+static inline const char* record_sd_log_close_reason_name(int16_t value) {
+  switch (value) {
+    case REC_EVENT_VALUE_SD_LOG_CLOSE_STOP: return "stop";
+    case REC_EVENT_VALUE_SD_LOG_CLOSE_ROTATE: return "rotate";
+    case REC_EVENT_VALUE_SD_LOG_CLOSE_CLEAR: return "clear";
+    default: return nullptr;
+  }
+}
+
+static inline const char* record_event_name(uint16_t event_id, int16_t value) {
+  if (record_event_is_sd_log_open(event_id)) {
+    return record_sd_log_open_reason_name(value);
+  }
+  if (record_event_is_sd_log_close(event_id)) {
+    return record_sd_log_close_reason_name(value);
+  }
+  if (record_event_is_lora_cmd_rx(event_id)) {
+    return record_lora_cmd_name(record_event_lora_cmd_rx_cmd(event_id));
+  }
+  return nullptr;
 }
 
 static inline const char* record_lora_cmd_name(uint8_t cmd) {

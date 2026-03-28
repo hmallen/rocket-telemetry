@@ -4,6 +4,162 @@
 #include <cstdio>
 #include <cstring>
 
+namespace {
+struct LogScanResult {
+  bool have_valid_block = false;
+  bool clean_close = false;
+  bool tail_invalid = false;
+  uint64_t valid_end = 0;
+  uint64_t last_payload_pos = 0;
+  BlockHdr last_hdr{};
+};
+
+static bool truncate_file_to(FsFile& file, uint64_t size) {
+  if (!file.seekSet(size)) {
+    return false;
+  }
+  if (!file.truncate()) {
+    return false;
+  }
+  return file.sync();
+}
+
+static bool scan_block_close_state(FsFile& file,
+                                   const BlockHdr& hdr,
+                                   uint64_t payload_pos,
+                                   bool* out_clean_close) {
+  if (out_clean_close == nullptr) {
+    return false;
+  }
+  *out_clean_close = false;
+
+  if (!file.seekSet(payload_pos)) {
+    return false;
+  }
+
+  uint32_t remaining = hdr.payload_len;
+  bool last_record_was_clean_close = false;
+  while (remaining >= sizeof(RecHdr)) {
+    uint8_t rec_hdr[sizeof(RecHdr)] = {0};
+    if (file.read(rec_hdr, sizeof(rec_hdr)) != (int32_t)sizeof(rec_hdr)) {
+      return false;
+    }
+    remaining -= sizeof(rec_hdr);
+
+    const uint8_t rec_type = rec_hdr[0];
+    const uint16_t rec_len = (uint16_t)rec_hdr[2] | ((uint16_t)rec_hdr[3] << 8);
+    if (rec_len < sizeof(RecHdr)) {
+      last_record_was_clean_close = false;
+      break;
+    }
+
+    const uint16_t payload_len = rec_len - sizeof(RecHdr);
+    if (payload_len > remaining) {
+      last_record_was_clean_close = false;
+      break;
+    }
+
+    if (rec_type == REC_EVENT && payload_len >= (sizeof(RecEvent) - sizeof(RecHdr))) {
+      RecEvent event{};
+      if (file.read((uint8_t*)&event.t_us, sizeof(RecEvent) - sizeof(RecHdr)) !=
+          (int32_t)(sizeof(RecEvent) - sizeof(RecHdr))) {
+        return false;
+      }
+      if (payload_len > (sizeof(RecEvent) - sizeof(RecHdr))) {
+        if (!file.seekCur(static_cast<int64_t>(payload_len - (sizeof(RecEvent) - sizeof(RecHdr))))) {
+          return false;
+        }
+      }
+      last_record_was_clean_close = record_event_is_sd_log_close(event.event_id);
+    } else {
+      if (payload_len > 0 && !file.seekCur(static_cast<int64_t>(payload_len))) {
+        return false;
+      }
+      last_record_was_clean_close = false;
+    }
+    remaining -= payload_len;
+  }
+
+  if (!file.seekSet(payload_pos + hdr.payload_len)) {
+    return false;
+  }
+  *out_clean_close = (remaining == 0) && last_record_was_clean_close;
+  return true;
+}
+
+static bool scan_log_file(FsFile& file, LogScanResult* out) {
+  if (out == nullptr) {
+    return false;
+  }
+
+  LogScanResult result{};
+  if (!file.seekSet(0)) {
+    return false;
+  }
+
+  while (true) {
+    BlockHdr hdr{};
+    const int32_t r = file.read((uint8_t*)&hdr, sizeof(hdr));
+    if (r == 0) {
+      break;
+    }
+    if (r < (int32_t)sizeof(hdr)) {
+      result.tail_invalid = true;
+      break;
+    }
+    if (hdr.hdr_len < sizeof(hdr)) {
+      result.tail_invalid = true;
+      break;
+    }
+    if (hdr.hdr_len > sizeof(hdr)) {
+      if (!file.seekCur(static_cast<int64_t>(hdr.hdr_len - sizeof(hdr)))) {
+        result.tail_invalid = true;
+        break;
+      }
+    }
+    if (hdr.magic != BLOCK_MAGIC) {
+      result.tail_invalid = true;
+      break;
+    }
+
+    const uint64_t payload_pos = file.curPosition();
+    uint32_t remaining = hdr.payload_len;
+    uint32_t crc = 0;
+    uint8_t scratch[96];
+    bool payload_ok = true;
+    while (remaining > 0) {
+      const uint16_t chunk = (remaining > sizeof(scratch)) ? sizeof(scratch) : (uint16_t)remaining;
+      const int32_t got = file.read(scratch, chunk);
+      if (got != (int32_t)chunk) {
+        payload_ok = false;
+        break;
+      }
+      crc = crc32_update(crc, scratch, (size_t)chunk);
+      remaining -= chunk;
+    }
+    if (!payload_ok || crc != hdr.crc32) {
+      result.tail_invalid = true;
+      break;
+    }
+
+    bool clean_close = false;
+    if (!scan_block_close_state(file, hdr, payload_pos, &clean_close)) {
+      result.tail_invalid = true;
+      break;
+    }
+
+    result.have_valid_block = true;
+    result.clean_close = clean_close;
+    result.last_hdr = hdr;
+    result.last_payload_pos = payload_pos;
+    result.valid_end = file.curPosition();
+  }
+
+  *out = result;
+  return true;
+}
+}  // namespace
+
 SdLogger::SdLogger() : last_sync_ms_(0), write_errs_(0) {
   log_name_[0] = '\0';
 }
@@ -23,6 +179,28 @@ bool SdLogger::open_new_log(uint32_t prealloc_bytes) {
     (void)f_.sync();
     (void)f_.close();
   }
+
+  char latest_name[32];
+  if (find_latest_log_name(latest_name, sizeof(latest_name))) {
+    FsFile latest = sd_.open(latest_name, O_RDWR);
+    if (latest) {
+      LogScanResult scan{};
+      if (scan_log_file(latest, &scan)) {
+        const uint64_t repair_end = scan.have_valid_block ? scan.valid_end : 0;
+        if (!truncate_file_to(latest, repair_end)) {
+          DBG_PRINTF("sd: recover truncate failed %s\n", latest_name);
+        } else if (!scan.clean_close || scan.tail_invalid) {
+          DBG_PRINTF("sd: recovered %s to %llu bytes\n",
+                     latest_name,
+                     (unsigned long long)repair_end);
+        }
+      } else {
+        DBG_PRINTF("sd: recover scan failed %s\n", latest_name);
+      }
+      (void)latest.close();
+    }
+  }
+
   char name[32];
   // Simple monotonic naming: LOG00000.BIN ... LOG99999.BIN
   for (uint32_t i = 0; i < 100000; i++) {
@@ -105,6 +283,8 @@ bool SdLogger::close_log() {
   bool ok = true;
   if (f_) {
     if (!f_.sync()) ok = false;
+    const uint64_t close_pos = f_.curPosition();
+    if (!truncate_file_to(f_, close_pos)) ok = false;
     if (!f_.close()) ok = false;
   }
   log_name_[0] = '\0';
@@ -316,6 +496,22 @@ void SdLogger::append_record_summary(char* out,
                (unsigned)cmd,
                cmd_name != nullptr ? cmd_name : "unknown",
                (int)r.value);
+    } else if (record_event_is_sd_log_open(r.event_id)) {
+      const char* reason = record_sd_log_open_reason_name(r.value);
+      snprintf(line,
+               sizeof(line),
+               "EV t=%lu sd_log_open reason=%s(%d)",
+               (unsigned long)r.t_us,
+               reason != nullptr ? reason : "unknown",
+               (int)r.value);
+    } else if (record_event_is_sd_log_close(r.event_id)) {
+      const char* reason = record_sd_log_close_reason_name(r.value);
+      snprintf(line,
+               sizeof(line),
+               "EV t=%lu sd_log_close reason=%s(%d)",
+               (unsigned long)r.t_us,
+               reason != nullptr ? reason : "unknown",
+               (int)r.value);
     } else {
       snprintf(line,
                sizeof(line),
@@ -361,59 +557,20 @@ bool SdLogger::dump_latest_sample(char* out, size_t out_len) {
     return false;
   }
 
-  BlockHdr last_hdr{};
-  uint64_t last_payload_pos = 0;
-  bool have_last = false;
-
-  while (true) {
-    BlockHdr hdr{};
-    const int32_t r = file.read((uint8_t*)&hdr, sizeof(hdr));
-    if (r == 0) {
-      break;
-    }
-    if (r < (int32_t)sizeof(hdr) || hdr.hdr_len < sizeof(hdr)) {
-      break;
-    }
-    if (hdr.hdr_len > sizeof(hdr)) {
-      if (!file.seekCur(static_cast<int64_t>(hdr.hdr_len - sizeof(hdr)))) {
-        break;
-      }
-    }
-    if (hdr.magic != BLOCK_MAGIC) {
-      break;
-    }
-
-    const uint64_t payload_pos = file.curPosition();
-    uint32_t remaining = hdr.payload_len;
-    uint32_t crc = 0;
-    uint8_t scratch[96];
-    bool payload_ok = true;
-    while (remaining > 0) {
-      const uint16_t chunk = (remaining > sizeof(scratch)) ? sizeof(scratch) : (uint16_t)remaining;
-      const int32_t got = file.read(scratch, chunk);
-      if (got != (int32_t)chunk) {
-        payload_ok = false;
-        break;
-      }
-      crc = crc32_update(crc, scratch, (size_t)chunk);
-      remaining -= chunk;
-    }
-    if (!payload_ok || crc != hdr.crc32) {
-      break;
-    }
-
-    have_last = true;
-    last_hdr = hdr;
-    last_payload_pos = payload_pos;
+  LogScanResult scan{};
+  if (!scan_log_file(file, &scan)) {
+    file.close();
+    append_text(out, out_len, "Scan log failed");
+    return false;
   }
 
-  if (!have_last) {
+  if (!scan.have_valid_block) {
     file.close();
     append_text(out, out_len, "No valid log blocks");
     return false;
   }
 
-  if (!file.seekSet(last_payload_pos)) {
+  if (!file.seekSet(scan.last_payload_pos)) {
     file.close();
     append_text(out, out_len, "Seek latest block failed");
     return false;
@@ -427,7 +584,7 @@ bool SdLogger::dump_latest_sample(char* out, size_t out_len) {
   uint8_t summary_count = 0;
   uint32_t rec_count = 0;
 
-  uint32_t remaining = last_hdr.payload_len;
+  uint32_t remaining = scan.last_hdr.payload_len;
   while (remaining >= sizeof(RecHdr)) {
     uint8_t rec_hdr[sizeof(RecHdr)] = {0};
     if (file.read(rec_hdr, sizeof(rec_hdr)) != (int32_t)sizeof(rec_hdr)) {
@@ -476,11 +633,13 @@ bool SdLogger::dump_latest_sample(char* out, size_t out_len) {
 
   snprintf(out,
            out_len,
-           "Log %s seq=%lu records=%lu show_last=%u",
+           "Log %s seq=%lu records=%lu show_last=%u clean_close=%s tail=%s",
            target_name,
-           (unsigned long)last_hdr.seq,
+           (unsigned long)scan.last_hdr.seq,
            (unsigned long)rec_count,
-           (unsigned)summary_count);
+           (unsigned)summary_count,
+           scan.clean_close ? "yes" : "no",
+           scan.tail_invalid ? "recovered_or_invalid" : "clean");
   for (uint8_t i = 0; i < summary_count; ++i) {
     append_text(out, out_len, "\n");
     append_text(out, out_len, summaries[i]);
