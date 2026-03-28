@@ -29,6 +29,9 @@ CMD_ALT_CALIBRATE = 0x06
 CMD_IMU_CALIBRATE = 0x07
 CMD_SET_TX_POWER = 0x08
 CMD_LAUNCH_ARM = 0x09
+CMD_SD_ROTATE = 0x0A
+CMD_SD_FORMAT = 0x0B
+CMD_SD_DUMP_SAMPLE = 0x0C
 
 LORA_CALLSIGN = "CALLSIGN"
 
@@ -41,18 +44,23 @@ LORA_IMU_INTERVAL_MS = 200
 LORA_BAT_INTERVAL_MS = 1000
 LORA_NAVSAT_INTERVAL_MS = 2000
 LORA_RECOVERY_INTERVAL_MS = 500
-LORA_MAX_MISSION_TX_MS = 20 * 60 * 1000
+LORA_MAX_MISSION_TX_MS = 120 * 60 * 1000
 SIM_LANDING_RESET_DELAY_MS = 30_000
 
 LORA_ACK_REPEAT_COUNT = 3
 LORA_ACK_REPEAT_MS = 400
 
 GPS_LOCK_DELAY_MS = 1500
-START_TX_ENABLED = True
+START_TX_ENABLED = False
+DEFAULT_TX_POWER_DBM = 2
 
 VBAT_WARN_V = 7.10
 VBAT_SHED_V = 6.90
 VBAT_CUTOFF_V = 6.60
+
+RECOVERY_BARO_CAL_DELAY_MS = 1500
+RECOVERY_BARO_CAL_SAMPLES = 64
+RECOVERY_GPS_CAL_SAMPLES = 12
 
 RECOVERY_MIN_ASCENT_AGL_MM = 90_000
 RECOVERY_LIFTOFF_CONFIRM_AGL_MM = 5_000
@@ -192,6 +200,22 @@ def pressure_pa_from_alt_m(alt_m):
     return 101325.0 * (x ** 5.25588)
 
 
+def agl_from_press_mm(press_pa_x10, ref_press_pa_x10):
+    if press_pa_x10 <= 0 or ref_press_pa_x10 <= 0:
+        return 0
+
+    press_pa = press_pa_x10 / 10.0
+    ref_pa = ref_press_pa_x10 / 10.0
+    if press_pa <= 0.0 or ref_pa <= 0.0:
+        return 0
+
+    ratio = press_pa / ref_pa
+    altitude_m = 44330.0 * (1.0 - (ratio ** 0.19029495))
+    if (not math.isfinite(altitude_m)) or altitude_m <= 0.0:
+        return 0
+    return int(altitude_m * 1000.0)
+
+
 class Lcg:
     def __init__(self, seed=0xA53C9E21):
         self.state = seed & 0xFFFFFFFF
@@ -290,10 +314,15 @@ class SX1278:
         self.write_reg(REG_PA_CONFIG, PA_BOOST | 0x0F)  # 17 dBm
         self.write_reg(REG_PA_DAC, 0x84)
         self.write_reg(REG_OCP, 0x20 | 0x0B)
+        self.set_output_power_dbm(DEFAULT_TX_POWER_DBM)
 
         self.clear_irqs()
         self.set_mode(MODE_RX_CONT)
         print("LoRa RX/TX ready @ 433 MHz")
+
+    def set_output_power_dbm(self, power_dbm):
+        power_dbm = clamp_i(power_dbm, 2, 17)
+        self.write_reg(REG_PA_CONFIG, PA_BOOST | ((power_dbm - 2) & 0x0F))
 
     def poll_packet(self):
         irq = self.read_reg(REG_IRQ_FLAGS)
@@ -342,7 +371,22 @@ class SX1278:
 
 class RecoveryState:
     def __init__(self):
+        self.request_calibration()
+
+    def request_calibration(self):
         self.initialized = False
+        self.calibration_pending = True
+        self.baro_cal_start_ms = 0
+        self.baro_cal_done = False
+        self.baro_cal_sum_pa_x10 = 0
+        self.baro_cal_count = 0
+        self.baro_zero_pa_x10 = 0
+        self.gps_cal_done = False
+        self.gps_cal_sum_mm = 0
+        self.gps_cal_count = 0
+        self.gps_zero_mm = 0
+        self.baro_agl_mm = 0
+        self.gps_agl_mm = 0
         self.launch_alt_mm = 0
         self.last_alt_mm = 0
         self.last_t_ms = 0
@@ -355,7 +399,6 @@ class RecoveryState:
         self.sensors_calibrated = False
         self.launch_armed = False
         self.liftoff_detected = False
-        self.launch_detected = False
         self.apogee_detected = False
         self.landing_detected = False
         self.have_min_press = False
@@ -379,34 +422,88 @@ class RecoveryState:
         self.launch_armed = True
         return True
 
-    def update(self, now_ms, alt_mm, press_pa_x10):
-        if not self.initialized:
-            self.initialized = True
-            self.sensors_calibrated = True
-            self.launch_alt_mm = alt_mm
-            self.last_alt_mm = 0
-            self.last_t_ms = now_ms
-            return
-
+    def update(self, now_ms, gps_valid, alt_mm, press_pa_x10):
+        self.gps_fix_3d = bool(gps_valid)
         if self.gps_fix_3d:
             self.gps_fix_3d_latched = True
 
-        agl_raw = alt_mm - self.launch_alt_mm
-        self.agl_mm = agl_raw if agl_raw > 0 else 0
+        if self.calibration_pending:
+            if (not self.baro_cal_done) and press_pa_x10 > 0:
+                if self.baro_cal_start_ms == 0:
+                    self.baro_cal_start_ms = now_ms
+                if (now_ms - self.baro_cal_start_ms) >= RECOVERY_BARO_CAL_DELAY_MS:
+                    self.baro_cal_sum_pa_x10 += press_pa_x10
+                    self.baro_cal_count += 1
+                    if self.baro_cal_count >= RECOVERY_BARO_CAL_SAMPLES:
+                        self.baro_zero_pa_x10 = self.baro_cal_sum_pa_x10 // self.baro_cal_count
+                        self.baro_cal_done = self.baro_zero_pa_x10 > 0
+
+            if (not self.gps_cal_done) and self.gps_fix_3d:
+                self.gps_cal_sum_mm += alt_mm
+                self.gps_cal_count += 1
+                if self.gps_cal_count >= RECOVERY_GPS_CAL_SAMPLES:
+                    self.gps_zero_mm = self.gps_cal_sum_mm // self.gps_cal_count
+                    self.gps_cal_done = True
+
+            if self.baro_cal_done and self.gps_cal_done:
+                self.calibration_pending = False
+                self.sensors_calibrated = True
+
+        if self.baro_cal_done and press_pa_x10 > 0:
+            self.baro_agl_mm = agl_from_press_mm(press_pa_x10, self.baro_zero_pa_x10)
+
+        if self.gps_cal_done and self.gps_fix_3d:
+            gps_agl_raw = alt_mm - self.gps_zero_mm
+            self.gps_agl_mm = gps_agl_raw if gps_agl_raw > 0 else 0
+
+        have_altitude = False
+        selected_agl_mm = 0
+        if self.baro_cal_done and press_pa_x10 > 0:
+            selected_agl_mm = self.baro_agl_mm
+            have_altitude = True
+        elif self.gps_cal_done and self.gps_fix_3d:
+            selected_agl_mm = self.gps_agl_mm
+            have_altitude = True
+
+        if not have_altitude:
+            return
+
+        if not self.initialized:
+            self.initialized = True
+            self.launch_alt_mm = 0
+            self.last_alt_mm = selected_agl_mm
+            self.last_t_ms = now_ms
+            self.agl_mm = selected_agl_mm
+            self.max_agl_mm = selected_agl_mm
+            self.vspeed_cms = 0
+            self.phase = RECOVERY_PHASE_IDLE
+            self.launch_armed = False
+            self.gps_fix_3d = bool(gps_valid)
+            self.gps_fix_3d_latched = bool(gps_valid)
+            self.liftoff_detected = False
+            self.apogee_detected = False
+            self.have_min_press = False
+            self.min_press_pa_x10 = 0
+            self.drogue_deployed = False
+            self.main_deployed = False
+            self.landing_detected = False
+            self.drogue_reason = RECOVERY_REASON_NONE
+            self.main_reason = RECOVERY_REASON_NONE
+            self.drogue_deploy_agl_mm = -1
+            self.main_deploy_agl_mm = -1
+            return
+
+        self.agl_mm = selected_agl_mm if selected_agl_mm > 0 else 0
         if self.agl_mm > self.max_agl_mm:
             self.max_agl_mm = self.agl_mm
 
         self.vspeed_cms = 0
         dt_ms = now_ms - self.last_t_ms
-        if self.liftoff_detected and dt_ms > 0 and dt_ms <= 10_000:
-            # Mirror rocket firmware behavior: derive vertical speed from AGL, not raw GPS altitude.
+        if dt_ms > 0 and dt_ms <= 10_000:
             self.vspeed_cms = clamp_i((self.agl_mm - self.last_alt_mm) * 100 / dt_ms, -32768, 32767)
 
-        # Require explicit altitude gain to declare liftoff; this prevents pad jitter
-        # from tripping drogue/main/landing logic before launch.
         if self.launch_armed and (not self.liftoff_detected) and self.agl_mm >= RECOVERY_LIFTOFF_CONFIRM_AGL_MM:
             self.liftoff_detected = True
-            self.launch_detected = True
 
         if press_pa_x10 > 0:
             if not self.have_min_press:
@@ -641,6 +738,7 @@ class FlightProfile:
         svs_used = clamp_i(svs_total - 3 - dyn + int(self.rng.centered(1.2)), 4, svs_total)
         cno_max = clamp_i(47 - 2 * dyn + int(4 * math.sin(t_s * 0.11)) + int(self.rng.centered(2.0)), 18, 55)
         cno_avg = clamp_i(cno_max - 9 + int(self.rng.centered(2.5)), 12, cno_max)
+        hdop_x100 = clamp_i(70 + (dyn * 35) + int(18 * math.sin(t_s * 0.07)) + int(self.rng.centered(10.0)), 55, 260)
 
         return {
             "phase": phase,
@@ -662,6 +760,7 @@ class FlightProfile:
             "svs_used": svs_used,
             "cno_max": cno_max,
             "cno_avg": cno_avg,
+            "hdop_x100": hdop_x100,
             "vbat_v": vbat_v,
             "agl_m": agl_m,
             "vs_mps": vs_mps,
@@ -676,10 +775,11 @@ class FlightEmulator:
         self.recovery = RecoveryState()
 
         self.tx_enabled = START_TX_ENABLED
-        self.logging_enabled = START_TX_ENABLED
-        self.tx_power_dbm = 17
+        self.logging_enabled = False
+        self.tx_power_dbm = DEFAULT_TX_POWER_DBM
         self.shutdown = False
         self.mission_timed_out = False
+        self.radio.set_output_power_dbm(self.tx_power_dbm)
 
         self.last_tx_ms = -LORA_MIN_TX_INTERVAL_MS
         self.next_tx_ms = 0
@@ -725,10 +825,12 @@ class FlightEmulator:
 
         print("Simulation reset; waiting for CMD launch_arm")
 
-    def _queue_ack(self, cmd, enabled_state, now_ms, tx_power_dbm=None):
+    def _queue_ack(self, cmd, enabled_state, now_ms, tx_power_dbm=None, detail=None):
         self.ack_buf = bytearray([CMD_MAGIC, CMD_ACK, cmd & 0xFF, 1 if enabled_state else 0])
         if tx_power_dbm is not None:
             self.ack_buf.append(clamp_i(tx_power_dbm, 0, 255))
+        if detail:
+            self.ack_buf.extend(str(detail).encode("ascii", errors="replace"))
         self.ack_pending = True
         self.ack_retries_left = LORA_ACK_REPEAT_COUNT
         self.ack_retry_after_ms = now_ms + LORA_ACK_REPEAT_MS
@@ -790,7 +892,7 @@ class FlightEmulator:
             self._queue_ack(CMD_TELEM_DISABLE, self.tx_enabled, now_ms)
             print("CMD telemetry_disable")
         elif cmd == CMD_ALT_CALIBRATE:
-            self.recovery = RecoveryState()
+            self.recovery.request_calibration()
             self._queue_ack(CMD_ALT_CALIBRATE, True, now_ms)
             print("CMD alt_calibrate")
         elif cmd == CMD_IMU_CALIBRATE:
@@ -802,6 +904,7 @@ class FlightEmulator:
             requested_power = int(payload[2])
             if 2 <= requested_power <= 17:
                 self.tx_power_dbm = requested_power
+                self.radio.set_output_power_dbm(self.tx_power_dbm)
                 ok = True
             else:
                 ok = False
@@ -814,6 +917,21 @@ class FlightEmulator:
             if armed:
                 self.profile.arm_launch(now_ms)
             print("CMD launch_arm %s" % ("accepted" if armed else "rejected"))
+        elif cmd == CMD_SD_ROTATE:
+            ok = bool(self.logging_enabled)
+            detail = None if ok else "sd_rotate requires logging active"
+            self._queue_ack(CMD_SD_ROTATE, ok, now_ms, detail=detail)
+            print("CMD sd_rotate %s" % ("accepted" if ok else "rejected"))
+        elif cmd == CMD_SD_FORMAT:
+            ok = not self.logging_enabled
+            detail = None if ok else "Stop logging before format"
+            self._queue_ack(CMD_SD_FORMAT, ok, now_ms, detail=detail)
+            print("CMD sd_format %s" % ("accepted" if ok else "rejected"))
+        elif cmd == CMD_SD_DUMP_SAMPLE:
+            ok = not self.logging_enabled
+            detail = "emulator sample unavailable" if ok else "Stop logging before dump"
+            self._queue_ack(CMD_SD_DUMP_SAMPLE, ok, now_ms, detail=detail)
+            print("CMD sd_dump_sample %s" % ("accepted" if ok else "rejected"))
 
     def _build_id(self, vbat_mv):
         c = LORA_CALLSIGN.encode("ascii")
@@ -862,6 +980,7 @@ class FlightEmulator:
         b.append(s["svs_used"] & 0xFF)
         b.append(s["cno_max"] & 0xFF)
         b.append(s["cno_avg"] & 0xFF)
+        append_u16_le(b, s["hdop_x100"])
         return b
 
     def _build_recovery(self, now_ms):
@@ -870,7 +989,7 @@ class FlightEmulator:
             (1 if r.sensors_calibrated else 0)
             | (2 if r.gps_fix_3d_latched else 0)
             | (4 if r.launch_armed else 0)
-            | (8 if r.launch_detected else 0)
+            | (8 if r.liftoff_detected else 0)
             | (16 if r.apogee_detected else 0)
             | (32 if r.drogue_deployed else 0)
             | (64 if r.main_deployed else 0)
@@ -947,11 +1066,7 @@ class FlightEmulator:
         else:
             self.landed_since_ms = None
 
-        self.recovery.gps_fix_3d = bool(sample["gps_valid"])
-        if self.recovery.gps_fix_3d:
-            self.recovery.gps_fix_3d_latched = True
-        if sample["gps_valid"]:
-            self.recovery.update(now_ms, sample["height_mm"], sample["press_pa_x10"])
+        self.recovery.update(now_ms, bool(sample["gps_valid"]), sample["height_mm"], sample["press_pa_x10"])
 
         if self.shutdown:
             return
