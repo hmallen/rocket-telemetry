@@ -59,18 +59,22 @@ static bool scan_block_close_state(FsFile& file,
       break;
     }
 
-    if (rec_type == REC_EVENT && payload_len >= (sizeof(RecEvent) - sizeof(RecHdr))) {
+    if (rec_type == REC_EVENT) {
       RecEvent event{};
-      if (file.read((uint8_t*)&event.t_us, sizeof(RecEvent) - sizeof(RecHdr)) !=
-          (int32_t)(sizeof(RecEvent) - sizeof(RecHdr))) {
+      const uint16_t event_payload_len = sizeof(RecEvent) - sizeof(RecHdr);
+      const uint16_t event_id_len = sizeof(event.t_us) + sizeof(event.event_id);
+      const uint16_t read_len = (payload_len > event_payload_len) ? event_payload_len : payload_len;
+      if (read_len > 0 &&
+          file.read((uint8_t*)&event.t_us, read_len) != (int32_t)read_len) {
         return false;
       }
-      if (payload_len > (sizeof(RecEvent) - sizeof(RecHdr))) {
-        if (!file.seekCur(static_cast<int64_t>(payload_len - (sizeof(RecEvent) - sizeof(RecHdr))))) {
+      if (payload_len > read_len) {
+        if (!file.seekCur(static_cast<int64_t>(payload_len - read_len))) {
           return false;
         }
       }
-      last_record_was_clean_close = record_event_is_sd_log_close(event.event_id);
+      last_record_was_clean_close =
+          (payload_len >= event_id_len) && record_event_is_sd_log_close(event.event_id);
     } else {
       if (payload_len > 0 && !file.seekCur(static_cast<int64_t>(payload_len))) {
         return false;
