@@ -29,6 +29,8 @@ constexpr lv_coord_t kSettingsButtonHeight = 28;
 constexpr lv_coord_t kSettingsStackGapPx = 12;
 constexpr lv_coord_t kSettingsPanelMaxHeight = 262;
 constexpr lv_coord_t kSettingsRowGapPx = 14;
+constexpr lv_coord_t kTrendChartTopOffsetPx = 76;
+constexpr lv_coord_t kTrendChartHeightPx = 220;
 constexpr int32_t kTrendChartScaleMax = 100;
 constexpr float kTrendAltMinSpanM = 20.0f;
 constexpr float kTrendVsMinSpanMps = 4.0f;
@@ -446,8 +448,8 @@ const lv_font_t* LvglController::uiTextFont() const {
 
 void LvglController::buildUi() {
   lv_obj_t* screen = lv_scr_act();
-  lv_obj_set_style_bg_color(screen, lv_color_hex(0x050a14), 0);
-  lv_obj_set_style_bg_grad_color(screen, lv_color_hex(0x0d1626), 0);
+  lv_obj_set_style_bg_color(screen, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_bg_grad_color(screen, lv_color_hex(0x000000), 0);
   lv_obj_set_style_bg_grad_dir(screen, LV_GRAD_DIR_VER, 0);
   lv_obj_set_style_text_font(screen, uiTextFont(), 0);
 
@@ -465,7 +467,7 @@ void LvglController::buildUi() {
   telemetryPanel_ = lv_obj_create(root_);
   lv_obj_set_height(telemetryPanel_, LV_PCT(100));
   lv_obj_set_flex_grow(telemetryPanel_, 1);
-  lv_obj_set_style_bg_color(telemetryPanel_, lv_color_hex(0x0b1322), 0);
+  lv_obj_set_style_bg_color(telemetryPanel_, lv_color_hex(0x000000), 0);
   lv_obj_set_style_border_color(telemetryPanel_, lv_color_hex(0x203457), 0);
   lv_obj_set_style_border_width(telemetryPanel_, 1, 0);
   lv_obj_set_style_radius(telemetryPanel_, 12, 0);
@@ -1283,9 +1285,7 @@ void LvglController::buildUi() {
 
   trendPage_ = lv_obj_create(screen);
   lv_obj_set_size(trendPage_, LV_PCT(100), LV_PCT(100));
-  lv_obj_set_style_bg_color(trendPage_, lv_color_hex(0x050a14), 0);
-  lv_obj_set_style_bg_grad_color(trendPage_, lv_color_hex(0x0d1626), 0);
-  lv_obj_set_style_bg_grad_dir(trendPage_, LV_GRAD_DIR_VER, 0);
+  lv_obj_set_style_bg_color(trendPage_, lv_color_hex(0x000000), 0);
   lv_obj_set_style_border_width(trendPage_, 0, 0);
   lv_obj_set_style_pad_all(trendPage_, 8, 0);
   lv_obj_set_style_pad_gap(trendPage_, 8, 0);
@@ -1332,9 +1332,16 @@ void LvglController::buildUi() {
   lv_obj_align(trendRangeLabel_, LV_ALIGN_TOP_RIGHT, 0, 38);
   lv_obj_clear_flag(trendRangeLabel_, LV_OBJ_FLAG_CLICKABLE);
 
+  lv_obj_t* trendYAxisLabel = lv_label_create(trendPage_);
+  lv_label_set_text(trendYAxisLabel, "Y: ALT (m) / VS (m/s)");
+  lv_obj_set_style_text_color(trendYAxisLabel, lv_color_hex(0x8ba6d1), 0);
+  lv_obj_set_style_text_font(trendYAxisLabel, &lv_font_montserrat_14, 0);
+  lv_obj_align(trendYAxisLabel, LV_ALIGN_TOP_LEFT, 0, 56);
+  lv_obj_clear_flag(trendYAxisLabel, LV_OBJ_FLAG_CLICKABLE);
+
   trendChart_ = lv_chart_create(trendPage_);
-  lv_obj_set_size(trendChart_, kScreenWidth - 16, 244);
-  lv_obj_align(trendChart_, LV_ALIGN_TOP_MID, 0, 60);
+  lv_obj_set_size(trendChart_, kScreenWidth - 16, kTrendChartHeightPx);
+  lv_obj_align(trendChart_, LV_ALIGN_TOP_MID, 0, kTrendChartTopOffsetPx);
   lv_obj_set_style_bg_color(trendChart_, lv_color_hex(0x0b1220), 0);
   lv_obj_set_style_bg_grad_color(trendChart_, lv_color_hex(0x13263c), 0);
   lv_obj_set_style_bg_grad_dir(trendChart_, LV_GRAD_DIR_VER, 0);
@@ -1355,6 +1362,13 @@ void LvglController::buildUi() {
   lv_chart_set_all_values(trendChart_, trendAltSeries_, LV_CHART_POINT_NONE);
   lv_chart_set_all_values(trendChart_, trendVsSeries_, LV_CHART_POINT_NONE);
   lv_chart_refresh(trendChart_);
+
+  trendXAxisLabel_ = lv_label_create(trendPage_);
+  lv_label_set_text(trendXAxisLabel_, "X: time (s)");
+  lv_obj_set_style_text_color(trendXAxisLabel_, lv_color_hex(0x8ba6d1), 0);
+  lv_obj_set_style_text_font(trendXAxisLabel_, &lv_font_montserrat_14, 0);
+  lv_obj_align_to(trendXAxisLabel_, trendChart_, LV_ALIGN_OUT_BOTTOM_MID, 0, 2);
+  lv_obj_clear_flag(trendXAxisLabel_, LV_OBJ_FLAG_CLICKABLE);
 
   lv_obj_add_flag(trendPage_, LV_OBJ_FLAG_HIDDEN);
 }
@@ -3282,6 +3296,7 @@ void LvglController::appendTrendSampleFromState() {
   const uint16_t nextIndex = static_cast<uint16_t>((trendHistoryHead_ + trendHistoryCount_) % kTrendHistoryPoints);
   trendAltHistoryM_[nextIndex] = altitudeM;
   trendVsHistoryMps_[nextIndex] = verticalSpeedMps;
+  trendSampleTimeMs_[nextIndex] = state_.tsMs;
 
   if (trendHistoryCount_ < kTrendHistoryPoints) {
     trendHistoryCount_++;
@@ -3389,6 +3404,22 @@ void LvglController::refreshTrendChart() {
                           altMaxText.c_str(),
                           vsMinText.c_str(),
                           vsMaxText.c_str());
+  }
+
+  if (trendXAxisLabel_ != nullptr) {
+    if (trendHistoryCount_ > 1) {
+      const uint16_t firstIdx = trendHistoryHead_;
+      const uint16_t latestIdx = static_cast<uint16_t>((trendHistoryHead_ + trendHistoryCount_ - 1U) % kTrendHistoryPoints);
+      const uint32_t firstTimeMs = trendSampleTimeMs_[firstIdx];
+      const uint32_t latestTimeMs = trendSampleTimeMs_[latestIdx];
+      const float windowSeconds = (latestTimeMs >= firstTimeMs)
+                                      ? (static_cast<float>(latestTimeMs - firstTimeMs) / 1000.0f)
+                                      : 0.0f;
+      const String windowText = formatFloat(windowSeconds, 1, "0.0");
+      lv_label_set_text_fmt(trendXAxisLabel_, "X: time (s), %ss window", windowText.c_str());
+    } else {
+      lv_label_set_text(trendXAxisLabel_, "X: time (s)");
+    }
   }
 }
 

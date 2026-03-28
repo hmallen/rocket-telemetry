@@ -892,7 +892,7 @@ class FlightEmulator:
             self._queue_ack(CMD_TELEM_DISABLE, self.tx_enabled, now_ms)
             print("CMD telemetry_disable")
         elif cmd == CMD_ALT_CALIBRATE:
-            self.recovery.request_calibration()
+            self._reset_launch_cycle(now_ms)
             self._queue_ack(CMD_ALT_CALIBRATE, True, now_ms)
             print("CMD alt_calibrate")
         elif cmd == CMD_IMU_CALIBRATE:

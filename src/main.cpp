@@ -130,8 +130,18 @@ static void sd_dump_print_record(uint32_t idx,
   if (type == REC_EVENT && payload_len >= (sizeof(RecEvent) - sizeof(RecHdr))) {
     RecEvent r{};
     memcpy(&r.t_us, payload, sizeof(RecEvent) - sizeof(RecHdr));
-    Serial.printf("    t_us=%lu event_id=%u value=%d\n",
-                  (unsigned long)r.t_us, (unsigned)r.event_id, (int)r.value);
+    if (record_event_is_lora_cmd_rx(r.event_id)) {
+      const uint8_t cmd = record_event_lora_cmd_rx_cmd(r.event_id);
+      const char* cmd_name = record_lora_cmd_name(cmd);
+      Serial.printf("    t_us=%lu event=gs_cmd_rx cmd=0x%02X (%s) arg=%d\n",
+                    (unsigned long)r.t_us,
+                    (unsigned)cmd,
+                    cmd_name != nullptr ? cmd_name : "unknown",
+                    (int)r.value);
+    } else {
+      Serial.printf("    t_us=%lu event_id=%u value=%d\n",
+                    (unsigned long)r.t_us, (unsigned)r.event_id, (int)r.value);
+    }
     return;
   }
   if (type == REC_STATS && payload_len >= (sizeof(RecStats) - sizeof(RecHdr))) {
@@ -598,6 +608,20 @@ static void buzzer_update_recovery_alert(bool drogue_deployed, bool main_deploye
    const uint32_t chirp_train_ms = (uint32_t)chirps * kRecoveryAlertChirpOnMs
                                  + (uint32_t)(chirps - 1) * kRecoveryAlertChirpGapMs;
    recovery_alert_next_ms = now_ms + chirp_train_ms + kRecoveryAlertLoopGapMs;
+}
+
+static inline void ring_write_event(uint32_t t_us, uint16_t event_id, int16_t value) {
+  if (!sd_logging_enabled) return;
+  RecEvent r{};
+  r.h.type = REC_EVENT; r.h.ver = 1; r.h.len = sizeof(r);
+  r.t_us = t_us;
+  r.event_id = event_id;
+  r.value = value;
+  ring.write(&r, sizeof(r));
+}
+
+static inline void ring_write_lora_cmd_rx_event(uint32_t t_us, LoraCommand cmd, uint8_t arg) {
+  ring_write_event(t_us, record_event_lora_cmd_rx_id((uint8_t)cmd), (int16_t)arg);
 }
 
 static inline void ring_write_stats() {
@@ -1170,21 +1194,31 @@ void loop() {
   {
     LoraCommand cmd = LoraCommand::kNone;
     uint8_t cmd_arg = 0;
-    if (lora.pop_command(cmd, &cmd_arg)) {
+    uint32_t cmd_rx_t_us = 0;
+    if (lora.pop_command(cmd, &cmd_arg, &cmd_rx_t_us)) {
       bool ack_enabled_state = sd_logging_enabled;
       const char* ack_detail = nullptr;
       char ack_detail_buf[320];
       ack_detail_buf[0] = '\0';
+      const bool log_command_rx_after_start = (cmd == LoraCommand::kSdStart && !sd_logging_enabled);
+      if (!log_command_rx_after_start) {
+        ring_write_lora_cmd_rx_event(cmd_rx_t_us, cmd, cmd_arg);
+      }
       if (cmd == LoraCommand::kSdStart) {
         if (!buzzer_busy()) {
           buzzer_start_seq(60, 0, 1, now_ms);
         }
         sd_logging_start();
+        ack_enabled_state = sd_logging_enabled;
+        if (sd_logging_enabled) {
+          ring_write_lora_cmd_rx_event(cmd_rx_t_us, cmd, cmd_arg);
+        }
       } else if (cmd == LoraCommand::kSdStop) {
         if (!buzzer_busy()) {
           buzzer_start_seq(60, 0, 1, now_ms);
         }
         sd_logging_stop();
+        ack_enabled_state = sd_logging_enabled;
       } else if (cmd == LoraCommand::kTelemEnable) {
         if (!buzzer_busy()) {
           buzzer_start_seq(60, 0, 1, now_ms);

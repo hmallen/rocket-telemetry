@@ -55,7 +55,7 @@ class LvglController {
   static constexpr int kActionPanelWidth = 210;
   static constexpr int kSettingsPanelWidth = 252;
   static constexpr uint8_t kSettingsMainPageCount = 4;
-  static constexpr uint16_t kTrendHistoryPoints = 120;
+  static constexpr uint16_t kTrendHistoryPoints = 240;
 
   ApiClient api_;
   UartLink uart_;
@@ -170,6 +170,7 @@ class LvglController {
   uint16_t trendHistoryHead_ = 0;
   float trendAltHistoryM_[kTrendHistoryPoints] = {};
   float trendVsHistoryMps_[kTrendHistoryPoints] = {};
+  uint32_t trendSampleTimeMs_[kTrendHistoryPoints] = {};
 
   bool calibrationActive_ = false;
   bool calibrationTouchLatch_ = false;
@@ -275,6 +276,7 @@ class LvglController {
   lv_obj_t* trendChart_ = nullptr;
   lv_obj_t* trendSummaryLabel_ = nullptr;
   lv_obj_t* trendRangeLabel_ = nullptr;
+  lv_obj_t* trendXAxisLabel_ = nullptr;
   lv_chart_series_t* trendAltSeries_ = nullptr;
   lv_chart_series_t* trendVsSeries_ = nullptr;
 

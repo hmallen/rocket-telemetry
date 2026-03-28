@@ -306,12 +306,24 @@ void SdLogger::append_record_summary(char* out,
   } else if (type == REC_EVENT && payload_len >= (sizeof(RecEvent) - sizeof(RecHdr))) {
     RecEvent r{};
     memcpy(&r.t_us, payload, sizeof(RecEvent) - sizeof(RecHdr));
-    snprintf(line,
-             sizeof(line),
-             "EV t=%lu id=%u v=%d",
-             (unsigned long)r.t_us,
-             (unsigned)r.event_id,
-             (int)r.value);
+    if (record_event_is_lora_cmd_rx(r.event_id)) {
+      const uint8_t cmd = record_event_lora_cmd_rx_cmd(r.event_id);
+      const char* cmd_name = record_lora_cmd_name(cmd);
+      snprintf(line,
+               sizeof(line),
+               "EV t=%lu gs_cmd_rx cmd=0x%02X %s arg=%d",
+               (unsigned long)r.t_us,
+               (unsigned)cmd,
+               cmd_name != nullptr ? cmd_name : "unknown",
+               (int)r.value);
+    } else {
+      snprintf(line,
+               sizeof(line),
+               "EV t=%lu id=%u v=%d",
+               (unsigned long)r.t_us,
+               (unsigned)r.event_id,
+               (int)r.value);
+    }
   } else if (type == REC_STATS && payload_len >= (sizeof(RecStats) - sizeof(RecHdr))) {
     RecStats r{};
     memcpy(&r.t_us, payload, sizeof(RecStats) - sizeof(RecHdr));

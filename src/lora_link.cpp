@@ -282,14 +282,18 @@ int32_t LoraLink::agl_from_press_mm_(int32_t press_pa_x10, int32_t ref_press_pa_
   return static_cast<int32_t>(altitude_m * 1000.0f);
 }
 
-bool LoraLink::pop_command(LoraCommand& cmd, uint8_t* arg) {
+bool LoraLink::pop_command(LoraCommand& cmd, uint8_t* arg, uint32_t* rx_t_us) {
   if (pending_cmd_ == 0) return false;
   cmd = static_cast<LoraCommand>(pending_cmd_);
   if (arg != nullptr) {
     *arg = pending_cmd_arg_;
   }
+  if (rx_t_us != nullptr) {
+    *rx_t_us = pending_cmd_rx_t_us_;
+  }
   pending_cmd_ = 0;
   pending_cmd_arg_ = 0;
+  pending_cmd_rx_t_us_ = 0;
   return true;
 }
 
@@ -1149,6 +1153,7 @@ bool LoraLink::handle_command_(const uint8_t* data, size_t len) {
       ((cmd == LORA_CMD_BUZZER || cmd == LORA_CMD_SET_TX_POWER || cmd == LORA_CMD_LAUNCH_ARM) && len >= 3)
           ? data[2]
           : 0;
+  pending_cmd_rx_t_us_ = micros();
   return true;
 }
 

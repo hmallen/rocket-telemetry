@@ -11,6 +11,39 @@ enum RecordType : uint8_t {
   REC_BARO2        = 0x07, // bmp180 (fixed)
 };
 
+constexpr uint16_t REC_EVENT_ID_LORA_CMD_RX_BASE = 0x0100;
+
+static inline bool record_event_is_lora_cmd_rx(uint16_t event_id) {
+  return event_id >= REC_EVENT_ID_LORA_CMD_RX_BASE &&
+         event_id < (REC_EVENT_ID_LORA_CMD_RX_BASE + 0x0100u);
+}
+
+static inline uint8_t record_event_lora_cmd_rx_cmd(uint16_t event_id) {
+  return (uint8_t)(event_id - REC_EVENT_ID_LORA_CMD_RX_BASE);
+}
+
+static inline uint16_t record_event_lora_cmd_rx_id(uint8_t cmd) {
+  return (uint16_t)(REC_EVENT_ID_LORA_CMD_RX_BASE + cmd);
+}
+
+static inline const char* record_lora_cmd_name(uint8_t cmd) {
+  switch (cmd) {
+    case 0x01: return "sd_start";
+    case 0x02: return "sd_stop";
+    case 0x03: return "buzzer";
+    case 0x04: return "telemetry_enable";
+    case 0x05: return "telemetry_disable";
+    case 0x06: return "alt_calibrate";
+    case 0x07: return "imu_calibrate";
+    case 0x08: return "set_tx_power";
+    case 0x09: return "launch_arm";
+    case 0x0A: return "sd_rotate";
+    case 0x0B: return "sd_format";
+    case 0x0C: return "sd_dump_sample";
+    default: return nullptr;
+  }
+}
+
 #pragma pack(push, 1)
 struct RecHdr {
   uint8_t  type;

@@ -34,7 +34,7 @@ public:
   bool ready() const;
   bool tx_enabled() const;
   bool consume_landing_detected_event();
-  bool pop_command(LoraCommand& cmd, uint8_t* arg = nullptr);
+  bool pop_command(LoraCommand& cmd, uint8_t* arg = nullptr, uint32_t* rx_t_us = nullptr);
   void queue_command_ack(LoraCommand cmd, bool enabled_state, const char* detail = nullptr);
   void request_recovery_calibration();
   bool recovery_drogue_deployed() const { return recovery_drogue_deployed_; }
@@ -159,6 +159,7 @@ private:
   bool rx_active_ = false;
   uint8_t pending_cmd_ = 0;
   uint8_t pending_cmd_arg_ = 0;
+  uint32_t pending_cmd_rx_t_us_ = 0;
   bool ack_pending_ = false;
   uint32_t ack_retry_after_ms_ = 0;
   uint8_t ack_retries_left_ = 0;
