@@ -725,7 +725,8 @@ class SX1278:
         self.write_reg(REG_FIFO_TX_BASE_ADDR, 0x00)
         self.write_reg(REG_FIFO_RX_BASE_ADDR, 0x00)
 
-        self.set_frequency(430_500_000)
+        freq_hz = 430_500_000
+        self.set_frequency(freq_hz)
 
         self.write_reg(REG_LNA, self.read_reg(REG_LNA) | 0x03)
         self.write_reg(REG_MODEM_CONFIG_1, 0x72)  # BW125 (0x70) + CR4/5 (0x02) + explicit header
@@ -744,7 +745,7 @@ class SX1278:
         self.clear_irqs()
         self.set_mode(MODE_RX_CONT)
 
-        print("LoRa RX running on 433 MHz")
+        print("LoRa RX running on %g MHz" % (freq_hz / 1_000_000))
 
     def poll_packet(self):
         irq = self.read_reg(REG_IRQ_FLAGS)
